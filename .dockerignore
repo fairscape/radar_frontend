@@ -1,0 +1,23 @@
+# Node + build outputs — let the builder produce these fresh.
+node_modules
+dist
+.vite
+.cache
+
+# Local env files: never bake a developer's VITE_USE_MOCK=1 into a
+# production image. compose passes build args explicitly.
+.env
+.env.*
+
+# Editor + OS noise
+.idea
+.vscode
+.DS_Store
+*.log
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Source control bleed-through
+.git
+.gitignore
