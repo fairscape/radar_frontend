@@ -98,6 +98,10 @@ export interface GatherRunStatus {
   n_redup: number | null;
   api_calls: number | null;
   error: string | null;
+  current_step: string | null;
+  n_processed: number | null;
+  n_total: number | null;
+  last_message: string | null;
 }
 
 export function gatherNow(

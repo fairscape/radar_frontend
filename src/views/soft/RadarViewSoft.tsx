@@ -4,6 +4,19 @@ import { swatchFor, useDailyRadar, useProfiles } from '../../lib/apiSwitch';
 import { gatherNow, listProfileRuns } from '../../api/endpoints/profiles';
 import type { Card, CardState, Profile } from '../../types/radar';
 
+const STEP_LABEL: Record<string, string> = {
+  loading_profile: 'Loading profile',
+  fetching: 'Querying OpenAlex',
+  embedding: 'Embedding candidates',
+  persisting: 'Saving results',
+  done: 'Done',
+};
+
+function stepLabel(step: string | null): string {
+  if (!step) return 'Working';
+  return STEP_LABEL[step] ?? step;
+}
+
 function RCard({
   card,
   profile,
@@ -79,7 +92,14 @@ export function RadarViewSoft({ onNewProfile }: { onNewProfile?: () => void } = 
   const [pullLimit, setPullLimit] = useState<number>(500);
   const [pullStatus, setPullStatus] = useState<
     | { phase: 'idle' }
-    | { phase: 'running'; runId: number }
+    | {
+        phase: 'running';
+        runId: number;
+        step: string | null;
+        nProcessed: number | null;
+        nTotal: number | null;
+        message: string | null;
+      }
     | { phase: 'done'; runId: number; nFetched: number | null; nNew: number | null }
     | { phase: 'error'; message: string }
   >({ phase: 'idle' });
@@ -104,13 +124,21 @@ export function RadarViewSoft({ onNewProfile }: { onNewProfile?: () => void } = 
         days: pullDays,
         limit: pullLimit,
       });
-      setPullStatus({ phase: 'running', runId: run_id });
+      setPullStatus({
+        phase: 'running',
+        runId: run_id,
+        step: null,
+        nProcessed: null,
+        nTotal: null,
+        message: null,
+      });
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = window.setInterval(async () => {
         try {
           const runs = await listProfileRuns(pullProfile, 10);
           const row = runs.find((r) => r.id === run_id);
-          if (row && row.finished_at) {
+          if (!row) return;
+          if (row.finished_at) {
             if (pollRef.current) {
               window.clearInterval(pollRef.current);
               pollRef.current = null;
@@ -126,6 +154,18 @@ export function RadarViewSoft({ onNewProfile }: { onNewProfile?: () => void } = 
               });
               refresh();
             }
+          } else {
+            setPullStatus((prev) =>
+              prev.phase === 'running' && prev.runId === run_id
+                ? {
+                    ...prev,
+                    step: row.current_step,
+                    nProcessed: row.n_processed,
+                    nTotal: row.n_total,
+                    message: row.last_message,
+                  }
+                : prev,
+            );
           }
         } catch (e) {
           if (pollRef.current) {
@@ -195,7 +235,11 @@ export function RadarViewSoft({ onNewProfile }: { onNewProfile?: () => void } = 
           >
             {pullStatus.phase === 'running' ? (
               <>
-                <span className="run-spinner" />Pulling…
+                <span className="run-spinner" />
+                {stepLabel(pullStatus.step)}
+                {pullStatus.nTotal != null && pullStatus.nProcessed != null
+                  ? ` ${pullStatus.nProcessed}/${pullStatus.nTotal}`
+                  : '…'}
               </>
             ) : (
               <>
@@ -279,7 +323,13 @@ export function RadarViewSoft({ onNewProfile }: { onNewProfile?: () => void } = 
           {pullStatus.phase === 'running' && (
             <div className="pull-status">
               <span className="run-pulse" />
-              run #{pullStatus.runId} in flight · refreshing radar when done…
+              run #{pullStatus.runId} · {stepLabel(pullStatus.step)}
+              {pullStatus.nTotal != null && pullStatus.nProcessed != null
+                ? ` (${pullStatus.nProcessed} / ${pullStatus.nTotal})`
+                : '…'}
+              {pullStatus.message && (
+                <div className="pull-status-msg">{pullStatus.message}</div>
+              )}
               <div className="run-bar" />
             </div>
           )}

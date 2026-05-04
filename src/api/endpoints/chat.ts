@@ -6,8 +6,14 @@
  * history is a flat ``ChatTurn[]`` ordered oldest-first.
  */
 
-import { apiGet, apiPost } from '../client';
+import { apiDelete, apiGet, apiPost } from '../client';
 import type { ChatTurn } from '../../types/radar';
+
+export interface BackendHealth {
+  status: string;
+  version: string;
+  ollama_model: string | null;
+}
 
 export function getChatHistory(): Promise<ChatTurn[]> {
   return apiGet<ChatTurn[]>('/api/chat/history');
@@ -15,4 +21,12 @@ export function getChatHistory(): Promise<ChatTurn[]> {
 
 export function postChat(query: string, scope: string[]): Promise<ChatTurn> {
   return apiPost<ChatTurn>('/api/chat', { query, scope });
+}
+
+export function getBackendHealth(): Promise<BackendHealth> {
+  return apiGet<BackendHealth>('/api/health');
+}
+
+export function clearChatHistory(): Promise<{ deleted: number }> {
+  return apiDelete<{ deleted: number }>('/api/chat/history');
 }

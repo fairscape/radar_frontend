@@ -26,5 +26,7 @@ export function useChat() {
     }
   }, []);
 
-  return { turns, sending, send };
+  const reset = useCallback(() => { setTurns([]); }, []);
+
+  return { turns, sending, send, model: 'mock-model', reset, error: null as Error | null };
 }

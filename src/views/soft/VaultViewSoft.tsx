@@ -31,7 +31,7 @@ export function VaultViewSoft() {
   const { profiles } = useProfiles();
   const profileByKey = Object.fromEntries(profiles.map((p) => [p.key, p]));
   const { docs, stats, tagCounts, loading } = useVault(activeTag);
-  const { turns, sending, send } = useChat();
+  const { turns, sending, send, model } = useChat();
 
   const toggleScope = (k: string) => {
     setScope((prev) => {
@@ -110,7 +110,7 @@ export function VaultViewSoft() {
         <div className="va-chat">
           <div className="va-chat-head">
             <h3>Ask your vault</h3>
-            <span className="model">llama 3.1 · 8B</span>
+            <span className="model">{model ?? '—'}</span>
           </div>
           <div className="va-scope">
             <span className="lbl">Scope</span>

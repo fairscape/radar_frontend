@@ -6,6 +6,19 @@ import { useDailyRadar, useProfiles } from '../lib/apiSwitch';
 import { gatherNow, listProfileRuns } from '../api/endpoints/profiles';
 import type { Bucket } from '../types/radar';
 
+const STEP_LABEL: Record<string, string> = {
+  loading_profile: 'Loading profile',
+  fetching: 'Querying OpenAlex',
+  embedding: 'Embedding candidates',
+  persisting: 'Saving results',
+  done: 'Done',
+};
+
+function stepLabel(step: string | null): string {
+  if (!step) return 'Working';
+  return STEP_LABEL[step] ?? step;
+}
+
 export function RadarView() {
   const [profFilter, setProfFilter] = useState<string>('all');
   const [bucketFilter, setBucketFilter] = useState<'all' | Bucket>('all');
@@ -28,7 +41,16 @@ export function RadarView() {
   const [pullLimit, setPullLimit] = useState<number>(500);
   const [pullStatus, setPullStatus] = useState<
     | { phase: 'idle' }
-    | { phase: 'running'; runId: number; profileKey: string; startedAt: number }
+    | {
+        phase: 'running';
+        runId: number;
+        profileKey: string;
+        startedAt: number;
+        step: string | null;
+        nProcessed: number | null;
+        nTotal: number | null;
+        message: string | null;
+      }
     | { phase: 'done'; runId: number; nFetched: number | null; nNew: number | null }
     | { phase: 'error'; message: string }
   >({ phase: 'idle' });
@@ -60,13 +82,18 @@ export function RadarView() {
         runId: run_id,
         profileKey: pullProfile,
         startedAt: Date.now(),
+        step: null,
+        nProcessed: null,
+        nTotal: null,
+        message: null,
       });
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = window.setInterval(async () => {
         try {
           const runs = await listProfileRuns(pullProfile, 10);
           const row = runs.find((r) => r.id === run_id);
-          if (row && row.finished_at) {
+          if (!row) return;
+          if (row.finished_at) {
             if (pollRef.current) {
               window.clearInterval(pollRef.current);
               pollRef.current = null;
@@ -82,6 +109,20 @@ export function RadarView() {
               });
               refresh();
             }
+          } else {
+            // Still running — surface live progress so the user sees
+            // the step + counter advance instead of a static spinner.
+            setPullStatus((prev) =>
+              prev.phase === 'running' && prev.runId === run_id
+                ? {
+                    ...prev,
+                    step: row.current_step,
+                    nProcessed: row.n_processed,
+                    nTotal: row.n_total,
+                    message: row.last_message,
+                  }
+                : prev,
+            );
           }
         } catch (e) {
           if (pollRef.current) {
@@ -183,7 +224,11 @@ export function RadarView() {
             >
               {pullStatus.phase === 'running' ? (
                 <>
-                  <span className="run-spinner" />PULLING…
+                  <span className="run-spinner" />
+                  {stepLabel(pullStatus.step).toUpperCase()}
+                  {pullStatus.nTotal != null && pullStatus.nProcessed != null
+                    ? ` ${pullStatus.nProcessed}/${pullStatus.nTotal}`
+                    : '…'}
                 </>
               ) : (
                 '+ PULL PAPERS'
@@ -259,7 +304,13 @@ export function RadarView() {
           {pullStatus.phase === 'running' && (
             <div className="pull-status">
               <span className="run-pulse" />
-              run #{pullStatus.runId} in flight · refreshing radar when done…
+              run #{pullStatus.runId} · {stepLabel(pullStatus.step)}
+              {pullStatus.nTotal != null && pullStatus.nProcessed != null
+                ? ` (${pullStatus.nProcessed} / ${pullStatus.nTotal})`
+                : '…'}
+              {pullStatus.message && (
+                <div className="pull-status-msg">{pullStatus.message}</div>
+              )}
               <div className="run-bar" />
             </div>
           )}

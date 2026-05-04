@@ -991,7 +991,10 @@ input, textarea { font: inherit; color: inherit; }
 .vault-grid {
   display: grid;
   grid-template-columns: 320px 1fr 420px;
-  min-height: calc(100vh - 44px);
+  /* Pin the grid to one viewport so each column scrolls internally;
+     keeps the chat input visible without scrolling the page. */
+  height: calc(100vh - 44px);
+  overflow: hidden;
 }
 .v-col { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .v-col:last-child { border-right: 0; }
@@ -1081,6 +1084,32 @@ input, textarea { font: inherit; color: inherit; }
   text-transform: uppercase;
   display: flex; justify-content: space-between; align-items: center;
 }
+.chat-clear {
+  background: transparent;
+  border: 1px solid var(--line-2);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  padding: 3px 8px;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+.chat-clear:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-3); }
+.chat-clear:disabled { opacity: 0.35; cursor: default; }
+
+.chat-mode-banner {
+  padding: 6px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--acc-med);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
 .chat-scope {
   display: flex; flex-wrap: wrap; gap: 4px;
   padding: 10px 18px;

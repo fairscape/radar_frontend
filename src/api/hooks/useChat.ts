@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { getChatHistory, postChat } from '../endpoints/chat';
+import { clearChatHistory, getBackendHealth, getChatHistory, postChat } from '../endpoints/chat';
 import { ApiError } from '../client';
 import type { ChatTurn } from '../../types/radar';
 
@@ -17,12 +17,16 @@ export function useChat() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [model, setModel] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     getChatHistory()
       .then((h) => { if (!cancelled) setTurns(h); })
       .catch(() => { /* show empty history on error. */ });
+    getBackendHealth()
+      .then((h) => { if (!cancelled) setModel(h.ollama_model); })
+      .catch(() => { /* leave model null; UI falls back. */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -50,5 +54,19 @@ export function useChat() {
     }
   }, []);
 
-  return { turns, sending, send, error };
+  // Wipes the panel AND deletes server-side history so reload doesn't
+  // restore prior turns. Each turn is independent at the LLM level
+  // anyway (single-shot), so this is purely a panel/history reset.
+  const reset = useCallback(async () => {
+    setTurns([]);
+    setError(null);
+    try {
+      await clearChatHistory();
+    } catch (e) {
+      // Non-fatal: panel is already cleared locally.
+      setError(e as Error);
+    }
+  }, []);
+
+  return { turns, sending, send, error, model, reset };
 }

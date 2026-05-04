@@ -7,6 +7,7 @@
 
 import type { Card, Profile, SweepRow, Topic, VaultDoc } from '../../types/radar';
 import { api } from '../client';
+import type { GatherRunStatus } from './profiles';
 
 export interface Draft {
   slug: string;
@@ -28,6 +29,16 @@ export interface DraftDryRun {
   // calibration step bins these into a histogram and lets the user
   // slide θ to see how many would pass.
   scores: number[];
+}
+
+export interface DraftDryRunStart {
+  ok: true;
+  run_id: number;
+}
+
+export interface DraftDryRunStatus {
+  run: GatherRunStatus;
+  result: DraftDryRun | null;
 }
 
 export interface CommitDraftRequest {
@@ -98,10 +109,19 @@ export function getDraftTopics(slug: string): Promise<Topic[]> {
 export function dryRunDraft(
   slug: string,
   body: { days: number; thresholds?: number[] },
-): Promise<DraftDryRun> {
-  return api.post<DraftDryRun>(
+): Promise<DraftDryRunStart> {
+  return api.post<DraftDryRunStart>(
     `/api/profiles/draft/${encodeURIComponent(slug)}/dry-run`,
     body,
+  );
+}
+
+export function getDraftDryRunStatus(
+  slug: string,
+  runId: number,
+): Promise<DraftDryRunStatus> {
+  return api.get<DraftDryRunStatus>(
+    `/api/profiles/draft/${encodeURIComponent(slug)}/dry-run/${runId}`,
   );
 }
 

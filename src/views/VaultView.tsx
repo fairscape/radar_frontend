@@ -34,7 +34,8 @@ export function VaultView() {
   const { profiles } = useProfiles();
   const profileByKey = Object.fromEntries(profiles.map((p) => [p.key, p]));
   const { docs, stats, tagCounts, meta, loading } = useVault(activeTag);
-  const { turns, sending, send } = useChat();
+  const { turns, sending, send, model, reset } = useChat();
+  const modelLabel = (model ?? 'MODEL').toUpperCase();
 
   const toggleScope = (k: string) => {
     setScope((prev) => {
@@ -178,6 +179,18 @@ export function VaultView() {
         <div className="v-col chat">
           <div className="chat-head">
             <span>RAG · Chat</span>
+            <button
+              type="button"
+              className="chat-clear"
+              onClick={reset}
+              disabled={turns.length === 0 && !sending}
+              title="Clear the chat panel. Each question is independent — clearing only affects this view."
+            >
+              NEW QUESTION
+            </button>
+          </div>
+          <div className="chat-mode-banner" title="Each question is sent as a fresh, single-shot prompt. The model has no memory of prior turns.">
+            SINGLE-SHOT · EACH QUESTION IS ITS OWN PROMPT · NO MEMORY OF PRIOR TURNS
           </div>
           <div className="chat-scope">
             <span className="lbl">SCOPE</span>
@@ -206,7 +219,7 @@ export function VaultView() {
             {turns.map((m, i) => (
               <div key={i} className={`chat-msg ${m.who}`}>
                 <div className="who">
-                  <span>{m.who === 'user' ? '› YOU' : '‹ ASSISTANT · LLAMA3.1:8B'}</span>
+                  <span>{m.who === 'user' ? '› YOU' : `‹ ASSISTANT · ${modelLabel}`}</span>
                   <span className="t">{m.t}</span>
                 </div>
                 <ChatBody body={m.body} />
@@ -225,7 +238,7 @@ export function VaultView() {
             ))}
             {sending && (
               <div className="empty" style={{ padding: '20px 0', textAlign: 'left' }}>
-                ‹ LLAMA3.1:8B · RETRIEVING…
+                {`‹ ${modelLabel} · RETRIEVING…`}
               </div>
             )}
           </div>

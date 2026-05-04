@@ -18,7 +18,12 @@ export function Step1Upload({ onNext }: Props) {
   const { state, setSlug, addSeed, removeSeed, setSeeds } = useDraft();
   const [name, setName] = useState(state.name);
   const [creating, setCreating] = useState(false);
-  const [uploading, setUploading] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState<{
+    total: number;
+    done: number;
+    currentName: string | null;
+    failures: { name: string; message: string }[];
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -91,21 +96,42 @@ export function Step1Upload({ onNext }: Props) {
 
   async function handleFiles(files: FileList | null) {
     if (!files || !state.slug) return;
+    const list = Array.from(files);
     setError(null);
-    setUploading(files.length);
+    const failures: { name: string; message: string }[] = [];
+    setUploadProgress({
+      total: list.length,
+      done: 0,
+      currentName: list[0]?.name ?? null,
+      failures: [],
+    });
     try {
-      for (const file of Array.from(files)) {
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i];
+        setUploadProgress((prev) =>
+          prev ? { ...prev, currentName: file.name } : prev,
+        );
         try {
           const doc = await uploadSeed(file, state.slug);
           addSeed(doc);
         } catch (e) {
-          setError(
-            `${file.name}: ${e instanceof Error ? e.message : String(e)}`,
-          );
+          const msg = e instanceof Error ? e.message : String(e);
+          failures.push({ name: file.name, message: msg });
+          setError(`${file.name}: ${msg}`);
         }
+        setUploadProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                done: i + 1,
+                currentName: list[i + 1]?.name ?? null,
+                failures: [...failures],
+              }
+            : prev,
+        );
       }
     } finally {
-      setUploading(0);
+      setUploadProgress(null);
     }
   }
 
@@ -188,22 +214,61 @@ export function Step1Upload({ onNext }: Props) {
       <div
         onDrop={onDrop}
         onDragOver={onDragOver}
-        onClick={() => inputRef.current?.click()}
+        onClick={() => !uploadProgress && inputRef.current?.click()}
         style={{
           padding: 24,
           textAlign: 'center',
           border: '1px dashed var(--line-strong)',
           background: 'var(--bg-inset)',
           color: 'var(--fg-3)',
-          cursor: 'pointer',
+          cursor: uploadProgress ? 'progress' : 'pointer',
           fontFamily: 'var(--font-mono)',
           fontSize: 12,
           letterSpacing: '0.08em',
         }}
       >
-        {uploading > 0
-          ? `UPLOADING ${uploading} FILE(S)…`
-          : 'DROP PDFS HERE OR CLICK TO BROWSE'}
+        {uploadProgress ? (
+          <>
+            <div>
+              UPLOADING {uploadProgress.done + 1} / {uploadProgress.total}
+              {uploadProgress.currentName && (
+                <span style={{ color: 'var(--fg-4)' }}>
+                  {' · '}{uploadProgress.currentName}
+                </span>
+              )}
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                height: 3,
+                background: 'var(--line)',
+                position: 'relative',
+                maxWidth: 360,
+                marginLeft: 'auto',
+                marginRight: 'auto',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  height: '100%',
+                  width: `${(uploadProgress.done / Math.max(uploadProgress.total, 1)) * 100}%`,
+                  background: 'var(--fg-3)',
+                  transition: 'width 200ms linear',
+                }}
+              />
+            </div>
+            {uploadProgress.failures.length > 0 && (
+              <div style={{ marginTop: 6, color: 'var(--err)', fontSize: 11 }}>
+                {uploadProgress.failures.length} failed
+              </div>
+            )}
+          </>
+        ) : (
+          'DROP PDFS HERE OR CLICK TO BROWSE'
+        )}
         <input
           ref={inputRef}
           type="file"

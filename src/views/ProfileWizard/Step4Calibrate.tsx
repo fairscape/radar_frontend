@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   commitDraft,
   dryRunDraft,
+  getDraftDryRunStatus,
   type DraftDryRun,
 } from '../../api/endpoints/wizard';
 import { useDraft } from '../../api/hooks/useDraft';
@@ -9,55 +10,151 @@ import { ThresholdHistogram } from '../../components/ThresholdHistogram';
 
 const DEFAULT_CRON = '0 4 * * *';
 const DEFAULT_TZ = 'UTC';
+const POLL_MS = 2500;
+
+const STEP_LABEL: Record<string, string> = {
+  loading_profile: 'Loading draft seeds',
+  fetching: 'Querying OpenAlex',
+  embedding: 'Embedding candidates',
+  persisting: 'Saving dry-run result',
+  done: 'Done',
+};
+
+function stepLabel(step: string | null): string {
+  if (!step) return 'Working';
+  return STEP_LABEL[step] ?? step;
+}
 
 interface Props {
   onPrev: () => void;
   onDone: (slug: string) => void;
 }
 
+interface Progress {
+  step: string | null;
+  nProcessed: number | null;
+  nTotal: number | null;
+  message: string | null;
+}
+
 export function Step4Calibrate({ onPrev, onDone }: Props) {
   const { state, setThreshold, reset } = useDraft();
   const [dry, setDry] = useState<DraftDryRun | null>(null);
   const [loading, setLoading] = useState(true);
+  const [progress, setProgress] = useState<Progress>({
+    step: null,
+    nProcessed: null,
+    nTotal: null,
+    message: null,
+  });
   const [error, setError] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
+  const pollRef = useRef<number | null>(null);
+
+  // Stop any in-flight poll on unmount so a slow dry-run doesn't keep
+  // hitting the API after the user navigates away.
+  useEffect(() => () => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!state.slug) return;
     let cancelled = false;
+    const slug = state.slug;
     setLoading(true);
     setError(null);
-    dryRunDraft(state.slug, { days: 30 })
-      .then((d) => {
+    setDry(null);
+    setProgress({ step: null, nProcessed: null, nTotal: null, message: null });
+
+    dryRunDraft(slug, { days: 30 })
+      .then(({ run_id }) => {
         if (cancelled) return;
-        setDry(d);
-        if (state.threshold === null) {
-          // Default to the θ that admits ~20 candidates ("useful but
-          // not overwhelming"). Prefer the raw scores (slider precision)
-          // and fall back to the sweep buckets when scores are absent.
-          if (d.scores.length > 0) {
-            const target = 20;
-            const sorted = [...d.scores].sort((a, b) => b - a);
-            const pick =
-              sorted[Math.min(target - 1, sorted.length - 1)] ?? sorted[0];
-            setThreshold(Number(pick.toFixed(2)));
-          } else if (d.sweep.length > 0) {
-            const best = d.sweep.reduce((acc, row) =>
-              Math.abs(row.n - 20) < Math.abs(acc.n - 20) ? row : acc,
-            );
-            setThreshold(best.th);
-          }
+        if (pollRef.current) {
+          window.clearInterval(pollRef.current);
         }
+        const tick = async () => {
+          try {
+            const status = await getDraftDryRunStatus(slug, run_id);
+            if (cancelled) return;
+            const run = status.run;
+            if (run.finished_at) {
+              if (pollRef.current) {
+                window.clearInterval(pollRef.current);
+                pollRef.current = null;
+              }
+              if (run.error) {
+                setError(run.error);
+                setLoading(false);
+                return;
+              }
+              const result = status.result;
+              if (!result) {
+                setError('dry-run finished without a result');
+                setLoading(false);
+                return;
+              }
+              setDry(result);
+              setLoading(false);
+              if (state.threshold === null) {
+                // Default to the θ that admits ~20 candidates ("useful
+                // but not overwhelming"). Prefer the raw scores (slider
+                // precision) and fall back to the sweep buckets when
+                // scores are absent.
+                if (result.scores.length > 0) {
+                  const target = 20;
+                  const sorted = [...result.scores].sort((a, b) => b - a);
+                  const pick =
+                    sorted[Math.min(target - 1, sorted.length - 1)] ??
+                    sorted[0];
+                  setThreshold(Number(pick.toFixed(2)));
+                } else if (result.sweep.length > 0) {
+                  const best = result.sweep.reduce((acc, row) =>
+                    Math.abs(row.n - 20) < Math.abs(acc.n - 20) ? row : acc,
+                  );
+                  setThreshold(best.th);
+                }
+              }
+              return;
+            }
+            // Still running — surface stage + counter so the user sees
+            // forward motion instead of a static spinner.
+            setProgress({
+              step: run.current_step,
+              nProcessed: run.n_processed,
+              nTotal: run.n_total,
+              message: run.last_message,
+            });
+          } catch (e) {
+            if (cancelled) return;
+            if (pollRef.current) {
+              window.clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
+            setError(e instanceof Error ? e.message : String(e));
+            setLoading(false);
+          }
+        };
+        // Fire immediately so the inline / fixture-gatherer path
+        // (which finishes before the kickoff response returns) doesn't
+        // wait POLL_MS before showing the result.
+        tick();
+        pollRef.current = window.setInterval(tick, POLL_MS);
       })
       .catch((e) => {
-        if (!cancelled)
-          setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : String(e));
+        setLoading(false);
       });
+
     return () => {
       cancelled = true;
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
   }, [state.slug, setThreshold, state.threshold]);
 
@@ -102,8 +199,49 @@ export function Step4Calibrate({ onPrev, onDone }: Props) {
       {loading && (
         <div className="empty">
           <span className="run-spinner" />
-          RUNNING DRY-RUN · GATHERING + SCORING CANDIDATES…
-          <div className="run-bar" style={{ maxWidth: 360, margin: '8px auto 0' }} />
+          {' '}
+          {stepLabel(progress.step).toUpperCase()}
+          {progress.nTotal != null && progress.nProcessed != null
+            ? ` · ${progress.nProcessed} / ${progress.nTotal}`
+            : '…'}
+          {progress.message && (
+            <div
+              className="mono"
+              style={{
+                marginTop: 6,
+                fontSize: 11,
+                color: 'var(--fg-4)',
+                letterSpacing: 0,
+              }}
+            >
+              {progress.message}
+            </div>
+          )}
+          <div
+            className="run-bar"
+            style={{
+              maxWidth: 360,
+              margin: '8px auto 0',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            {progress.nTotal != null &&
+              progress.nProcessed != null &&
+              progress.nTotal > 0 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    height: '100%',
+                    width: `${(progress.nProcessed / progress.nTotal) * 100}%`,
+                    background: 'var(--fg-3)',
+                    transition: 'width 200ms linear',
+                  }}
+                />
+              )}
+          </div>
         </div>
       )}
       {error && (
