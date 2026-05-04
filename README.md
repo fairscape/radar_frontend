@@ -1,73 +1,73 @@
-# Radar
+# radar-frontend
 
-> **Quickstart with docker-compose:** if you just want to run the demo,
-> see [`../README.md`](../README.md) at the repo root — one command
-> brings up backend + frontend + (optional) Ollama. This README covers
-> the Vite/React app and its mock-mode toggle for local development.
+Vite + React + TypeScript SPA for the Personal Research Radar. Talks
+to the FastAPI backend over HTTP; ships a parallel mock-data branch
+for design work without a live backend.
 
-Dark-mode research tool UI for a biomedical researcher. Three views: **Daily Radar** (scored paper cards), **Profiles** (selector diagnostics, health metrics), **Vault** (tagged PDF library + RAG chat).
+The deployed system runs via Docker Compose — see
+[radar_deployment](https://github.com/fairscape/radar_deployment).
+This README covers the standalone frontend.
 
-The React frontend talks to the FastAPI backend in `radar-backend/` over HTTP. For offline demos and design work the in-tree `src/mock-api/` module is still available behind a single env-var toggle.
+## What it does
 
-## Quickstart
+Three views (toggle with `R` / `V` / `P`):
 
-1. Start the backend:
+- **Daily Radar** — scored paper cards from today's gather pass.
+  Save / dismiss buttons feed back to the selector.
+- **Vault** — per-user PDF library, tagged by profile, with RAG chat
+  scoped to a profile.
+- **Profiles** — profile-builder wizard (seed upload → coherence
+  histogram → topic filter → threshold sweep) plus selector
+  diagnostics and health metrics.
 
-   ```sh
-   cd ../radar-backend
-   uvicorn rag_lib.api.app:app --reload --port 8000
-   ```
+The fetch layer (`src/api/`) sends `X-User-Email` from
+`localStorage.userEmail`; an in-tree mock branch (`src/mock-api/`) is
+selected at module init via `VITE_USE_MOCK=1` and tree-shakes out of
+production builds.
 
-2. In a second terminal, start the frontend:
+## Install
 
-   ```sh
-   cd radar-website
-   cp .env.example .env.development   # one-time
-   npm install
-   npm run dev
-   ```
+Requires Node 18+.
 
-3. Open http://localhost:5173. Use `R` / `V` / `P` to switch views.
+```sh
+git clone https://github.com/fairscape/radar_frontend.git
+cd radar_frontend
+npm install
+cp .env.example .env.development
+npm run dev          # http://localhost:5173
+```
 
-The dev server reads `VITE_API_BASE_URL` from `.env.development`; the default is `http://localhost:8000`. Override per environment by editing the file or exporting the var before `npm run dev`.
-
-## Mock mode (no backend required)
-
-To run the UI against the in-tree mock data without a live backend:
+The dev server reads `VITE_API_BASE_URL` from `.env.development`;
+default is `http://localhost:8000`. The backend must be running there
+(see [radar_backend](https://github.com/fairscape/radar_backend)) — or
+flip to mock mode:
 
 ```sh
 echo "VITE_USE_MOCK=1" >> .env.development
 npm run dev
 ```
 
-The bundle still ships both branches; `src/lib/apiSwitch.ts` picks one at module-init time based on the env var, and the unused branch tree-shakes cleanly because nothing in user code references the underlying namespaces directly.
+## Build
 
-## Editing the placeholder data (mock mode only)
+```sh
+npm run build        # tsc -b && vite build → dist/
+npm run preview      # serve dist/ for a smoke test
+```
 
-All mock data is under `src/mock-api/data/` — one file per resource:
+`Dockerfile` + `nginx.conf` produce the production container used by
+the deployment compose file.
 
-- `profiles.ts` — interest profiles (name, hue, health, threshold, coherence, seeds, 30-day save/dismiss counts)
-- `cards.ts` — today's Daily Radar cards
-- `vault.ts` — the vault's PDFs
-- `seeds.ts` — seed corpus for the detail view
-- `topics.ts` — OpenAlex topic chips
-- `sweep.ts` — threshold calibration rows
-- `coherence.ts` — pairwise-cosine histogram bins
-- `chat.ts` — RAG chat scratch turns
-- `feedback-log.ts` — feedback log tail lines
+## Layout
 
-Edit a file, HMR reloads, the UI reflects the change.
+```
+src/
+├── api/              real backend client (fetch wrapper, endpoints, hooks)
+├── mock-api/         in-tree fixture data, same shape as api/
+├── lib/apiSwitch.ts  picks api/ vs mock-api/ at module init
+├── views/            RadarView, VaultView, ProfilesView, ProfileWizard, ...
+├── components/       shared UI
+└── styles/           CSS (dark mode only)
+```
 
-## Architecture
-
-| Layer | Path | Purpose |
-|---|---|---|
-| Fetch wrapper | `src/api/client.ts` | `apiGet`, `apiPost`, `apiPostMultipart`, `ApiError`. Sends `X-User-Email` from `localStorage.userEmail` when set (Phase 12 fills that key). |
-| Endpoint helpers | `src/api/endpoints/*.ts` | One file per backend router; signatures mirror `src/mock-api/endpoints/*.ts`. |
-| React hooks | `src/api/hooks/*.ts` | Mirror `src/mock-api/hooks/*` so views see no behavioral difference. |
-| Switch | `src/lib/apiSwitch.ts` | Single import surface that resolves to either branch. |
-| Wizard | `src/api/endpoints/wizard.ts` + `src/api/hooks/useDraft.ts` | Phase 11 wizard endpoints. Real-API only — the wizard does not have a mock fallback. |
-
-## Design source
-
-Prototype at `/tmp/design-extract/radar-website/project/` (exported from claude.ai/design). CSS copied verbatim from `radar.css`; JSX ported to TSX under `src/`.
+Mock fixtures live in `src/mock-api/data/` — one file per resource.
+Edit, HMR reloads.
