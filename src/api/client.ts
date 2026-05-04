@@ -50,10 +50,12 @@ async function parseBody(resp: Response): Promise<unknown> {
 async function request<T>(
   path: string,
   init: RequestInit = {},
+  signal?: AbortSignal,
 ): Promise<T> {
   const isForm = init.body instanceof FormData;
   const resp = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    signal: signal ?? init.signal,
     headers: {
       Accept: 'application/json',
       ...(init.body && !isForm ? { 'Content-Type': 'application/json' } : {}),
@@ -86,30 +88,39 @@ function buildQuery(params?: Record<string, string | number | boolean | null | u
 export function apiGet<T>(
   path: string,
   params?: Record<string, string | number | boolean | null | undefined>,
+  signal?: AbortSignal,
 ): Promise<T> {
-  return request<T>(`${path}${buildQuery(params)}`);
+  return request<T>(`${path}${buildQuery(params)}`, {}, signal);
 }
 
-export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export function apiPost<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   return request<T>(path, {
     method: 'POST',
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  }, signal);
 }
 
-export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+export function apiPatch<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   return request<T>(path, {
     method: 'PATCH',
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  }, signal);
 }
 
-export function apiDelete<T>(path: string): Promise<T> {
-  return request<T>(path, { method: 'DELETE' });
+export function apiDelete<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: 'DELETE' }, signal);
 }
 
-export function apiPostMultipart<T>(path: string, form: FormData): Promise<T> {
-  return request<T>(path, { method: 'POST', body: form });
+export function apiPostMultipart<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: 'POST', body: form }, signal);
+}
+
+/** True for fetch aborts via AbortController. Hooks treat this as
+ *  silent (the signal owner already handled the cancellation). */
+export function isAbortError(err: unknown): boolean {
+  return (
+    err instanceof DOMException && err.name === 'AbortError'
+  ) || (err instanceof Error && err.name === 'AbortError');
 }
 
 // Legacy ``api.{get,post,postForm,delete}`` shape kept for the Phase 11

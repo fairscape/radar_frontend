@@ -14,6 +14,7 @@ import type {
   DailyRadarFilters,
   DailyRadarResponse,
 } from '../../types/radar';
+import { dataBus } from '../../lib/dataBus';
 
 export function getDailyRadar(
   filters: DailyRadarFilters = {},
@@ -24,18 +25,28 @@ export function getDailyRadar(
   return apiGet<DailyRadarResponse>('/api/radar/daily', params);
 }
 
-export function saveCard(id: string): Promise<{ id: string; state: CardState }> {
-  return apiPost<{ id: string; state: CardState }>(
+export async function saveCard(id: string): Promise<{ id: string; state: CardState }> {
+  const res = await apiPost<{ id: string; state: CardState }>(
     `/api/radar/cards/save`,
     { card_id: id },
   );
+  // Saved cards land in the vault as docs, so notify both surfaces.
+  // Profile saves30 also ticks, but ``radar:changed`` is enough for
+  // sidebar counts since the saves30 number lives on the profile row.
+  dataBus.emit('radar:changed');
+  dataBus.emit('vault:changed');
+  dataBus.emit('profiles:changed');
+  return res;
 }
 
-export function dismissCard(id: string): Promise<{ id: string; state: CardState }> {
-  return apiPost<{ id: string; state: CardState }>(
+export async function dismissCard(id: string): Promise<{ id: string; state: CardState }> {
+  const res = await apiPost<{ id: string; state: CardState }>(
     `/api/radar/cards/dismiss`,
     { card_id: id },
   );
+  dataBus.emit('radar:changed');
+  dataBus.emit('profiles:changed');
+  return res;
 }
 
 // Surface-parity shim with the mock module (which exposed a synchronous

@@ -10,6 +10,7 @@
 
 import { apiGet, apiPostMultipart } from '../client';
 import type { VaultDoc, VaultStats } from '../../types/radar';
+import { dataBus } from '../../lib/dataBus';
 
 export interface VaultMeta {
   rootPath: string;
@@ -36,14 +37,16 @@ export function getTagCounts(): Promise<Record<string, number>> {
   return apiGet<Record<string, number>>('/api/vault/tags');
 }
 
-export function uploadPdf(
+export async function uploadPdf(
   file: File,
   profileSlug?: string,
 ): Promise<VaultDoc> {
   const form = new FormData();
   form.append('file', file);
   if (profileSlug) form.append('profile_slug', profileSlug);
-  return apiPostMultipart<VaultDoc>('/api/vault/upload', form);
+  const res = await apiPostMultipart<VaultDoc>('/api/vault/upload', form);
+  dataBus.emit('vault:changed');
+  return res;
 }
 
 // Compat shim for the mock's ``ingestPdf(filename)`` signature. The

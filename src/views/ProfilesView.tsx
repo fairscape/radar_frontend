@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { TopBar } from '../components/TopBar';
-import { Chip } from '../components/Chip';
 import { ThresholdHistogram } from '../components/ThresholdHistogram';
 import {
   dryRunProfile,
@@ -24,7 +23,7 @@ export function ProfilesView({
   setSelected: (k: string) => void;
   onNew?: () => void;
 }) {
-  const { profiles, refresh: refreshList } = useProfiles();
+  const { profiles, error: profilesError, refresh: refreshList } = useProfiles();
   const { detail, loading, refresh: refreshDetail } = useProfileDetail(selected);
   const active = detail?.profile ?? profiles.find((p) => p.key === selected) ?? profiles[0];
   const [recomputing, setRecomputing] = useState(false);
@@ -108,15 +107,7 @@ export function ProfilesView({
 
   return (
     <div className="view">
-      <TopBar
-        crumbs={['Profiles', active?.name ?? '…']}
-        right={
-          <>
-            <Chip label="VIEW" value="DETAIL" />
-            <Chip label="SELECTOR" value="CENTROID" />
-          </>
-        }
-      />
+      <TopBar crumbs={['Profiles', active?.name ?? '…']} />
       <div className="prof-grid">
         <div className="prof-list">
           <div className="prof-list-head">
@@ -129,7 +120,32 @@ export function ProfilesView({
               + NEW
             </button>
           </div>
-          {profiles.length === 0 && (
+          {profiles.length === 0 && profilesError && (
+            <div
+              className="empty mono"
+              style={{ padding: '24px 16px', fontSize: 11, color: 'var(--err)', letterSpacing: '0.06em' }}
+            >
+              FAILED TO LOAD PROFILES
+              <button
+                type="button"
+                onClick={refreshList}
+                style={{
+                  marginLeft: 12,
+                  padding: '2px 10px',
+                  background: 'transparent',
+                  border: '1px solid var(--err)',
+                  color: 'var(--err)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 10,
+                  letterSpacing: '0.08em',
+                  cursor: 'pointer',
+                }}
+              >
+                RETRY
+              </button>
+            </div>
+          )}
+          {profiles.length === 0 && !profilesError && (
             <div
               className="empty mono"
               style={{ padding: '24px 16px', fontSize: 11, color: 'var(--fg-3)', letterSpacing: '0.06em' }}

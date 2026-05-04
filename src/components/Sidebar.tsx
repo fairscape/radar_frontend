@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Glyph, type GlyphName } from './Glyph';
 import {
-  listProfiles,
   swatchFor,
   useDailyRadar,
+  useProfiles,
   useVault,
 } from '../lib/apiSwitch';
 import { getUserEmail, subscribeUserEmail } from '../lib/userEmail';
-import type { Profile } from '../types/radar';
 
 export type ViewKey =
   | 'radar'
@@ -29,16 +28,10 @@ export function Sidebar({
   view: ViewKey;
   setView: (v: ViewKey) => void;
 }) {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [email, setEmail] = useState<string | null>(() => getUserEmail());
   const { data: radarData } = useDailyRadar({});
   const { stats: vaultStats } = useVault('');
-
-  useEffect(() => {
-    let cancelled = false;
-    listProfiles().then((p) => { if (!cancelled) setProfiles(p); });
-    return () => { cancelled = true; };
-  }, []);
+  const { profiles } = useProfiles();
 
   useEffect(() => subscribeUserEmail(() => setEmail(getUserEmail())), []);
 

@@ -19,6 +19,8 @@ import type {
   DailyRadarFilters,
   DailyRadarResponse,
 } from '../../types/radar';
+import { dataBus } from '../../lib/dataBus';
+import { useFocusRevalidate } from './useFocusRevalidate';
 
 export function useDailyRadar(filters: DailyRadarFilters) {
   const [data, setData] = useState<DailyRadarResponse | null>(null);
@@ -74,6 +76,9 @@ export function useDailyRadar(filters: DailyRadarFilters) {
   }, []);
 
   const refresh = useCallback(() => { fetchData(); }, [fetchData]);
+  useFocusRevalidate(refresh);
+  useEffect(() => dataBus.subscribe('radar:changed', refresh), [refresh]);
+  useEffect(() => dataBus.subscribe('profiles:changed', refresh), [refresh]);
 
   return { data, loading, error, save, dismiss, setLocalState, refresh };
 }

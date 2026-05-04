@@ -8,6 +8,7 @@
 import type { Card, Profile, SweepRow, Topic, VaultDoc } from '../../types/radar';
 import { api } from '../client';
 import type { GatherRunStatus } from './profiles';
+import { dataBus } from '../../lib/dataBus';
 
 export interface Draft {
   slug: string;
@@ -78,14 +79,16 @@ export function createDraft(body: CreateDraftBody | string): Promise<Draft> {
   return api.post<Draft>('/api/profiles/draft', payload);
 }
 
-export function uploadSeed(
+export async function uploadSeed(
   file: File,
   profileSlug: string,
 ): Promise<VaultDoc> {
   const form = new FormData();
   form.append('file', file);
   form.append('profile_slug', profileSlug);
-  return api.postForm<VaultDoc>('/api/vault/upload', form);
+  const res = await api.postForm<VaultDoc>('/api/vault/upload', form);
+  dataBus.emit('vault:changed');
+  return res;
 }
 
 export function listSeedDocs(profileSlug: string): Promise<VaultDoc[]> {
@@ -125,12 +128,19 @@ export function getDraftDryRunStatus(
   );
 }
 
-export function commitDraft(body: CommitDraftRequest): Promise<Profile> {
-  return api.post<Profile>('/api/profiles', body);
+export async function commitDraft(body: CommitDraftRequest): Promise<Profile> {
+  const res = await api.post<Profile>('/api/profiles', body);
+  // New profile lives in the sidebar list and changes vault tag counts
+  // (the seeds are tagged to it).
+  dataBus.emit('profiles:changed');
+  dataBus.emit('vault:changed');
+  return res;
 }
 
-export function deleteDraft(slug: string): Promise<{ ok: boolean }> {
-  return api.delete<{ ok: boolean }>(
+export async function deleteDraft(slug: string): Promise<{ ok: boolean }> {
+  const res = await api.delete<{ ok: boolean }>(
     `/api/profiles/draft/${encodeURIComponent(slug)}`,
   );
+  dataBus.emit('profiles:changed');
+  return res;
 }

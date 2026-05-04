@@ -30,7 +30,7 @@ export function RadarView() {
     [profiles],
   );
 
-  const { data, loading, save, dismiss, refresh } = useDailyRadar({
+  const { data, loading, error, save, dismiss, refresh } = useDailyRadar({
     profile: profFilter,
     bucket: bucketFilter === 'all' ? undefined : bucketFilter,
   });
@@ -188,7 +188,6 @@ export function RadarView() {
           setBucketFilter(opts[(opts.indexOf(bucketFilter) + 1) % opts.length]);
         }}
       />
-      <Chip label="SORT" value="SCORE ↓" />
     </>
   );
 
@@ -338,8 +337,30 @@ export function RadarView() {
       </div>
 
       <div>
-        {loading && inbox.length === 0 && <div className="empty">LOADING DAILY RADAR…</div>}
-        {!loading && inbox.length === 0 && (
+        {error && cards.length === 0 && (
+          <div className="empty" style={{ color: 'var(--err)' }}>
+            FAILED TO LOAD RADAR
+            <button
+              type="button"
+              onClick={refresh}
+              style={{
+                marginLeft: 12,
+                padding: '2px 10px',
+                background: 'transparent',
+                border: '1px solid var(--err)',
+                color: 'var(--err)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10,
+                letterSpacing: '0.08em',
+                cursor: 'pointer',
+              }}
+            >
+              RETRY
+            </button>
+          </div>
+        )}
+        {!error && loading && inbox.length === 0 && <div className="empty">LOADING DAILY RADAR…</div>}
+        {!error && !loading && inbox.length === 0 && (
           <div className="empty">
             {cards.length === 0 ? 'NO CARDS FOR THIS FILTER' : 'INBOX ZERO — ALL TRIAGED'}
           </div>

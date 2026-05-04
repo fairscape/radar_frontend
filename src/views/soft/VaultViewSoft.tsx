@@ -30,7 +30,7 @@ export function VaultViewSoft() {
 
   const { profiles } = useProfiles();
   const profileByKey = Object.fromEntries(profiles.map((p) => [p.key, p]));
-  const { docs, stats, tagCounts, loading } = useVault(activeTag);
+  const { docs, stats, tagCounts, loading, error, refresh } = useVault(activeTag);
   const { turns, sending, send, model } = useChat();
 
   const toggleScope = (k: string) => {
@@ -58,9 +58,6 @@ export function VaultViewSoft() {
             {stats?.docs ?? 0} papers uploaded · ask questions across any tag
           </div>
         </div>
-        <div className="actions">
-          <button className="btn ghost">Upload PDF</button>
-        </div>
       </div>
 
       <div className="va-tags">
@@ -84,7 +81,23 @@ export function VaultViewSoft() {
 
       <div className="va-grid">
         <div className="va-docs">
-          {loading && docs.length === 0 && <div className="empty">Loading documents…</div>}
+          {error && docs.length === 0 && (
+            <div className="empty" style={{ color: 'var(--err)' }}>
+              Couldn’t load documents.{' '}
+              <button
+                type="button"
+                onClick={refresh}
+                className="btn ghost"
+                style={{ marginLeft: 8, padding: '2px 10px' }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!error && loading && docs.length === 0 && <div className="empty">Loading documents…</div>}
+          {!error && !loading && docs.length === 0 && (
+            <div className="empty">No documents for this tag.</div>
+          )}
           {docs.map((d) => (
             <div key={d.id} className="va-doc">
               <div className="t">{d.title}</div>

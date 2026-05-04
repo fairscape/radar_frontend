@@ -27,6 +27,7 @@ export function useChat() {
   }, []);
 
   const reset = useCallback(() => { setTurns([]); }, []);
+  const refresh = useCallback(() => { /* mock has no remote state */ }, []);
 
-  return { turns, sending, send, model: 'mock-model', reset, error: null as Error | null };
+  return { turns, sending, send, model: 'mock-model', reset, error: null as Error | null, refresh };
 }

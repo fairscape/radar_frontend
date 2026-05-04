@@ -18,7 +18,7 @@ export function useProfiles() {
   }, [refreshTick]);
 
   const refresh = useCallback(() => setRefreshTick((t) => t + 1), []);
-  return { profiles, loading, refresh };
+  return { profiles, loading, error: null as Error | null, refresh };
 }
 
 export function useProfileDetail(key: string) {
@@ -41,5 +41,5 @@ export function useProfileDetail(key: string) {
   }, [key, refreshTick]);
 
   const refresh = useCallback(() => setRefreshTick((t) => t + 1), []);
-  return { detail, loading, refresh };
+  return { detail, loading, error: null as Error | null, refresh };
 }

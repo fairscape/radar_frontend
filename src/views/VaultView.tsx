@@ -1,6 +1,5 @@
 import { Fragment, useState } from 'react';
 import { TopBar } from '../components/TopBar';
-import { Chip } from '../components/Chip';
 import { Glyph } from '../components/Glyph';
 import { swatchFor, useProfiles, useVault, useChat } from '../lib/apiSwitch';
 import type { ChatTurn } from '../types/radar';
@@ -33,7 +32,7 @@ export function VaultView() {
 
   const { profiles } = useProfiles();
   const profileByKey = Object.fromEntries(profiles.map((p) => [p.key, p]));
-  const { docs, stats, tagCounts, meta, loading } = useVault(activeTag);
+  const { docs, stats, tagCounts, meta, loading, error, refresh } = useVault(activeTag);
   const { turns, sending, send, model, reset } = useChat();
   const modelLabel = (model ?? 'MODEL').toUpperCase();
 
@@ -59,15 +58,7 @@ export function VaultView() {
 
   return (
     <div className="view">
-      <TopBar
-        crumbs={['Vault', crumb]}
-        right={
-          <>
-            <Chip label="VIEW" value="LIBRARY + CHAT" />
-            <Chip label="INGEST" value="+ PDF" />
-          </>
-        }
-      />
+      <TopBar crumbs={['Vault', crumb]} />
       <div className="vault-grid">
         <div className="v-col">
           <div className="v-col-head">
@@ -137,7 +128,32 @@ export function VaultView() {
             </span>
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
-            {loading && docs.length === 0 && <div className="empty">LOADING DOCUMENTS…</div>}
+            {error && docs.length === 0 && (
+              <div className="empty" style={{ color: 'var(--err)' }}>
+                FAILED TO LOAD DOCUMENTS
+                <button
+                  type="button"
+                  onClick={refresh}
+                  style={{
+                    marginLeft: 12,
+                    padding: '2px 10px',
+                    background: 'transparent',
+                    border: '1px solid var(--err)',
+                    color: 'var(--err)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10,
+                    letterSpacing: '0.08em',
+                    cursor: 'pointer',
+                  }}
+                >
+                  RETRY
+                </button>
+              </div>
+            )}
+            {!error && loading && docs.length === 0 && <div className="empty">LOADING DOCUMENTS…</div>}
+            {!error && !loading && docs.length === 0 && (
+              <div className="empty">NO DOCUMENTS FOR THIS TAG</div>
+            )}
             {docs.map((d) => (
               <div
                 key={d.id}

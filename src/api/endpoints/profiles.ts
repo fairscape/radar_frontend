@@ -8,6 +8,7 @@
 
 import { apiGet, apiPatch, apiPost } from '../client';
 import type { Profile, Seed, SweepRow, Topic } from '../../types/radar';
+import { dataBus } from '../../lib/dataBus';
 
 export interface DraftCoherence {
   bins: number[];
@@ -44,10 +45,12 @@ export async function getProfileDetail(key: string): Promise<ProfileDetail | nul
   return res ?? null;
 }
 
-export function refitProfile(key: string): Promise<{ ok: true; key: string; cost: string }> {
-  return apiPost<{ ok: true; key: string; cost: string }>(
+export async function refitProfile(key: string): Promise<{ ok: true; key: string; cost: string }> {
+  const res = await apiPost<{ ok: true; key: string; cost: string }>(
     `/api/profiles/${encodeURIComponent(key)}/refit`,
   );
+  dataBus.emit('profiles:changed');
+  return res;
 }
 
 export interface DryRunResult {
@@ -63,26 +66,35 @@ export function dryRunProfile(key: string): Promise<DryRunResult> {
   );
 }
 
-export function updateProfileThreshold(
+export async function updateProfileThreshold(
   key: string,
   threshold: number,
 ): Promise<Profile> {
-  return apiPatch<Profile>(
+  const res = await apiPatch<Profile>(
     `/api/profiles/${encodeURIComponent(key)}`,
     { threshold },
   );
+  dataBus.emit('profiles:changed');
+  // θ controls which candidates pass — radar inbox composition shifts
+  // immediately after a save, so refresh that view too.
+  dataBus.emit('radar:changed');
+  return res;
 }
 
-export function recomputeCoherence(key: string): Promise<DraftCoherence> {
-  return apiPost<DraftCoherence>(
+export async function recomputeCoherence(key: string): Promise<DraftCoherence> {
+  const res = await apiPost<DraftCoherence>(
     `/api/profiles/${encodeURIComponent(key)}/recompute-coherence`,
   );
+  dataBus.emit('profiles:changed');
+  return res;
 }
 
-export function recomputeTopics(key: string): Promise<Topic[]> {
-  return apiPost<Topic[]>(
+export async function recomputeTopics(key: string): Promise<Topic[]> {
+  const res = await apiPost<Topic[]>(
     `/api/profiles/${encodeURIComponent(key)}/recompute-topics`,
   );
+  dataBus.emit('profiles:changed');
+  return res;
 }
 
 export interface GatherRunStatus {

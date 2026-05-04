@@ -10,7 +10,7 @@ export function ProfilesViewSoft({
   setSelected: (k: string) => void;
   onNew?: () => void;
 }) {
-  const { profiles, loading: profilesLoading } = useProfiles();
+  const { profiles, loading: profilesLoading, error: profilesError, refresh: refreshList } = useProfiles();
   const { detail, loading } = useProfileDetail(selected);
   const active = detail?.profile ?? profiles.find((p) => p.key === selected) ?? profiles[0];
 
@@ -29,9 +29,23 @@ export function ProfilesViewSoft({
           </div>
         </div>
         <div className="empty">
-          {profilesLoading
-            ? 'Loading profiles…'
-            : 'No profiles yet — click New profile to create one.'}
+          {profilesError ? (
+            <>
+              Couldn’t load profiles.{' '}
+              <button
+                type="button"
+                className="btn ghost"
+                style={{ marginLeft: 8, padding: '2px 10px' }}
+                onClick={refreshList}
+              >
+                Retry
+              </button>
+            </>
+          ) : profilesLoading ? (
+            'Loading profiles…'
+          ) : (
+            'No profiles yet — click New profile to create one.'
+          )}
         </div>
       </div>
     );
@@ -101,10 +115,6 @@ export function ProfilesViewSoft({
               <div className="txt">
                 <b>{healthWord}</b>
                 {healthDesc}
-              </div>
-              <div className="act">
-                <button className="btn ghost">Learn more</button>
-                <button className="btn primary">Review seeds</button>
               </div>
             </div>
           )}

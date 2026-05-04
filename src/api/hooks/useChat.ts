@@ -6,18 +6,25 @@
  * is unreachable) we drop the pending user turn and surface the error
  * via the returned ``error`` field; the mock never errored, so views
  * that ignore ``error`` still render fine.
+ *
+ * Refetches history + backend health on tab focus / visibility and
+ * when the signed-in user changes (so signing out + signing back in
+ * picks up the new account's chat history without Ctrl+R).
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { clearChatHistory, getBackendHealth, getChatHistory, postChat } from '../endpoints/chat';
 import { ApiError } from '../client';
 import type { ChatTurn } from '../../types/radar';
+import { subscribeUserEmail } from '../../lib/userEmail';
+import { useFocusRevalidate } from './useFocusRevalidate';
 
 export function useChat() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [model, setModel] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,7 +35,11 @@ export function useChat() {
       .then((h) => { if (!cancelled) setModel(h.ollama_model); })
       .catch(() => { /* leave model null; UI falls back. */ });
     return () => { cancelled = true; };
-  }, []);
+  }, [refreshTick]);
+
+  const refresh = useCallback(() => setRefreshTick((t) => t + 1), []);
+  useFocusRevalidate(refresh);
+  useEffect(() => subscribeUserEmail(refresh), [refresh]);
 
   const send = useCallback(async (query: string, scope: string[]) => {
     if (!query.trim()) return;
@@ -68,5 +79,5 @@ export function useChat() {
     }
   }, []);
 
-  return { turns, sending, send, error, model, reset };
+  return { turns, sending, send, error, model, reset, refresh };
 }

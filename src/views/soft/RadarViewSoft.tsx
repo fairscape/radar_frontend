@@ -82,7 +82,7 @@ export function RadarViewSoft({ onNewProfile }: { onNewProfile?: () => void } = 
     [profiles],
   );
 
-  const { data, loading, save, dismiss, refresh } = useDailyRadar({
+  const { data, loading, error, save, dismiss, refresh } = useDailyRadar({
     profile: filter,
   });
 
@@ -386,8 +386,21 @@ export function RadarViewSoft({ onNewProfile }: { onNewProfile?: () => void } = 
         ))}
       </div>
 
-      {loading && inbox.length === 0 && <div className="empty">Loading today's radar…</div>}
-      {!loading && inbox.length === 0 && (
+      {error && cards.length === 0 && (
+        <div className="empty" style={{ color: 'var(--err)' }}>
+          Couldn’t load today’s radar.{' '}
+          <button
+            type="button"
+            className="btn ghost"
+            style={{ marginLeft: 8, padding: '2px 10px' }}
+            onClick={refresh}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      {!error && loading && inbox.length === 0 && <div className="empty">Loading today's radar…</div>}
+      {!error && !loading && inbox.length === 0 && (
         <div className="empty">
           {cards.length === 0
             ? 'No papers match this filter.'

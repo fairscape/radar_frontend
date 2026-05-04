@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { listVaultDocs, getVaultStats, getTagCounts, getVaultMeta } from '../endpoints/vault';
 import type { VaultDoc, VaultStats } from '../../types/radar';
 
@@ -8,6 +8,7 @@ export function useVault(tag: string) {
   const [tagCounts, setTagCounts] = useState<Record<string, number>>({});
   const [meta, setMeta] = useState<Awaited<ReturnType<typeof getVaultMeta>> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,7 +26,8 @@ export function useVault(tag: string) {
       setMeta(m);
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tag]);
+  }, [tag, refreshTick]);
 
-  return { docs, stats, tagCounts, meta, loading };
+  const refresh = useCallback(() => setRefreshTick((t) => t + 1), []);
+  return { docs, stats, tagCounts, meta, loading, error: null as Error | null, refresh };
 }
