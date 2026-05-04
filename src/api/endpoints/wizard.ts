@@ -38,8 +38,33 @@ export interface CommitDraftRequest {
   tz?: string;
 }
 
-export function createDraft(name: string): Promise<Draft> {
-  return api.post<Draft>('/api/profiles/draft', { name });
+export interface WizardOption {
+  key: string;
+  label: string;
+  description: string;
+  default: boolean;
+}
+
+export interface WizardOptions {
+  embedders: WizardOption[];
+  selectors: WizardOption[];
+}
+
+export function getWizardOptions(): Promise<WizardOptions> {
+  return api.get<WizardOptions>('/api/profiles/wizard/options');
+}
+
+export interface CreateDraftBody {
+  name: string;
+  embedding_model?: string;
+  selector?: string;
+}
+
+export function createDraft(body: CreateDraftBody | string): Promise<Draft> {
+  // Backwards-compatible: a bare string still works ("just give me a
+  // draft, server-side defaults are fine").
+  const payload = typeof body === 'string' ? { name: body } : body;
+  return api.post<Draft>('/api/profiles/draft', payload);
 }
 
 export function uploadSeed(
