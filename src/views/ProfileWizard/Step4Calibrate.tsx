@@ -50,6 +50,10 @@ export function Step4Calibrate({ onPrev, onDone }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const pollRef = useRef<number | null>(null);
+  const thresholdRef = useRef(state.threshold);
+  useEffect(() => {
+    thresholdRef.current = state.threshold;
+  }, [state.threshold]);
 
   // Stop any in-flight poll on unmount so a slow dry-run doesn't keep
   // hitting the API after the user navigates away.
@@ -98,7 +102,7 @@ export function Step4Calibrate({ onPrev, onDone }: Props) {
               }
               setDry(result);
               setLoading(false);
-              if (state.threshold === null) {
+              if (thresholdRef.current === null) {
                 // Default to the θ that admits ~20 candidates ("useful
                 // but not overwhelming"). Prefer the raw scores (slider
                 // precision) and fall back to the sweep buckets when
@@ -156,7 +160,9 @@ export function Step4Calibrate({ onPrev, onDone }: Props) {
         pollRef.current = null;
       }
     };
-  }, [state.slug, setThreshold, state.threshold]);
+    // Slug-only deps: state.threshold is read via ref so the slider
+    // (and the auto-default setThreshold) doesn't re-kick the dry-run.
+  }, [state.slug, setThreshold]);
 
   async function handleSave() {
     if (!state.slug || state.threshold === null) return;
