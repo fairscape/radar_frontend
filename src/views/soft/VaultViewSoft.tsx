@@ -1,7 +1,9 @@
 import { Fragment, useState } from 'react';
 import { IconSoft } from '../../components/soft/IconSoft';
 import { swatchFor, useProfiles, useVault, useChat } from '../../lib/apiSwitch';
-import type { ChatTurn } from '../../types/radar';
+import type { ChatSource, ChatTurn } from '../../types/radar';
+
+const COLLAPSED_SOURCE_COUNT = 3;
 
 function Bubble({ body }: { body: ChatTurn['body'] }) {
   if (!Array.isArray(body)) return <>{body}</>;
@@ -20,6 +22,54 @@ function Bubble({ body }: { body: ChatTurn['body'] }) {
         );
       })}
     </>
+  );
+}
+
+function SoftSources({ sources }: { sources: ChatSource[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const [openRows, setOpenRows] = useState<Set<number>>(new Set());
+  const visible = showAll ? sources : sources.slice(0, COLLAPSED_SOURCE_COUNT);
+  const hidden = sources.length - visible.length;
+  const toggleRow = (n: number) => {
+    setOpenRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
+  };
+  return (
+    <div className="va-src">
+      {visible.map((s) => {
+        const open = openRows.has(s.n);
+        const hasText = !!(s.text && s.text.trim());
+        return (
+          <div key={s.n} className={`row-wrap ${open ? 'open' : ''}`}>
+            <div
+              className="row"
+              onClick={() => hasText && toggleRow(s.n)}
+              style={{ cursor: hasText ? 'pointer' : 'default' }}
+              title={hasText ? (open ? 'Hide evidence' : 'Show evidence chunk') : 'No evidence text stored for this source'}
+            >
+              <span className="n">[{s.n}]</span>
+              <span className="t">{s.title}</span>
+              <span className="sc">{s.score.toFixed(2)}</span>
+              <span className="caret">{hasText ? (open ? '▾' : '▸') : ''}</span>
+            </div>
+            {open && hasText && <div className="row-text">{s.text}</div>}
+          </div>
+        );
+      })}
+      {sources.length > COLLAPSED_SOURCE_COUNT && (
+        <button
+          type="button"
+          className="va-src-more"
+          onClick={() => setShowAll((v) => !v)}
+        >
+          {showAll ? 'Show fewer' : `Show all ${sources.length} (${hidden} more)`}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -143,17 +193,7 @@ export function VaultViewSoft() {
               <div key={i} className={`va-msg ${m.who}`}>
                 <div className="bubble">
                   <Bubble body={m.body} />
-                  {m.sources && (
-                    <div className="va-src">
-                      {m.sources.map((s) => (
-                        <div key={s.n} className="row">
-                          <span className="n">[{s.n}]</span>
-                          <span className="t">{s.title}</span>
-                          <span className="sc">{s.score.toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {m.sources && m.sources.length > 0 && <SoftSources sources={m.sources} />}
                 </div>
               </div>
             ))}

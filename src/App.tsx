@@ -10,6 +10,7 @@ import { VaultViewSoft } from './views/soft/VaultViewSoft';
 import { ProfileWizard } from './views/ProfileWizard';
 import { Settings } from './views/Settings';
 import { AuthGuard } from './components/AuthGuard';
+import { Splash } from './views/Splash';
 
 type Accent = 'amber' | 'cyan' | 'green' | 'magenta';
 type Density = 'compact' | 'comfortable';
@@ -59,6 +60,10 @@ function viewFromPath(path: string): ViewKey | null {
   return null;
 }
 
+function isSplashPath(path: string): boolean {
+  return path === '/' || path === '/splash';
+}
+
 function pathForView(view: ViewKey): string {
   switch (view) {
     case 'profile-wizard':
@@ -75,6 +80,10 @@ function pathForView(view: ViewKey): string {
 }
 
 export function App() {
+  const [showSplash, setShowSplash] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return isSplashPath(window.location.pathname);
+  });
   const [view, setView] = useState<ViewKey>(() => {
     const fromPath = typeof window !== 'undefined'
       ? viewFromPath(window.location.pathname)
@@ -94,16 +103,23 @@ export function App() {
   const [tweaksOpen, setTweaksOpen] = useState(false);
 
   useEffect(() => {
+    if (showSplash) return;
     localStorage.setItem('radar_view', view);
     const wantPath = pathForView(view);
     if (window.location.pathname !== wantPath) {
       window.history.replaceState({}, '', wantPath);
     }
-  }, [view]);
+  }, [view, showSplash]);
 
   useEffect(() => {
     const onPop = () => {
-      const v = viewFromPath(window.location.pathname);
+      const path = window.location.pathname;
+      if (isSplashPath(path)) {
+        setShowSplash(true);
+        return;
+      }
+      setShowSplash(false);
+      const v = viewFromPath(path);
       if (v) setView(v);
     };
     window.addEventListener('popstate', onPop);
@@ -123,6 +139,10 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+      if (showSplash) {
+        if (e.key === '`') setTweaksOpen((o) => !o);
+        return;
+      }
       if (e.key === 'r' || e.key === 'R') setView('radar');
       if (e.key === 'v' || e.key === 'V') setView('vault');
       if (e.key === 'p' || e.key === 'P') setView('profiles');
@@ -130,7 +150,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [showSplash]);
 
   useEffect(() => {
     document.documentElement.style.setProperty('--acc-high', ACCENT_MAP[tweaks.accent]);
@@ -143,13 +163,34 @@ export function App() {
   const isSoft = tweaks.mode === 'approachable';
   const optsClass = isSoft ? 'tweaks-opts' : 'opts';
 
+  const openFromSplash = (target: ViewKey, mode: Mode) => {
+    updateTweak('mode', mode);
+    setShowSplash(false);
+    setView(target);
+    const wantPath = pathForView(target);
+    if (window.location.pathname !== wantPath) {
+      window.history.pushState({}, '', wantPath);
+    }
+  };
+
+  const goHome = () => {
+    setShowSplash(true);
+    if (window.location.pathname !== '/') {
+      window.history.pushState({}, '', '/');
+    }
+  };
+
+  if (showSplash) {
+    return <Splash onOpen={openFromSplash} />;
+  }
+
   return (
     <AuthGuard>
     <div className={isSoft ? 'soft-app' : 'app'}>
       {isSoft ? (
-        <SidebarSoft view={view} setView={setView} />
+        <SidebarSoft view={view} setView={setView} onHome={goHome} />
       ) : (
-        <Sidebar view={view} setView={setView} />
+        <Sidebar view={view} setView={setView} onHome={goHome} />
       )}
       <div className="main">
         {view === 'profile-wizard' ? (

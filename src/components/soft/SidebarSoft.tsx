@@ -19,9 +19,11 @@ const NAV: { key: ViewKey; label: string; icon: IconName }[] = [
 export function SidebarSoft({
   view,
   setView,
+  onHome,
 }: {
   view: ViewKey;
   setView: (v: ViewKey) => void;
+  onHome?: () => void;
 }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [email, setEmail] = useState<string | null>(() => getUserEmail());
@@ -46,7 +48,12 @@ export function SidebarSoft({
 
   return (
     <aside className="sb">
-      <div className="sb-brand">
+      <div
+        className="sb-brand"
+        onClick={onHome}
+        style={onHome ? { cursor: 'pointer' } : undefined}
+        title={onHome ? 'Home' : undefined}
+      >
         <div className="sb-logo">R</div>
         <div className="sb-name">Radar</div>
       </div>

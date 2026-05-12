@@ -12,7 +12,7 @@ export function Login({ onLogin }: Props) {
   function submit() {
     const v = email.trim().toLowerCase();
     if (!EMAIL_RE.test(v)) {
-      setError('please enter an email address');
+      setError('Please enter a valid email address.');
       return;
     }
     setUserEmail(v);
@@ -20,66 +20,47 @@ export function Login({ onLogin }: Props) {
   }
 
   return (
-    <div className="view" style={{ display: 'flex', justifyContent: 'center', paddingTop: 80 }}>
-      <div style={{ maxWidth: 420, width: '100%' }}>
-        <h1 style={{ marginBottom: 6 }}>Radar</h1>
-        <div className="mono" style={{ color: 'var(--fg-3)', marginBottom: 24, fontSize: 12 }}>
-          SIGN IN · NO PASSWORD
+    <div className="splash-root splash-login">
+      <div className="splash-login-card">
+        <div className="splash-login-mark">
+          <div className="splash-logo">R</div>
+          <span className="name">Radar</span>
         </div>
-        <div className="section">
-          <div className="mono" style={{ color: 'var(--fg-3)', marginBottom: 8, fontSize: 11 }}>
-            EMAIL
-          </div>
+        <h1 className="splash-login-title">Sign in</h1>
+        <p className="splash-login-sub">No password — your email is your identity.</p>
+
+        <div className="splash-login-field">
+          <span className="splash-login-label">Email</span>
           <input
             type="email"
             autoFocus
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (error) setError(null);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') submit();
             }}
             placeholder="you@example.com"
-            style={{
-              width: '100%',
-              padding: 10,
-              fontFamily: 'var(--font-mono)',
-              fontSize: 14,
-              background: 'var(--bg-inset)',
-              color: 'var(--fg)',
-              border: '1px solid var(--line-strong)',
-              boxSizing: 'border-box',
-            }}
+            className="splash-login-input"
           />
-          {error && (
-            <div
-              className="mono"
-              style={{
-                marginTop: 12,
-                padding: 8,
-                fontSize: 11,
-                color: 'var(--err)',
-                background: 'color-mix(in oklab, var(--bg-0), var(--err) 4%)',
-                borderLeft: '2px solid var(--err)',
-              }}
-            >
-              {error}
-            </div>
-          )}
-          <button
-            className="btn primary"
-            onClick={submit}
-            style={{ marginTop: 14, width: '100%', padding: 10 }}
-          >
-            CONTINUE
-          </button>
-          <div
-            className="mono"
-            style={{ marginTop: 14, color: 'var(--fg-4)', fontSize: 10, lineHeight: 1.5 }}
-          >
-            Your email becomes your identity. The backend creates a row on first sign-in;
-            no password is stored. Use a different email to switch users.
-          </div>
+          {error && <div className="splash-login-error">{error}</div>}
         </div>
+
+        <button
+          type="button"
+          className="splash-login-btn"
+          onClick={submit}
+          disabled={email.trim().length === 0}
+        >
+          Continue
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="13,5 20,12 13,19" />
+          </svg>
+        </button>
       </div>
     </div>
   );

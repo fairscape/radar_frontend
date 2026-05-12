@@ -72,6 +72,7 @@ export interface ChatSource {
   n: number;
   title: string;
   score: number;
+  text?: string;
 }
 
 export interface ChatTurn {

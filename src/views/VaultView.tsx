@@ -2,7 +2,57 @@ import { Fragment, useState } from 'react';
 import { TopBar } from '../components/TopBar';
 import { Glyph } from '../components/Glyph';
 import { swatchFor, useProfiles, useVault, useChat } from '../lib/apiSwitch';
-import type { ChatTurn } from '../types/radar';
+import type { ChatSource, ChatTurn } from '../types/radar';
+
+const COLLAPSED_SOURCE_COUNT = 3;
+
+function ChatSources({ sources }: { sources: ChatSource[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const [openRows, setOpenRows] = useState<Set<number>>(new Set());
+  const visible = showAll ? sources : sources.slice(0, COLLAPSED_SOURCE_COUNT);
+  const hidden = sources.length - visible.length;
+  const toggleRow = (n: number) => {
+    setOpenRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
+  };
+  return (
+    <div className="chat-sources">
+      {visible.map((s) => {
+        const open = openRows.has(s.n);
+        const hasText = !!(s.text && s.text.trim());
+        return (
+          <div key={s.n} className={`chat-src ${open ? 'open' : ''}`}>
+            <div
+              className="chat-src-row"
+              onClick={() => hasText && toggleRow(s.n)}
+              style={{ cursor: hasText ? 'pointer' : 'default' }}
+              title={hasText ? (open ? 'Hide evidence' : 'Show evidence chunk') : 'No evidence text stored for this source'}
+            >
+              <span className="n">[{s.n}]</span>
+              <span className="t">{s.title}</span>
+              <span className="sc num">{s.score.toFixed(2)}</span>
+              <span className="caret">{hasText ? (open ? '▾' : '▸') : ''}</span>
+            </div>
+            {open && hasText && <div className="chat-src-text">{s.text}</div>}
+          </div>
+        );
+      })}
+      {sources.length > COLLAPSED_SOURCE_COUNT && (
+        <button
+          type="button"
+          className="chat-src-more"
+          onClick={() => setShowAll((v) => !v)}
+        >
+          {showAll ? 'SHOW FEWER' : `SHOW ALL ${sources.length} (${hidden} MORE)`}
+        </button>
+      )}
+    </div>
+  );
+}
 
 function ChatBody({ body }: { body: ChatTurn['body'] }) {
   if (!Array.isArray(body)) return <div className="body">{body}</div>;
@@ -239,17 +289,7 @@ export function VaultView() {
                   <span className="t">{m.t}</span>
                 </div>
                 <ChatBody body={m.body} />
-                {m.sources && (
-                  <div className="chat-sources">
-                    {m.sources.map((s) => (
-                      <div key={s.n} className="chat-src">
-                        <span className="n">[{s.n}]</span>
-                        <span className="t">{s.title}</span>
-                        <span className="sc num">{s.score.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {m.sources && m.sources.length > 0 && <ChatSources sources={m.sources} />}
               </div>
             ))}
             {sending && (

@@ -24,9 +24,11 @@ const NAV: { key: ViewKey; label: string; glyph: GlyphName }[] = [
 export function Sidebar({
   view,
   setView,
+  onHome,
 }: {
   view: ViewKey;
   setView: (v: ViewKey) => void;
+  onHome?: () => void;
 }) {
   const [email, setEmail] = useState<string | null>(() => getUserEmail());
   const { data: radarData } = useDailyRadar({});
@@ -45,7 +47,12 @@ export function Sidebar({
 
   return (
     <aside className="sb">
-      <div className="sb-brand">
+      <div
+        className="sb-brand"
+        onClick={onHome}
+        style={onHome ? { cursor: 'pointer' } : undefined}
+        title={onHome ? 'Home' : undefined}
+      >
         <div className="sb-mark" />
         <div className="sb-title">Radar</div>
         <div className="sb-ver">v0.9.3</div>
