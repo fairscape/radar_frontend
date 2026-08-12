@@ -2,11 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { VaultDoc } from '../../types/radar';
 import {
   createDraft,
-  getWizardOptions,
   listSeedDocs,
   uploadSeed,
-  type WizardOption,
-  type WizardOptions,
 } from '../../api/endpoints/wizard';
 import { useDraft } from '../../api/hooks/useDraft';
 
@@ -26,35 +23,6 @@ export function Step1Upload({ onNext }: Props) {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  // Embedder + selector dropdowns are populated from the API so a
-  // newly registered plugin shows up without a frontend release. Both
-  // fall back to the API-supplied default; users who don't care never
-  // touch them.
-  const [options, setOptions] = useState<WizardOptions | null>(null);
-  const [embedderKey, setEmbedderKey] = useState<string>('');
-  const [selectorKey, setSelectorKey] = useState<string>('');
-
-  useEffect(() => {
-    let cancelled = false;
-    getWizardOptions()
-      .then((opts) => {
-        if (cancelled) return;
-        setOptions(opts);
-        const eDef = opts.embedders.find((o) => o.default) ?? opts.embedders[0];
-        const sDef = opts.selectors.find((o) => o.default) ?? opts.selectors[0];
-        if (eDef) setEmbedderKey(eDef.key);
-        if (sDef) setSelectorKey(sDef.key);
-      })
-      .catch(() => {
-        // The API call shouldn't fail in normal operation, but if it
-        // does we leave the dropdowns hidden and let create-draft fall
-        // back to server-side defaults — same effect as today.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Refresh staged seeds from the server when we already have a slug
   // (handles reload partway through the wizard).
@@ -83,8 +51,6 @@ export function Step1Upload({ onNext }: Props) {
     try {
       const draft = await createDraft({
         name: name.trim(),
-        embedding_model: embedderKey || undefined,
-        selector: selectorKey || undefined,
       });
       setSlug(draft.slug, draft.name);
     } catch (e) {
@@ -178,22 +144,9 @@ export function Step1Upload({ onNext }: Props) {
             {creating ? 'CREATING…' : 'CREATE DRAFT'}
           </button>
         </div>
-        {options && options.embedders.length > 0 && (
-          <OptionRow
-            label="EMBEDDER"
-            value={embedderKey}
-            onChange={setEmbedderKey}
-            options={options.embedders}
-          />
-        )}
-        {options && options.selectors.length > 0 && (
-          <OptionRow
-            label="SELECTOR"
-            value={selectorKey}
-            onChange={setSelectorKey}
-            options={options.selectors}
-          />
-        )}
+        {/* Embedder/selector dropdowns hidden — upload always uses the
+            server default (specter2 + centroid). Showing them caused
+            profile ↔ upload embedding model mismatches. */}
         {error && <ErrorLine text={error} />}
       </div>
     );
@@ -364,62 +317,6 @@ function SeedRow({ doc, onRemove }: { doc: VaultDoc; onRemove: () => void }) {
           REMOVE
         </button>
       </span>
-    </div>
-  );
-}
-
-function OptionRow({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: WizardOption[];
-}) {
-  const current = options.find((o) => o.key === value);
-  return (
-    <div style={{ marginTop: 12 }}>
-      <div
-        className="mono"
-        style={{
-          fontSize: 11,
-          color: 'var(--fg-3)',
-          letterSpacing: '0.08em',
-          marginBottom: 4,
-        }}
-      >
-        {label}
-      </div>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          width: '100%',
-          padding: 8,
-          fontFamily: 'var(--font-mono)',
-          background: 'var(--bg-inset)',
-          color: 'var(--fg)',
-          border: '1px solid var(--line-strong)',
-        }}
-      >
-        {options.map((o) => (
-          <option key={o.key} value={o.key}>
-            {o.label}
-            {o.default ? ' (default)' : ''}
-          </option>
-        ))}
-      </select>
-      {current?.description && (
-        <div
-          className="mono"
-          style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 4 }}
-        >
-          {current.description}
-        </div>
-      )}
     </div>
   );
 }

@@ -110,9 +110,14 @@ export function Step4Calibrate({ onPrev, onDone }: Props) {
                 if (result.scores.length > 0) {
                   const target = 20;
                   const sorted = [...result.scores].sort((a, b) => b - a);
-                  const pick =
+                  const raw =
                     sorted[Math.min(target - 1, sorted.length - 1)] ??
                     sorted[0];
+                  // Cap at 0.85 — focused seed sets can push the 20th
+                  // score above 0.90, producing an overly aggressive
+                  // threshold that filters out nearly everything on
+                  // subsequent gathers.
+                  const pick = Math.min(raw, 0.85);
                   setThreshold(Number(pick.toFixed(2)));
                 } else if (result.sweep.length > 0) {
                   const best = result.sweep.reduce((acc, row) =>
