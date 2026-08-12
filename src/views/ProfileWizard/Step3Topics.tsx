@@ -86,6 +86,8 @@ export function Step3Topics({ onPrev, onNext }: Props) {
             <span className="tid">{t.id}</span>
             {t.name}
             <span className="tct">n={t.count}</span>
+            {t.source === 'umls' && <span className="topic-src umls">UMLS</span>}
+            {!t.source && <span className="topic-src oalex">OpenAlex</span>}
           </span>
         ))}
       </div>

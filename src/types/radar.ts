@@ -60,6 +60,7 @@ export interface Topic {
   name: string;
   count: number;
   on: boolean;
+  source?: string | null;
 }
 
 export interface SweepRow {
@@ -101,4 +102,24 @@ export interface VaultStats {
   pages: number;
   chunks: number;
   lastIngest: string;
+}
+
+export interface RerankerCandidate {
+  openalex_id: string;
+  title: string;
+  score_selector: number;
+  score_blended: number;
+  rank_before: number;
+  rank_after: number;
+}
+
+export interface RerankerComparisonResponse {
+  ok: boolean;
+  key: string;
+  n: number;
+  candidates: RerankerCandidate[];
+  avg_rank_change: number;
+  max_rank_up: number;
+  max_rank_down: number;
+  queries_used: string[];
 }

@@ -869,6 +869,9 @@ input, textarea { font: inherit; color: inherit; }
 .topic .tid { color: var(--fg-4); font-size: 10px; }
 .topic .tct { color: var(--fg-4); font-size: 10px; }
 .topic.on { color: var(--fg); border-color: var(--fg-3); background: var(--bg-2); }
+.topic-src { font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+.topic-src.umls  { background: #2a1f4e; color: #b39ddb; border: 1px solid #4a3b7a; }
+.topic-src.oalex { background: #1a3a2a; color: #81c784; border: 1px solid #2e6b4a; }
 
 /* threshold histogram + slider (dry-run calibration) */
 .thr-hist {
@@ -1300,6 +1303,76 @@ input, textarea { font: inherit; color: inherit; }
   font-size: 10px;
 }
 .tweaks-row .opts button.on { color: var(--fg); border-color: var(--fg-3); background: var(--bg-2); }
+
+/* ── Reranker Bump Chart ─────────────────────────────────── */
+.rr-summary {
+  display: flex; gap: 16px; padding: 8px 0; flex-wrap: wrap;
+}
+.rr-stat {
+  display: flex; flex-direction: column; align-items: center;
+  min-width: 80px;
+}
+.rr-stat .k {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--fg-3); margin-bottom: 2px;
+}
+.rr-stat .v {
+  font-family: var(--font-mono); font-size: 18px; font-weight: 600;
+}
+
+.rr-chart {
+  display: flex; gap: 0; margin-top: 8px;
+}
+.rr-col {
+  flex: 1; min-width: 0; overflow: hidden;
+}
+.rr-col-head {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--fg-3); padding: 4px 6px; border-bottom: 1px solid var(--line-2);
+  margin-bottom: 2px;
+}
+.rr-row {
+  display: flex; align-items: center; gap: 4px;
+  height: 28px; padding: 0 6px; font-size: 11px;
+  transition: background 0.1s;
+  cursor: default;
+}
+.rr-row:hover, .rr-row.hl {
+  background: var(--bg-3);
+}
+.rr-row .rank {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--fg-3); min-width: 22px; text-align: right;
+}
+.rr-row .ttl {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--fg-2);
+}
+.rr-row .sc {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--fg-3); min-width: 42px; text-align: right;
+}
+.rr-delta {
+  font-family: var(--font-mono); font-size: 10px;
+  min-width: 32px; text-align: right;
+}
+.rr-delta.up   { color: var(--ok); }
+.rr-delta.down { color: var(--err); }
+.rr-delta.flat { color: var(--fg-3); }
+
+.rr-lines {
+  width: 120px; min-width: 120px; flex-shrink: 0;
+  /* pad top so the SVG aligns with the first row (after the column header) */
+  padding-top: 30px;
+}
+.rr-line {
+  fill: none; stroke-width: 1.5; opacity: 0.25;
+  transition: opacity 0.15s, stroke-width 0.15s;
+}
+.rr-line.up   { stroke: var(--ok); }
+.rr-line.down { stroke: var(--err); }
+.rr-line.flat { stroke: var(--fg-3); }
+.rr-line.hl   { opacity: 1; stroke-width: 2.5; }
 
 /* scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }

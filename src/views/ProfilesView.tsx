@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TopBar } from '../components/TopBar';
 import { ThresholdHistogram } from '../components/ThresholdHistogram';
+import { RerankerBumpChart } from '../components/RerankerBumpChart';
 import {
   dryRunProfile,
   swatchFor,
@@ -11,8 +12,10 @@ import {
 import {
   recomputeCoherence,
   recomputeTopics,
+  getRerankerComparison,
   type DryRunResult,
 } from '../api/endpoints/profiles';
+import type { RerankerComparisonResponse } from '../types/radar';
 
 export function ProfilesView({
   selected,
@@ -39,6 +42,9 @@ export function ProfilesView({
   const [thrInput, setThrInput] = useState('');
   const [thrSaving, setThrSaving] = useState(false);
   const [thrError, setThrError] = useState<string | null>(null);
+  const [rerankerData, setRerankerData] = useState<RerankerComparisonResponse | null>(null);
+  const [rerankerLoading, setRerankerLoading] = useState(false);
+  const [rerankerError, setRerankerError] = useState<string | null>(null);
 
   // Drop any stale dry-run + edit state when the selected profile changes.
   useEffect(() => {
@@ -47,6 +53,8 @@ export function ProfilesView({
     setCalibTh(null);
     setThrEditing(false);
     setThrError(null);
+    setRerankerData(null);
+    setRerankerError(null);
   }, [active?.key]);
 
   const onRecompute = async () => {
@@ -100,6 +108,20 @@ export function ProfilesView({
       setThrError(e instanceof Error ? e.message : String(e));
     } finally {
       setThrSaving(false);
+    }
+  };
+
+  const onRerankerCompare = async () => {
+    if (!active?.key) return;
+    setRerankerLoading(true);
+    setRerankerError(null);
+    try {
+      const data = await getRerankerComparison(active.key);
+      setRerankerData(data);
+    } catch (e) {
+      setRerankerError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRerankerLoading(false);
     }
   };
 
@@ -233,6 +255,14 @@ export function ProfilesView({
                     title="Pull persisted candidate scores and render the threshold histogram"
                   >
                     {dryRunning ? 'DRY-RUN…' : 'DRY-RUN'}
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={onRerankerCompare}
+                    disabled={rerankerLoading}
+                    title="Compare selector vs reranker rankings"
+                  >
+                    {rerankerLoading ? 'RERANKER…' : 'RERANKER'}
                   </button>
                 </div>
               </div>
@@ -533,6 +563,55 @@ export function ProfilesView({
                   <div className="empty mono" style={{ fontSize: 11, color: 'var(--fg-3)' }}>
                     No dry-run yet. Click DRY-RUN above to load the candidate
                     score distribution and slide θ to preview pass-counts.
+                  </div>
+                )}
+              </div>
+
+              <div className="section">
+                <h3>
+                  Reranker Comparison <span className="hr" />
+                  <span
+                    className="mono"
+                    style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.08em' }}
+                  >
+                    {rerankerData
+                      ? `${rerankerData.n} CANDIDATES`
+                      : 'CLICK RERANKER TO POPULATE'}
+                  </span>
+                </h3>
+                {rerankerError && (
+                  <div
+                    className="mono"
+                    style={{
+                      margin: '8px 0',
+                      padding: 8,
+                      color: 'var(--err)',
+                      background: 'color-mix(in oklab, var(--bg-0), var(--err) 4%)',
+                      borderLeft: '2px solid var(--err)',
+                      fontSize: 11,
+                    }}
+                  >
+                    RERANKER FAILED: {rerankerError}
+                  </div>
+                )}
+                {rerankerData ? (
+                  rerankerData.n === 0 ? (
+                    <div className="empty mono" style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+                      No reranked candidates. Run a gather with reranker enabled first.
+                    </div>
+                  ) : (
+                    <RerankerBumpChart
+                      candidates={rerankerData.candidates}
+                      n={rerankerData.n}
+                      avgRankChange={rerankerData.avg_rank_change}
+                      maxRankUp={rerankerData.max_rank_up}
+                      maxRankDown={rerankerData.max_rank_down}
+                      queriesUsed={rerankerData.queries_used ?? []}
+                    />
+                  )
+                ) : (
+                  <div className="empty mono" style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+                    Click RERANKER above to load the before/after comparison chart.
                   </div>
                 )}
               </div>

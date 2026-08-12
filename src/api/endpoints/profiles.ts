@@ -134,3 +134,13 @@ export function listProfileRuns(key: string, limit = 20): Promise<GatherRunStatu
     { limit },
   );
 }
+
+export function getRerankerComparison(
+  key: string,
+  limit = 50,
+): Promise<import('../../types/radar').RerankerComparisonResponse> {
+  return apiGet<import('../../types/radar').RerankerComparisonResponse>(
+    `/api/profiles/${encodeURIComponent(key)}/reranker-comparison`,
+    { limit },
+  );
+}
