@@ -468,6 +468,20 @@
 }
 .soft-app .pa-topic.on { background: color-mix(in oklab, transparent, var(--acc) 18%); color: var(--acc); border-color: var(--acc-soft); }
 .soft-app .pa-topic .tn { font-size: 11px; color: var(--fg-4); font-family: var(--mono); }
+/* Badges carried over from the dense theme so a topic reads the same in
+   both: where it came from, and whether it is actually gathering. The
+   accent-tint that marks .on is easy to miss on a wall of chips. */
+.soft-app .pa-topic .topic-src,
+.soft-app .pa-topic .topic-off {
+  font-size: 10px; padding: 1px 7px; border-radius: 999px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.soft-app .pa-topic .topic-src.umls { background: #2a1f4e; color: #b39ddb; }
+.soft-app .pa-topic .topic-off { background: #3a1f1f; color: #e08c8c; }
+.soft-app .pa-topic:not(.on) { opacity: 0.55; text-decoration: line-through; }
+.soft-app .pa-topic:not(.on) .topic-src,
+.soft-app .pa-topic:not(.on) .topic-off,
+.soft-app .pa-topic:not(.on) .tn { text-decoration: none; }
 
 .soft-app .pa-sweep {
   display: grid;

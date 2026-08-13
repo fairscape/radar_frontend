@@ -177,12 +177,17 @@ export function ProfilesViewSoft({
               <div className="pa-section">
                 <h3>Topic filter</h3>
                 <div className="hint">
-                  Radar narrows down daily candidates to these OpenAlex topics before scoring.
+                  Radar narrows down daily candidates to these topics before scoring
+                  — the {detail.topics.filter((t) => t.on).length} switched on, out of{' '}
+                  {detail.topics.length}. Ones marked UMLS were inferred from the
+                  medical concepts in your seeds rather than assigned by OpenAlex.
                 </div>
                 <div className="pa-topics">
                   {detail.topics.map((t) => (
                     <span key={t.id} className={`pa-topic ${t.on ? 'on' : ''}`}>
                       {t.name} <span className="tn">{t.id}</span>
+                      {t.source === 'umls' && <span className="topic-src umls">UMLS</span>}
+                      {!t.on && <span className="topic-off">OFF</span>}
                     </span>
                   ))}
                 </div>

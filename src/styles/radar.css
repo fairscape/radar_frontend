@@ -872,6 +872,17 @@ input, textarea { font: inherit; color: inherit; }
 .topic-src { font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
 .topic-src.umls  { background: #2a1f4e; color: #b39ddb; border: 1px solid #4a3b7a; }
 .topic-src.oalex { background: #1a3a2a; color: #81c784; border: 1px solid #2e6b4a; }
+/* A switched-off topic differed from an active one only by three small
+   colour steps, which in the dark theme is not a difference anyone
+   notices — a profile with ten of fourteen topics off looked like a
+   profile with fourteen on. Say it in words. */
+.topic-off {
+  font-size: 9px; padding: 1px 5px; margin-left: 4px; border-radius: 3px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  background: #3a1f1f; color: #e08c8c; border: 1px solid #6b2e2e;
+}
+.topic:not(.on) { opacity: 0.55; text-decoration: line-through; }
+.topic:not(.on) .topic-src, .topic:not(.on) .topic-off { text-decoration: none; }
 
 /* threshold histogram + slider (dry-run calibration) */
 .thr-hist {

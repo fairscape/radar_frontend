@@ -494,12 +494,18 @@ export function ProfilesView({
 
               <div className="section">
                 <h3>
-                  OpenAlex Topic Filter <span className="hr" />
+                  {/* Not "OpenAlex Topic Filter": some of these come from
+                      UMLS concept mapping, and the count is of the ones
+                      that gather, not of the list. Both were misleading
+                      enough that a profile with ten topics switched off
+                      read as a profile with fourteen active ones. */}
+                  Topic Filter <span className="hr" />
                   <span
                     className="mono"
                     style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.08em' }}
                   >
-                    {detail.topics.length} TOPICS
+                    {detail.topics.filter((t) => t.on).length} OF{' '}
+                    {detail.topics.length} ENABLED
                   </span>
                 </h3>
                 {detail.topics.length === 0 ? (
@@ -514,6 +520,13 @@ export function ProfilesView({
                         <span className="tid">{t.id}</span>
                         {t.name}
                         <span className="tct">n={t.count}</span>
+                        {/* Same badges the wizard's step 3 uses, so a
+                            topic looks the same wherever it is shown. */}
+                        {t.source === 'umls' && (
+                          <span className="topic-src umls">UMLS</span>
+                        )}
+                        {!t.source && <span className="topic-src oalex">OpenAlex</span>}
+                        {!t.on && <span className="topic-off">OFF</span>}
                       </span>
                     ))}
                   </div>
