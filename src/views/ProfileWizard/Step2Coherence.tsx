@@ -92,7 +92,7 @@ export function Step2Coherence({ onPrev, onNext }: Props) {
         </div>
       )}
 
-      {coh && (
+      {coh && coh.n >= 2 && (
         <>
           <div
             className="mono"
@@ -153,6 +153,18 @@ interface Banner {
 }
 
 function bannerFor(coh: DraftCoherence): Banner {
+  // Coherence is a pairwise statistic: one seed has no pair, and the
+  // backend reports median 0.0 as a placeholder rather than a NaN. Reading
+  // that 0.0 as a measurement would flag every single-seed profile as
+  // incoherent, which is the one thing it cannot be.
+  if (coh.n < 2) {
+    return {
+      label: 'HEALTH · NOT APPLICABLE',
+      message:
+        'A single seed has no pairwise similarity to measure. The centroid is that paper. Add more seeds and re-run coherence from the profile page.',
+      color: 'var(--warn)',
+    };
+  }
   // Bimodal is expected for multi-topic profiles; suppress the warning.
   if (coh.median >= 0.75) {
     return {

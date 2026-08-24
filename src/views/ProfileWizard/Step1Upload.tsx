@@ -263,17 +263,25 @@ export function Step1Upload({ onNext }: Props) {
           gap: 12,
         }}
       >
-        {state.seeds.length < 2 && (
+        {state.seeds.length === 0 && (
           <span
             className="mono"
             style={{ fontSize: 11, color: 'var(--fg-3)', letterSpacing: '0.06em' }}
           >
-            Upload at least 2 seeds to continue.
+            Upload at least 1 seed to continue.
+          </span>
+        )}
+        {state.seeds.length === 1 && (
+          <span
+            className="mono"
+            style={{ fontSize: 11, color: 'var(--warn)', letterSpacing: '0.06em' }}
+          >
+            One seed works — coherence is skipped, the centroid is that paper.
           </span>
         )}
         <button
           className="btn primary"
-          disabled={state.seeds.length < 2}
+          disabled={state.seeds.length === 0}
           onClick={onNext}
         >
           NEXT · COHERENCE →
