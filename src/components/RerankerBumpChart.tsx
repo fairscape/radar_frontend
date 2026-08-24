@@ -13,7 +13,9 @@ interface Props {
 const ROW_H = 28;
 const MAX_SHOW = 30;
 
-export function RerankerBumpChart({ candidates, n, queriesUsed }: Props) {
+export function RerankerBumpChart({
+  candidates, n, avgRankChange, maxRankUp, maxRankDown, queriesUsed,
+}: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
 
@@ -25,23 +27,22 @@ export function RerankerBumpChart({ candidates, n, queriesUsed }: Props) {
   // After-sorted list (by blended rank ascending)
   const afterSorted = [...visible].sort((a, b) => a.rank_after - b.rank_after);
 
-  // Maps: openalex_id -> visual row index (0-based) in each column
+  // Maps: openalex_id -> visual row index (0-based) in each column.
+  // These position the SVG lines and nothing else. Rows have to sit on
+  // consecutive pixels; ranks do not, and a paper the selector had at
+  // 114 has no row to be drawn from in a 30-row chart.
   const beforeIndex: Record<string, number> = {};
   beforeSorted.forEach((c, i) => { beforeIndex[c.openalex_id] = i; });
   const afterIndex: Record<string, number> = {};
   afterSorted.forEach((c, i) => { afterIndex[c.openalex_id] = i; });
 
-  // Compute delta from visual positions so it matches the displayed ranks
-  // and the SVG connecting lines. Positive = promoted, negative = demoted.
-  const deltaOf = (id: string) => beforeIndex[id] - afterIndex[id];
-
-  // Recompute summary stats from visible visual positions
-  const deltas = visible.map(c => deltaOf(c.openalex_id));
-  const avgChange = deltas.length > 0
-    ? deltas.reduce((s, d) => s + Math.abs(d), 0) / deltas.length
-    : 0;
-  const maxUp = deltas.length > 0 ? Math.max(...deltas, 0) : 0;
-  const maxDown = deltas.length > 0 ? Math.abs(Math.min(...deltas, 0)) : 0;
+  // How far the reranker actually moved a paper, over every candidate —
+  // not over the rows on screen. Deriving it from visual positions made
+  // the figure a function of how many rows were expanded: one paper read
+  // "+24" collapsed, "+39" expanded and "+111" in truth, and the summary
+  // said the reranker moved papers 9.7 places on average when the real
+  // figure was 43.4. Positive = promoted.
+  const deltaOf = (c: RerankerCandidate) => c.rank_before - c.rank_after;
 
   const svgH = count * ROW_H;
 
@@ -55,18 +56,20 @@ export function RerankerBumpChart({ candidates, n, queriesUsed }: Props) {
         </div>
         <div className="rr-stat">
           <div className="k">Avg Change</div>
-          <div className="v">{avgChange.toFixed(1)}</div>
+          <div className="v" title="Mean |rank change| over all reranked candidates">
+            {avgRankChange.toFixed(1)}
+          </div>
         </div>
         <div className="rr-stat">
           <div className="k">Max Promoted</div>
-          <div className="v" style={{ color: maxUp > 0 ? 'var(--ok)' : undefined }}>
-            +{maxUp}
+          <div className="v" style={{ color: maxRankUp > 0 ? 'var(--ok)' : undefined }}>
+            +{maxRankUp}
           </div>
         </div>
         <div className="rr-stat">
           <div className="k">Max Demoted</div>
-          <div className="v" style={{ color: maxDown > 0 ? 'var(--err)' : undefined }}>
-            -{maxDown}
+          <div className="v" style={{ color: maxRankDown > 0 ? 'var(--err)' : undefined }}>
+            -{maxRankDown}
           </div>
         </div>
       </div>
@@ -100,13 +103,23 @@ export function RerankerBumpChart({ candidates, n, queriesUsed }: Props) {
         </div>
       )}
 
+      {/* Ranks are real; row positions are not. Saying so, because the
+          two disagree on purpose and the gap is large — a paper can read
+          114 while sitting on the twenty-seventh row. */}
+      <div className="mono" style={{
+        fontSize: 10, color: 'var(--fg-3)', margin: '6px 0 2px',
+      }}>
+        Ranks are over all {n} candidates; rows show only these {count}, so the
+        connecting lines compress the distances.
+      </div>
+
       {/* Bump chart */}
       <div className="rr-chart">
         {/* Before column */}
         <div className="rr-col">
           <div className="rr-col-head">Before (Selector)</div>
-          {beforeSorted.map((c, i) => {
-            const delta = deltaOf(c.openalex_id);
+          {beforeSorted.map((c) => {
+            const delta = deltaOf(c);
             const cls = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
             return (
               <div
@@ -115,7 +128,7 @@ export function RerankerBumpChart({ candidates, n, queriesUsed }: Props) {
                 onMouseEnter={() => setHovered(c.openalex_id)}
                 onMouseLeave={() => setHovered(null)}
               >
-                <span className="rank">{i + 1}</span>
+                <span className="rank">{c.rank_before}</span>
                 <span className="ttl">{c.title}</span>
                 <span className="sc">{c.score_selector.toFixed(3)}</span>
                 <span className={`rr-delta ${cls}`}>
@@ -134,7 +147,7 @@ export function RerankerBumpChart({ candidates, n, queriesUsed }: Props) {
               const aIdx = afterIndex[c.openalex_id] ?? 0;
               const y1 = bIdx * ROW_H + ROW_H / 2;
               const y2 = aIdx * ROW_H + ROW_H / 2;
-              const delta = deltaOf(c.openalex_id);
+              const delta = deltaOf(c);
               const cls = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
               const isHl = hovered === c.openalex_id;
               return (
@@ -153,8 +166,8 @@ export function RerankerBumpChart({ candidates, n, queriesUsed }: Props) {
         {/* After column */}
         <div className="rr-col">
           <div className="rr-col-head">After (Blended)</div>
-          {afterSorted.map((c, i) => {
-            const delta = deltaOf(c.openalex_id);
+          {afterSorted.map((c) => {
+            const delta = deltaOf(c);
             const cls = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
             return (
               <div
@@ -163,7 +176,7 @@ export function RerankerBumpChart({ candidates, n, queriesUsed }: Props) {
                 onMouseEnter={() => setHovered(c.openalex_id)}
                 onMouseLeave={() => setHovered(null)}
               >
-                <span className="rank">{i + 1}</span>
+                <span className="rank">{c.rank_after}</span>
                 <span className="ttl">{c.title}</span>
                 <span className="sc">{c.score_blended.toFixed(3)}</span>
                 <span className={`rr-delta ${cls}`}>
