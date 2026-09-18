@@ -20,10 +20,17 @@ import type { VaultDoc } from '../../types/radar';
 
 const STORAGE_KEY = 'radar.wizard.draft';
 
+export interface ProsopiaImportInfo {
+  ref: string;
+  nSeeds: number | null;
+}
+
 export interface DraftState {
   slug: string | null;
   name: string;
   seeds: VaultDoc[];
+  /** Set when the draft was seeded by the Prosopia import instead of uploads. */
+  prosopia: ProsopiaImportInfo | null;
   selectedTopicIds: string[];
   threshold: number | null;
   step: number;
@@ -33,6 +40,7 @@ const EMPTY: DraftState = {
   slug: null,
   name: '',
   seeds: [],
+  prosopia: null,
   selectedTopicIds: [],
   threshold: null,
   step: 1,
@@ -108,6 +116,10 @@ export function useDraft() {
     setState((s) => ({ ...s, seeds }));
   }, []);
 
+  const setProsopia = useCallback((info: ProsopiaImportInfo | null) => {
+    setState((s) => ({ ...s, prosopia: info }));
+  }, []);
+
   const toggleTopic = useCallback((id: string) => {
     setState((s) =>
       s.selectedTopicIds.includes(id)
@@ -142,6 +154,7 @@ export function useDraft() {
     addSeed,
     removeSeed,
     setSeeds,
+    setProsopia,
     toggleTopic,
     setSelectedTopics,
     setThreshold,

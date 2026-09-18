@@ -6,13 +6,16 @@ import {
   uploadSeed,
 } from '../../api/endpoints/wizard';
 import { useDraft } from '../../api/hooks/useDraft';
+import { ProsopiaImport, type ProsopiaImportDone } from './ProsopiaImport';
+import { ErrorLine } from './ErrorLine';
 
 interface Props {
   onNext: () => void;
 }
 
 export function Step1Upload({ onNext }: Props) {
-  const { state, setSlug, addSeed, removeSeed, setSeeds } = useDraft();
+  const { state, setSlug, addSeed, removeSeed, setSeeds, setProsopia } =
+    useDraft();
   const [name, setName] = useState(state.name);
   const [creating, setCreating] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
@@ -58,6 +61,12 @@ export function Step1Upload({ onNext }: Props) {
     } finally {
       setCreating(false);
     }
+  }
+
+  function handleProsopiaDone(done: ProsopiaImportDone) {
+    setSlug(done.slug, done.name);
+    setProsopia({ ref: done.ref, nSeeds: done.nSeeds });
+    onNext();
   }
 
   async function handleFiles(files: FileList | null) {
@@ -117,7 +126,8 @@ export function Step1Upload({ onNext }: Props) {
           Step 1 — Name your profile <span className="hr" />
         </h3>
         <div className="mono" style={{ color: 'var(--fg-3)', marginBottom: 12 }}>
-          A draft profile is created on the server so seeds can attach to it.
+          Name the profile and create an empty draft to upload PDFs into, or
+          import a Prosopia profile below.
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
@@ -147,10 +157,18 @@ export function Step1Upload({ onNext }: Props) {
         {/* Embedder/selector dropdowns hidden — upload always uses the
             server default (specter2 + centroid). Showing them caused
             profile ↔ upload embedding model mismatches. */}
+        <ProsopiaImport
+          name={name}
+          disabled={creating}
+          onDone={handleProsopiaDone}
+        />
         {error && <ErrorLine text={error} />}
       </div>
     );
   }
+
+  const imported = state.prosopia;
+  const haveSeeds = state.seeds.length > 0 || imported !== null;
 
   return (
     <div className="section">
@@ -246,8 +264,26 @@ export function Step1Upload({ onNext }: Props) {
         >
           STAGED SEEDS · {state.seeds.length}
         </div>
+        {imported && (
+          <div
+            className="mono"
+            style={{
+              fontSize: 11,
+              color: 'var(--fg-3)',
+              letterSpacing: '0.08em',
+              marginBottom: 6,
+            }}
+          >
+            IMPORTED FROM PROSOPIA · {imported.ref}
+            {imported.nSeeds != null ? ` · ${imported.nSeeds} papers` : ''}
+          </div>
+        )}
         {state.seeds.length === 0 && (
-          <div className="empty">no seeds yet — upload 8–15 PDFs</div>
+          <div className="empty">
+            {imported
+              ? 'imported seeds live on the server; upload PDFs to add more'
+              : 'no seeds yet — upload 8–15 PDFs'}
+          </div>
         )}
         {state.seeds.map((doc) => (
           <SeedRow key={doc.id} doc={doc} onRemove={() => removeSeed(doc.id)} />
@@ -263,7 +299,7 @@ export function Step1Upload({ onNext }: Props) {
           gap: 12,
         }}
       >
-        {state.seeds.length === 0 && (
+        {!haveSeeds && (
           <span
             className="mono"
             style={{ fontSize: 11, color: 'var(--fg-3)', letterSpacing: '0.06em' }}
@@ -279,11 +315,7 @@ export function Step1Upload({ onNext }: Props) {
             One seed works — coherence is skipped, the centroid is that paper.
           </span>
         )}
-        <button
-          className="btn primary"
-          disabled={state.seeds.length === 0}
-          onClick={onNext}
-        >
+        <button className="btn primary" disabled={!haveSeeds} onClick={onNext}>
           NEXT · COHERENCE →
         </button>
       </div>
@@ -325,24 +357,6 @@ function SeedRow({ doc, onRemove }: { doc: VaultDoc; onRemove: () => void }) {
           REMOVE
         </button>
       </span>
-    </div>
-  );
-}
-
-function ErrorLine({ text }: { text: string }) {
-  return (
-    <div
-      className="mono"
-      style={{
-        marginTop: 12,
-        padding: 8,
-        fontSize: 11,
-        color: 'var(--err)',
-        background: 'color-mix(in oklab, var(--bg-0), var(--err) 4%)',
-        borderLeft: '2px solid var(--err)',
-      }}
-    >
-      {text}
     </div>
   );
 }
