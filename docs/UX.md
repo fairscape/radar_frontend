@@ -11,7 +11,9 @@ and how the UI is shaped around that. Read it before adding a screen.
 | **Interest**   | `profile`           | A named set of seed papers + topic filters + a score threshold. The unit Radar scans for. Renamed because "Profile" now means a Prosopia researcher profile. |
 | **Seed**       | seed / vault doc    | A paper that defines an interest. Comes from an uploaded PDF or a Prosopia import. |
 | **Topic**      | topic filter        | An OpenAlex (or UMLS-mapped) concept the gatherer queries. Aggregated from the seeds. |
-| **Threshold**  | `threshold` (θ)     | Minimum similarity for a candidate to count as a hit. Set by looking at a histogram of real scores. |
+| **Threshold**  | `threshold` (θ)     | Minimum similarity (raw cosine to the seed centroid) for a candidate to reach the feed. Set on a histogram of real scores, next to the band where the user's own seeds score. |
+| **Agreement**  | `coherence_median` + `rag_lib.calibration` | How much the seeds are about the same thing, 0–100, with a label (focused / broad / mixed). Replaces raw "coherence" in the UI; see the backend's `docs/CALIBRATION.md` for the measured bands. |
+| **Like your seeds / Above the bar / Below the bar** | `bucket` high / medium / low | A paper's level: as similar as the seeds themselves, above the threshold, or below it. |
 | **Scan**       | gather run          | One background pass: query OpenAlex for the last N days → embed → score against the interest → persist candidates. Has live progress. |
 | **Paper**      | candidate / card    | A scored paper attached to one interest. State: new, saved, dismissed. |
 | **Feed**       | daily radar         | The top 200 candidates across all interests, best score first, with triage state. Not date-bounded. |
@@ -93,6 +95,11 @@ Rules applied everywhere:
 - Every list has three explicit states: loading, empty (with what to do), error (with retry).
 - Nothing is displayed that the backend does not return. The old
   hard-coded diagnostics ("Prec@10 0.71", "centroid drift 0.024") are gone.
+- Score scales are calibrated, not assumed. Candidate similarities live
+  in roughly 0.80–0.96; the threshold slider spans the observed scores
+  plus the seed band instead of a fixed 0.5–1.0, the suggested threshold
+  comes from the backend, and the number on a card is the similarity
+  the threshold is compared against (the rank percentile is secondary).
 - Data fetching goes through one small cache (`src/lib/query.ts`) so the
   sidebar and the page share requests; mutations invalidate by key prefix.
 

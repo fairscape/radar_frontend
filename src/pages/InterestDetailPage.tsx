@@ -19,7 +19,7 @@ import { toast } from '../lib/toast';
 import type { Profile } from '../types/radar';
 import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, Stat, Tabs, useAction } from '../ui';
 import { Link } from '../ui/Link';
-import { CoherenceHistogram, HealthBadge, JobProgress, RerankerBumpChart, SectionNote, ThresholdHistogram, healthOf } from '../ui/domain';
+import { CoherenceHistogram, HealthBadge, JobProgress, RerankerBumpChart, SectionNote, ThresholdHistogram, agreementTone, axisFor, healthOf } from '../ui/domain';
 import { goToFeedFor } from './FeedPage';
 
 type Tab = 'overview' | 'seeds' | 'topics' | 'threshold' | 'scans' | 'diagnostics';
@@ -83,8 +83,8 @@ export function InterestDetailPage({ profileKey }: { profileKey: string }) {
 
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         <Stat label="Seed papers" value={profile.seeds} sub={profile.seeds < 5 ? 'Fewer than 5 is thin' : undefined} />
-        <Stat label="Threshold" value={profile.threshold.toFixed(2)} sub="minimum score to surface" />
-        <Stat label="Coherence" value={profile.seeds >= 2 ? profile.coherence.toFixed(2) : '—'} sub="median pairwise similarity" tone={profile.seeds >= 2 ? health.tone === 'neutral' ? undefined : health.tone : undefined} />
+        <Stat label="Threshold" value={profile.threshold.toFixed(3)} sub={profile.seedSimMin != null ? `your seeds score ${profile.seedSimMin.toFixed(3)}+` : 'minimum similarity to count'} />
+        <Stat label="Seed agreement" value={profile.agreement != null ? `${profile.agreement}/100` : '—'} sub={health.label} tone={profile.agreement != null ? agreementTone(profile.agreement) : undefined} />
         <Stat label="Saved · dismissed" value={`${profile.saves30} · ${profile.dismisses30}`} sub="last 30 days" />
       </div>
 
@@ -125,7 +125,7 @@ function OverviewTab({ profile, detail, onScan }: { profile: Profile; detail: De
     <div className="two-col">
       <Panel title="How this interest works">
         <div className="stack" style={{ fontSize: 13.5, color: 'var(--fg-2)' }}>
-          <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> topics, embeds each new paper and scores it against the centroid of your <b>{detail.seeds.length}</b> seed papers. Anything scoring at or above <b>{profile.threshold.toFixed(2)}</b> is a hit.</p>
+          <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> topics and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed papers. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{profile.seedSimMin.toFixed(3)}</b> or more are as close as your own seeds</>}.</p>
           <p>Scans run automatically every day at 04:00 UTC. You can also start one any time.</p>
           <p>Saving or dismissing a paper in the feed is recorded as feedback for this {TERMS.interest} and used when it is refit.</p>
         </div>
@@ -157,6 +157,7 @@ function OverviewTab({ profile, detail, onScan }: { profile: Profile; detail: De
 }
 
 function SeedsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
+  const health = healthOf(profile);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
@@ -193,7 +194,7 @@ function SeedsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
             <span className="idx">{String(s.idx).padStart(2, '0')}</span>
             <span className="truncate" title={s.title}>{s.title}</span>
             <span className="muted mono small">{s.year || ''}</span>
-            <span className={`mono small ${s.coh > 0 && s.coh < 0.65 ? '' : ''}`} title="Similarity of this seed to the centroid" style={{ color: s.coh > 0 && s.coh < 0.65 ? 'var(--warn)' : 'var(--fg-3)' }}>
+            <span className="mono small" title="How similar this seed is to the other seeds (leave-one-out). The lowest values are the least typical papers." style={{ color: s.coh > 0 && profile.seedSimMin != null && s.coh <= profile.seedSimMin + 1e-6 && profile.seedSimMax != null && profile.seedSimMax - profile.seedSimMin > 0.02 ? 'var(--warn)' : 'var(--fg-3)' }}>
               {s.coh > 0 ? s.coh.toFixed(3) : '—'}
             </span>
           </div>
@@ -215,19 +216,24 @@ function SeedsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
         </div>
         {failures.length > 0 && <ErrorBox compact title="Some files failed" message={failures.map((f) => <div key={f}>{f}</div>)} />}
       </Panel>
-      <Panel title="Coherence" description="Pairwise similarity between seeds. Tight clusters make a sharper interest.">
+      <Panel title="Do the seeds agree?" description="Whether the seed papers are about the same thing. The similarity column on the left shows how typical each seed is; the lowest ones are the odd ones out.">
         {detail.seeds.length < 2 ? (
           <p className="muted small">Needs at least two seeds.</p>
         ) : detail.coherenceBins.length === 0 ? (
           <p className="muted small">Not computed yet. Click Recompute.</p>
         ) : (
           <>
-            <div className="row-wrap small muted" style={{ marginBottom: 8, gap: 16 }}>
-              <span>median <b className="mono">{profile.coherence.toFixed(2)}</b></span>
-              <span>range <b className="mono">{detail.coherenceStats.min.toFixed(2)}–{detail.coherenceStats.max.toFixed(2)}</b></span>
-              <span>{((detail.seeds.length * (detail.seeds.length - 1)) / 2).toLocaleString()} pairs</span>
-            </div>
-            <CoherenceHistogram bins={detail.coherenceBins} />
+            <Callout tone={health.tone === 'ok' ? 'ok' : health.tone === 'err' ? 'err' : health.tone === 'warn' ? 'warn' : 'info'} title={health.label}>{health.hint}</Callout>
+            <details style={{ marginTop: 10 }}>
+              <summary className="small muted" style={{ cursor: 'pointer' }}>Technical detail</summary>
+              <div className="row-wrap small muted" style={{ margin: '8px 0', gap: 16 }}>
+                <span>median pairwise cosine <b className="mono">{profile.coherence.toFixed(3)}</b></span>
+                <span>range <b className="mono">{detail.coherenceStats.min.toFixed(2)}–{detail.coherenceStats.max.toFixed(2)}</b></span>
+                <span>{((detail.seeds.length * (detail.seeds.length - 1)) / 2).toLocaleString()} pairs</span>
+                {profile.seedSimMin != null && profile.seedSimMax != null && <span>each seed vs the others <b className="mono">{profile.seedSimMin.toFixed(3)}–{profile.seedSimMax.toFixed(3)}</b></span>}
+              </div>
+              <CoherenceHistogram bins={detail.coherenceBins} />
+            </details>
           </>
         )}
       </Panel>
@@ -275,6 +281,9 @@ function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => voi
   const scoresQ = useQuery(`profiles/${profile.key}/scores`, () => candidateScores(profile.key));
   const [value, setValue] = useState<number>(profile.threshold);
   useEffect(() => setValue(profile.threshold), [profile.threshold, profile.key]);
+  const band = scoresQ.data?.seed_similarity ?? (profile.seedSimMin != null && profile.seedSimMax != null ? { min: profile.seedSimMin, median: (profile.seedSimMin + profile.seedSimMax) / 2, max: profile.seedSimMax } : null);
+  const suggested = scoresQ.data?.suggested_threshold ?? null;
+  const [axisLo, axisHi] = axisFor(scoresQ.data?.scores ?? [], band, scoresQ.data?.score_range ?? null);
   const save = useAction(async () => {
     await updateProfileThreshold(profile.key, Number(value.toFixed(3)));
     toast.success(`Threshold saved as ${value.toFixed(2)}.`);
@@ -283,7 +292,7 @@ function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => voi
   return (
     <Panel
       title="Threshold"
-      description="Move the slider to see how many of the papers already gathered would clear it. The feed shows everything gathered; the threshold decides what counts as a hit."
+      description="The similarity a paper needs to reach your feed. The shaded band is where your own seed papers score; the suggested value sits just below it. Move the bar to see how many already-gathered papers would clear it."
       actions={
         <>
           <Button size="sm" variant="ghost" onClick={() => setValue(profile.threshold)} disabled={!dirty}>Reset</Button>
@@ -298,11 +307,19 @@ function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => voi
         <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Run a scan first, then come back to tune the threshold." action={<Button icon="play" onClick={onScan}>Scan now</Button>} />
       )}
       {scoresQ.data && scoresQ.data.scores.length > 0 && (
-        <ThresholdHistogram scores={scoresQ.data.scores} value={value} onChange={setValue} reference={profile.threshold} />
+        <>
+          {suggested != null && Math.abs(suggested - value) > 0.0005 && (
+            <div className="row" style={{ marginBottom: 10 }}>
+              <span className="small muted">Suggested for these seeds: <b className="mono">{suggested.toFixed(3)}</b></span>
+              <Button size="sm" variant="ghost" onClick={() => setValue(suggested)}>Use suggested</Button>
+            </div>
+          )}
+          <ThresholdHistogram scores={scoresQ.data.scores} value={value} min={axisLo} max={axisHi} onChange={setValue} reference={profile.threshold} seedBand={band} suggested={suggested} periodLabel="of gathered papers would pass" />
+        </>
       )}
       <div className="row" style={{ marginTop: 12 }}>
         <Field label="Exact value" inline>
-          <Input type="number" min={0} max={1} step={0.005} value={value} onChange={(e) => setValue(Math.max(0, Math.min(1, Number(e.target.value) || 0)))} style={{ width: 110 }} />
+          <Input type="number" min={0} max={1} step={0.001} value={value} onChange={(e) => setValue(Math.max(0, Math.min(1, Number(e.target.value) || 0)))} style={{ width: 110 }} />
         </Field>
       </div>
     </Panel>

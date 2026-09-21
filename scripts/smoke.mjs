@@ -90,6 +90,7 @@ try {
 
   section('wizard: coherence');
   await waitText('Only one seed');
+  await waitText('agreement between seeds');
   await shot('wizard-step2');
   await clickText('button', 'Next: choose topics');
 
@@ -111,8 +112,9 @@ try {
   // Slider → preview updates
   await page.$eval('input[type=range]', (el) => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(el, '0.95'); el.dispatchEvent(new Event('input', { bubbles: true })); });
   await sleep(200);
-  await expectText('at 0.95');
-  await expectText('Suggested:');
+  await expectText('at 0.950');
+  await expectText('Use suggested');
+  await expectText('your seeds');
   await clickText('button', 'Save interest and start scanning');
 
   section('after save: detail page + auto scan');
@@ -159,7 +161,7 @@ try {
   // filters
   await page.select('select', 'wearable-sepsis-sensors');
   await sleep(500);
-  await clickText('.seg', 'Low');
+  await clickText('.seg', 'Below the bar');
   await sleep(300);
   await shot('feed-filtered');
 
@@ -208,6 +210,7 @@ try {
   await sleep(200);
   await clickText('button', 'Save threshold');
   await waitText('Threshold saved as 0.95', 5000);
+  await expectText('where your seeds score');
   await shot('detail-threshold');
 
   section('vault: upload, filter, chat');
@@ -264,7 +267,8 @@ try {
   await waitText('Seeds · 12', 10000);
   await shot('prosopia-imported');
   await clickText('button', 'Next: check coherence');
-  await waitText('Tight', 8000);
+  await waitText('Your seeds agree', 8000);
+  await waitText('Agreement');
 
   section('not found + deep link');
   await page.goto(`${BASE}/interests/nope`, { waitUntil: 'networkidle0' });

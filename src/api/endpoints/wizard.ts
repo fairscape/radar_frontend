@@ -1,5 +1,5 @@
 /** Draft-interest (wizard) endpoints. Shapes mirror ``rag_lib/api/schemas.py``. */
-import type { Card, Profile, SweepRow, Topic, VaultDoc } from '../../types/radar';
+import type { Card, CoherenceLabel, Profile, SeedSimilarity, SweepRow, Topic, VaultDoc } from '../../types/radar';
 import { apiDelete, apiGet, apiPost } from '../client';
 import { invalidate } from '../../lib/query';
 import type { GatherRunStatus } from './profiles';
@@ -9,18 +9,36 @@ export interface Draft {
   name: string;
 }
 
+export interface LeastSimilarPair {
+  a_id: string;
+  a_title: string;
+  b_id: string;
+  b_title: string;
+  cosine: number;
+}
+
 export interface DraftCoherence {
   bins: number[];
   median: number;
   iqr: number;
   bimodal: boolean;
   n: number;
+  label?: CoherenceLabel;
+  agreement?: number | null;
+  summary?: string;
+  seed_similarity?: SeedSimilarity | null;
+  least_similar?: LeastSimilarPair | null;
 }
 
 export interface DraftDryRun {
   sweep: SweepRow[];
   preview: Card[];
+  /** Raw cosine per fetched candidate. */
   scores: number[];
+  suggested_threshold?: number | null;
+  seed_similarity?: SeedSimilarity | null;
+  /** [lo, hi] the slider should span. */
+  score_range?: [number, number] | number[] | null;
 }
 
 export interface DraftDryRunStatus {

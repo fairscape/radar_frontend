@@ -52,7 +52,7 @@ interface MockState {
   profiles: MockProfile[];
   docs: VaultDoc[];
   chat: ChatTurn[];
-  dryRuns: Record<number, { slug: string; result: { sweep: unknown[]; preview: Card[]; scores: number[] } | null }>;
+  dryRuns: Record<number, { slug: string; result: { sweep: unknown[]; preview: Card[]; scores: number[]; suggested_threshold?: number; seed_similarity?: { min: number; median: number; max: number }; score_range?: number[] } | null }>;
   imports: Record<number, { slug: string; result: Record<string, unknown> | null }>;
   /** Unfinished simulated runs, so a page reload can resume them. */
   sims: Record<number, { kind: 'scan' | 'dryrun' | 'import'; slug: string; days?: number; limit?: number; ref?: string; name?: string }>;
@@ -82,8 +82,10 @@ function pick<T>(arr: T[], i: number): T {
   return arr[i % arr.length];
 }
 
-function makeCard(i: number, slug: string, score: number): Card {
-  const bucket = score >= 0.95 ? 'high' : score >= 0.925 ? 'medium' : 'low';
+function makeCard(i: number, slug: string, score: number, opts: { threshold?: number; seedMin?: number; pct?: number } = {}): Card {
+  const thr = opts.threshold ?? 0.917;
+  const seedMin = opts.seedMin ?? 0.927;
+  const bucket = score >= seedMin ? 'high' : score >= thr ? 'medium' : 'low';
   const id = `https://openalex.org/W${(4400000000 + i * 7919).toString()}`;
   return {
     id,
@@ -94,7 +96,8 @@ function makeCard(i: number, slug: string, score: number): Card {
     doi: i % 4 === 3 ? null : `10.1000/radar.${1000 + i}`,
     openalex: id,
     profile: slug,
-    score: Number(score.toFixed(4)),
+    score: Number((opts.pct ?? 1 - i / 40).toFixed(4)),
+    similarity: Number(score.toFixed(4)),
     bucket,
     abstract:
       'We report a prospective study of ' +
@@ -125,19 +128,19 @@ function seedState(email: string): MockState {
     topics: topics.map(([tid, tname, count, on, source]) => ({ id: tid, name: tname, count, on, source })),
     candidates: [], runs: [], feedback: [],
   });
-  const a = mk(1, 'neonatal-vitals', 'Neonatal vital-sign monitoring', 150, 0.93, 0.74, [
+  const a = mk(1, 'neonatal-vitals', 'Neonatal vital-sign monitoring', 150, 0.93, 0.926, [
     ['T10001', 'Neonatal intensive care', 7, true, null],
     ['T10234', 'Physiologic monitoring', 5, true, null],
     ['T10877', 'Sepsis prediction', 3, true, 'umls'],
     ['T11020', 'Retinopathy of prematurity', 1, false, null],
   ]);
-  const b = mk(2, 'fair-provenance', 'FAIR data provenance', 40, 0.9, 0.61, [
+  const b = mk(2, 'fair-provenance', 'FAIR data provenance', 40, 0.9, 0.878, [
     ['T12001', 'Research data management', 6, true, null],
     ['T12333', 'Workflow provenance', 4, true, null],
     ['T12900', 'Cryptographic attestation', 2, true, 'umls'],
   ]);
-  a.candidates = Array.from({ length: 9 }, (_, i) => ({ card: makeCard(i, a.slug, 0.985 - i * 0.012), saved: i === 1, dismissed: i === 6 }));
-  b.candidates = Array.from({ length: 6 }, (_, i) => ({ card: makeCard(i + 20, b.slug, 0.97 - i * 0.015), saved: false, dismissed: false }));
+  a.candidates = Array.from({ length: 9 }, (_, i) => ({ card: makeCard(i, a.slug, 0.952 - i * 0.006, { threshold: 0.93, seedMin: 0.928, pct: 1 - i / 8 }), saved: i === 1, dismissed: i === 6 }));
+  b.candidates = Array.from({ length: 6 }, (_, i) => ({ card: makeCard(i + 20, b.slug, 0.945 - i * 0.008, { threshold: 0.9, seedMin: 0.92, pct: 1 - i / 5 }), saved: false, dismissed: false }));
   a.runs = [{ id: 11, profile_id: 1, started_at: nowIso(-86400000 * 1.1), finished_at: nowIso(-86400000 * 1.1 + 92000), since_date: null, filter_string: null, tier_used: 'scheduled', n_fetched: 412, n_new: 9, n_redup: 380, api_calls: 6, error: null, current_step: 'done', n_processed: 412, n_total: 412, last_message: null }];
   b.runs = [{ id: 12, profile_id: 2, started_at: nowIso(-86400000 * 3), finished_at: nowIso(-86400000 * 3 + 40000), since_date: null, filter_string: null, tier_used: 'scheduled', n_fetched: 0, n_new: 0, n_redup: 0, api_calls: 2, error: 'OpenAlex returned 503 after 3 retries', current_step: 'fetching', n_processed: 0, n_total: null, last_message: null }];
   a.feedback = [{ id: 1, openalex_id: a.candidates[1].card.id, doi: a.candidates[1].card.doi, action: 'saved', score: 0.973, ts: nowIso(-3600000) }, { id: 2, openalex_id: a.candidates[6].card.id, doi: null, action: 'dismissed', score: 0.913, ts: nowIso(-7200000) }];
@@ -191,8 +194,38 @@ function stateFor(email: string): MockState {
 function toProfile(p: MockProfile): Profile {
   const saves30 = p.feedback.filter((f) => f.action === 'saved').length + p.candidates.filter((c) => c.saved).length;
   const dismisses30 = p.candidates.filter((c) => c.dismissed).length;
-  const health = p.is_draft ? 'warn' : p.coherence < 0.6 ? 'err' : p.coherence < 0.7 ? 'warn' : 'ok';
-  return { key: p.slug, name: p.name, hue: p.hue, health, threshold: p.threshold, coherence: p.coherence, seeds: p.seeds.length, saves30, dismisses30, isDraft: p.is_draft };
+  const n = p.seeds.length;
+  const label = n === 0 ? 'none' : n < 2 ? 'single' : p.coherence >= 0.9 ? 'focused' : p.coherence >= 0.86 ? 'broad' : 'mixed';
+  const health = label === 'focused' ? 'ok' : label === 'mixed' ? 'err' : 'warn';
+  const agreement = n >= 2 ? Math.round(100 * Math.max(0, Math.min(1, (p.coherence - 0.82) / 0.13))) : null;
+  const band = seedBand(p);
+  return { key: p.slug, name: p.name, hue: p.hue, health, threshold: p.threshold, coherence: p.coherence, seeds: n, saves30, dismisses30, isDraft: p.is_draft, coherenceLabel: label, agreement, seedSimMin: band?.min ?? null, seedSimMax: band?.max ?? null };
+}
+
+function seedBand(p: MockProfile) {
+  const n = p.seeds.length;
+  if (n < 2) return null;
+  const min = 0.92 + (n % 3) * 0.004;
+  return { min, median: min + 0.015, max: min + 0.03 };
+}
+
+function coherenceSummary(label: string, n: number, agreement: number | null) {
+  const a = agreement == null ? '—' : `${agreement}/100`;
+  if (label === 'none') return 'No seed papers yet.';
+  if (label === 'single') return "One seed paper. Radar will look for papers like it; agreement between seeds can't be measured until there are two.";
+  if (label === 'focused') return `Your ${n} seed papers agree with each other (${a}). They describe one clear topic, so matches should be on target.`;
+  if (label === 'broad') return `Your ${n} seed papers only loosely agree (${a}). They may cover two related topics; results will lean towards whichever group is larger.`;
+  return `Your ${n} seed papers don't share a topic (${a}) — about as similar as random papers from the same field.`;
+}
+
+function coherenceFull(p: MockProfile) {
+  const c = coherenceOf(p);
+  const n = p.seeds.length;
+  const label = n === 0 ? 'none' : n < 2 ? 'single' : c.median >= 0.9 ? 'focused' : c.median >= 0.86 ? 'broad' : 'mixed';
+  const agreement = n >= 2 ? Math.round(100 * Math.max(0, Math.min(1, (c.median - 0.82) / 0.13))) : null;
+  const band = seedBand(p);
+  const least = n >= 2 ? { a_id: p.seeds[0].id, a_title: p.seeds[0].title, b_id: p.seeds[n - 1].id, b_title: p.seeds[n - 1].title, cosine: Number((c.median - 0.03).toFixed(3)) } : null;
+  return { ...c, label, agreement, summary: coherenceSummary(label, n, agreement), seed_similarity: band, least_similar: least };
 }
 
 function coherenceOf(p: MockProfile) {
@@ -202,8 +235,8 @@ function coherenceOf(p: MockProfile) {
     for (let i = 0; i < (n * (n - 1)) / 2; i++) bins[7 + (i % 5)] += 1;
     bins[3] += 1;
   }
-  const median = n >= 2 ? Math.min(0.9, 0.55 + n * 0.02) : 0;
-  return { bins, median: Number(median.toFixed(3)), iqr: n >= 2 ? 0.11 : 0, bimodal: false, n };
+  const median = n >= 2 ? (/mixed|broad/i.test(p.name) ? 0.875 : Math.min(0.94, 0.905 + n * 0.003)) : 0;
+  return { bins, median: Number(median.toFixed(3)), iqr: n >= 2 ? 0.024 : 0, bimodal: false, n };
 }
 
 function slugify(name: string) {
@@ -250,15 +283,21 @@ function simulateRun(run: MockRun, kind: 'scan' | 'dryrun' | 'import', total: nu
 function completeScan(st: MockState, p: MockProfile, run: MockRun, days: number) {
   const fresh = 3 + (days % 4);
   for (let i = 0; i < fresh; i++) {
-    p.candidates.unshift({ card: makeCard(st.nextId++, p.slug, 0.99 - i * 0.02), saved: false, dismissed: false });
+    p.candidates.unshift({ card: makeCard(st.nextId++, p.slug, 0.948 - i * 0.007, { threshold: p.threshold || 0.917, seedMin: seedBand(p)?.min ?? 0.927, pct: 1 - i / 10 }), saved: false, dismissed: false });
   }
   run.n_new = fresh;
   run.n_redup = (run.n_fetched ?? 0) - fresh;
   run.api_calls = 4;
 }
 function completeDryRun(st: MockState, p: MockProfile, run: MockRun) {
-  const scores = Array.from({ length: 180 }, (_, i) => Number((0.99 - Math.pow(i / 180, 0.6) * 0.5).toFixed(3)));
-  st.dryRuns[run.id] = { slug: p.slug, result: { sweep: [], preview: Array.from({ length: 8 }, (_, i) => makeCard(i + 40, p.slug, scores[i])), scores } };
+  // Shaped like the measured SPECTER2 pool: 0.81–0.95, median ~0.89.
+  const scores = Array.from({ length: 180 }, (_, i) => Number((0.95 - Math.pow(i / 180, 1.4) * 0.14).toFixed(3)));
+  const band = seedBand(p) ?? { min: 0.927, median: 0.94, max: 0.952 };
+  const sorted = [...scores].sort((x, y) => y - x);
+  const p75 = sorted[Math.floor(sorted.length * 0.25)];
+  const p98 = sorted[Math.floor(sorted.length * 0.02)];
+  const suggested = Number(Math.min(Math.max(band.min - 0.01, p75), p98).toFixed(3));
+  st.dryRuns[run.id] = { slug: p.slug, result: { sweep: [], preview: Array.from({ length: 8 }, (_, i) => makeCard(i + 40, p.slug, scores[i], { threshold: suggested, seedMin: band.min, pct: 1 - i / 179 })), scores, suggested_threshold: suggested, seed_similarity: band, score_range: [Number((Math.min(scores[scores.length - 1], band.min) - 0.01).toFixed(3)), Number((Math.max(scores[0], band.max) + 0.005).toFixed(3))] } };
 }
 function completeImport(st: MockState, p: MockProfile, run: MockRun, ref: string, name: string) {
   p.seeds = Array.from({ length: 12 }, (_, i) => ({ id: `W9${p.id}${i}`, title: pick(TITLES, i + 3), year: 2018 + (i % 7), coh: 0.7 }));
@@ -350,7 +389,7 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     if (!p) return err(404, `draft '${m[1]}' not found`);
     if (m[2] === 'coherence') {
       await new Promise((r) => window.setTimeout(r, 600));
-      const c = coherenceOf(p);
+      const c = coherenceFull(p);
       p.coherence = c.median;
       return json(c);
     }
@@ -416,7 +455,7 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
       const populated = c.bins.map((v, i) => (v > 0 ? i : -1)).filter((i) => i >= 0);
       return json({
         profile: toProfile(p),
-        seeds: p.seeds.map((s, i) => ({ id: s.id, idx: i + 1, title: s.title, year: s.year, coh: s.coh })),
+        seeds: p.seeds.map((s, i) => ({ id: s.id, idx: i + 1, title: s.title, year: s.year, coh: p.seeds.length >= 2 ? Number((0.93 + ((i * 7) % 5) * 0.006).toFixed(3)) : 0 })),
         topics: p.topics,
         sweep: [],
         coherenceBins: p.seeds.length >= 2 ? c.bins : [],
@@ -427,7 +466,7 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     }
     if (sub === 'recompute-coherence') {
       await new Promise((r) => window.setTimeout(r, 700));
-      const c = coherenceOf(p);
+      const c = coherenceFull(p);
       p.coherence = c.median;
       return json(c);
     }
@@ -436,7 +475,14 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
       return json(p.topics);
     }
     if (sub === 'refit') return json({ ok: true, key: p.slug, cost: '1.2 s · 9 vecs' });
-    if (sub === 'dry-run') return json({ ok: true, key: p.slug, n: p.candidates.length, scores: p.candidates.map((c) => c.card.score) });
+    if (sub === 'dry-run') {
+      const scores = p.candidates.map((c) => c.card.similarity ?? c.card.score);
+      const band = seedBand(p);
+      const sorted = [...scores].sort((x, y) => y - x);
+      const suggested = scores.length >= 10 && band ? Number(Math.min(Math.max(band.min - 0.01, sorted[Math.floor(sorted.length * 0.25)]), sorted[Math.floor(sorted.length * 0.02)]).toFixed(3)) : band ? Number((band.min - 0.01).toFixed(3)) : null;
+      const all = [...scores, ...(band ? [band.min, band.max] : [])];
+      return json({ ok: true, key: p.slug, n: scores.length, scores, suggested_threshold: suggested, seed_similarity: band, score_range: all.length ? [Number((Math.min(...all) - 0.01).toFixed(3)), Number((Math.max(...all) + 0.005).toFixed(3))] : null });
+    }
     if (sub.startsWith('gather-now')) {
       const days = Number(q.get('days') ?? 7);
       const limit = Number(q.get('limit') ?? 500);
@@ -449,7 +495,7 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     if (sub === 'feedback') return json(p.feedback.map((f) => ({ ...f, profile_id: p.id, selector: 'centroid', selector_config_hash: null, benchmark_run_id: null })));
     if (sub === 'schedule') return json({ profile_id: p.id, cron: String(body?.cron ?? '0 4 * * *'), tz: String(body?.tz ?? 'UTC'), enabled: body?.enabled ?? true, updated_at: nowIso() });
     if (sub === 'reranker-comparison') {
-      const cands = p.candidates.map((c, i) => ({ openalex_id: c.card.id, title: c.card.title, score_selector: c.card.score, score_blended: Number((c.card.score - 0.02 + ((i * 7) % 5) * 0.01).toFixed(3)), rank_before: i + 1, rank_after: ((i + 3) % p.candidates.length) + 1 }));
+      const cands = p.candidates.map((c, i) => ({ openalex_id: c.card.id, title: c.card.title, score_selector: c.card.similarity ?? c.card.score, score_blended: Number(((c.card.similarity ?? c.card.score) - 0.02 + ((i * 7) % 5) * 0.01).toFixed(3)), rank_before: i + 1, rank_after: ((i + 3) % p.candidates.length) + 1 }));
       return json({ ok: true, key: p.slug, n: cands.length, candidates: cands, avg_rank_change: 2.4, max_rank_up: 4, max_rank_down: 3, queries_used: ['neonatal monitoring', 'sepsis heart rate'] });
     }
     if (sub === 'topic-yield') {

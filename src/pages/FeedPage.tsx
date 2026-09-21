@@ -161,9 +161,9 @@ export function FeedPage() {
               onChange={setBucket}
               options={[
                 { value: 'all', label: 'All', count: bucket === 'all' ? bucketCounts.all : null },
-                { value: 'high', label: 'High', count: bucket === 'all' ? bucketCounts.high : null },
-                { value: 'medium', label: 'Medium', count: bucket === 'all' ? bucketCounts.medium : null },
-                { value: 'low', label: 'Low', count: bucket === 'all' ? bucketCounts.low : null },
+                { value: 'high', label: 'Like your seeds', count: bucket === 'all' ? bucketCounts.high : null },
+                { value: 'medium', label: 'Above the bar', count: bucket === 'all' ? bucketCounts.medium : null },
+                { value: 'low', label: 'Below the bar', count: bucket === 'all' ? bucketCounts.low : null },
               ]}
             />
             <label className="row small muted" style={{ gap: 6, cursor: 'pointer' }}>
@@ -308,7 +308,8 @@ function PaperCard({
   onFocus: () => void; onToggle: () => void; onSave: () => void; onDismiss: () => void;
 }) {
   const href = card.doi ? `https://doi.org/${card.doi}` : card.openalex;
-  const delta = profile ? card.score - profile.threshold : null;
+  const similarity = card.similarity ?? null;
+  const delta = profile && similarity != null ? similarity - profile.threshold : null;
   return (
     <article
       className={`paper ${state ?? ''} ${focused ? 'focused' : ''}`}
@@ -317,12 +318,12 @@ function PaperCard({
       onFocus={onFocus}
       aria-label={card.title}
     >
-      <div className="paper-score">
-        <ScoreValue score={card.score} />
+      <div className="paper-score" title={similarity != null ? `Similarity to the seed papers: ${similarity.toFixed(3)}. Rank: top ${Math.max(1, Math.round(100 - card.score * 100))}% of this interest's pool.` : `Rank percentile ${card.score.toFixed(2)}`}>
+        <ScoreValue score={similarity ?? card.score} />
         <BucketBadge bucket={card.bucket} />
         {delta != null && (
-          <span className="small muted mono" title={`Score minus this ${TERMS.interest}'s threshold (${profile!.threshold.toFixed(2)})`}>
-            {delta >= 0 ? '+' : ''}{delta.toFixed(2)} vs θ
+          <span className="small muted mono" title={`Similarity minus this ${TERMS.interest}'s threshold (${profile!.threshold.toFixed(3)})`}>
+            {delta >= 0 ? '+' : ''}{delta.toFixed(3)} vs bar
           </span>
         )}
       </div>
@@ -360,7 +361,8 @@ function PaperCard({
               <div>
                 <h4>Why it scored this way</h4>
                 <div className="signals">
-                  <Signal label="Similarity" value={card.centroidCos} hint="Cosine similarity to the interest's seed centroid" />
+                  <Signal label="Similarity" value={card.similarity ?? card.centroidCos} hint="Cosine similarity to the interest's seed papers (0.80 ≈ unrelated papers in the same field, 0.93+ ≈ as close as your own seeds)" />
+                  <Signal label="Rank" value={card.score} hint="Position within everything gathered for this interest (1 = top)" />
                   <Signal label="Topic match" value={card.topicMatch} hint="Overlap with the interest's topic filters" />
                   <Signal label="Novelty" value={card.noveltyDelta} hint="How different this is from what you have already seen" />
                 </div>

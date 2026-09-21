@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useProfiles } from '../api/hooks';
 import { deleteDraft } from '../api/endpoints/wizard';
+import { getDraft, resetDraft } from '../lib/draft';
 import { errorMessage } from '../lib/format';
 import { useJobs } from '../lib/jobs';
 import { paths } from '../lib/router';
@@ -54,8 +55,8 @@ export function InterestsPage() {
                 </div>
                 <div className="interest-card-stats">
                   <span><b>{p.seeds}</b>seeds</span>
-                  <span><b>{p.threshold.toFixed(2)}</b>threshold</span>
-                  <span><b>{p.seeds >= 2 ? p.coherence.toFixed(2) : '—'}</b>coherence</span>
+                  <span><b>{p.threshold.toFixed(3)}</b>threshold</span>
+                  <span title="0 = unrelated, 100 = near-identical seeds"><b>{p.agreement != null ? p.agreement : '—'}</b>agreement</span>
                 </div>
                 <div className="interest-card-foot">
                   <span>{p.saves30} saved · {p.dismisses30} dismissed (30 d)</span>
@@ -89,6 +90,7 @@ function DraftRow({ draft }: { draft: Profile }) {
     setDeleting(true);
     try {
       await deleteDraft(draft.key);
+      if (getDraft().slug === draft.key) resetDraft();
       toast.success(`Deleted draft "${draft.name}".`);
     } catch (e) {
       toast.error(`Couldn't delete the draft: ${errorMessage(e)}`);

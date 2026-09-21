@@ -11,18 +11,14 @@ import type {
   Profile,
   RerankerComparisonResponse,
   Seed,
+  SeedSimilarity,
   SweepRow,
   Topic,
   TopicYieldResponse,
 } from '../../types/radar';
+import type { DraftCoherence } from './wizard';
 
-export interface DraftCoherence {
-  bins: number[];
-  median: number;
-  iqr: number;
-  bimodal: boolean;
-  n: number;
-}
+export type { DraftCoherence } from './wizard';
 
 export interface ProfileDetail {
   profile: Profile;
@@ -58,7 +54,11 @@ export interface DryRunResult {
   ok: true;
   key: string;
   n: number;
+  /** Raw cosine of every gathered candidate. */
   scores: number[];
+  suggested_threshold?: number | null;
+  seed_similarity?: SeedSimilarity | null;
+  score_range?: [number, number] | number[] | null;
 }
 
 const enc = encodeURIComponent;

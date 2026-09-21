@@ -7,6 +7,7 @@ import {
   deleteDraft,
   getDraftCoherence,
   getDraftTopics,
+  type DraftCoherence,
   type DraftDryRun,
 } from '../api/endpoints/wizard';
 import { getDraft, resetDraft, useDraft, type DraftState } from '../lib/draft';
@@ -19,7 +20,7 @@ import { toast } from '../lib/toast';
 import type { ProsopiaImportResult } from '../types/prosopia';
 import { Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, confirmDialog, useAction } from '../ui';
 import { Link } from '../ui/Link';
-import { CoherenceHistogram, JobProgress, ThresholdHistogram } from '../ui/domain';
+import { CoherenceHistogram, JobProgress, ThresholdHistogram, agreementTone, axisFor } from '../ui/domain';
 
 const STEPS = [
   { n: 1, label: 'Seeds', hint: 'name + papers' },
@@ -35,6 +36,7 @@ export function WizardPage({ draftSlug }: { draftSlug: string | null }) {
   const { state, update, reset } = useDraft();
   const { data: profiles } = useProfiles();
   const [resuming, setResuming] = useState(false);
+  const checkedRef = useRef(false);
 
   // Resume a server-side draft from ``?draft=slug``; keep the URL in sync otherwise.
   useEffect(() => {
@@ -50,6 +52,17 @@ export function WizardPage({ draftSlug }: { draftSlug: string | null }) {
       update({ slug: row.key, name: row.name, step: 1, source: 'upload' });
       setResuming(true);
       return;
+    }
+    // A remembered draft that no longer exists on the server (deleted
+    // elsewhere) must not be resumed. Checked once, when the list first
+    // arrives, so a draft created a moment ago is not mistaken for stale.
+    if (profiles && !checkedRef.current) {
+      checkedRef.current = true;
+      if (state.slug && !profiles.some((p) => p.key === state.slug)) {
+        resetDraft();
+        navigate(paths.wizard(), { replace: true });
+        return;
+      }
     }
     if (!draftSlug && state.slug) navigate(paths.wizard(state.slug), { replace: true });
   }, [draftSlug, state.slug, profiles, update]);
@@ -292,9 +305,9 @@ function StepCheck({ state }: { state: DraftState }) {
   const slug = state.slug!;
   const coh = useQuery(`draft/${slug}/coherence`, () => getDraftCoherence(slug));
   const c = coh.data;
-  const verdict = c ? verdictFor(c.n, c.median) : null;
+  const verdict = c ? verdictFor(c) : null;
   return (
-    <Panel title="Step 2 · Do the seeds agree?" description="Radar measures how similar the seeds are to each other. A tight cluster makes a precise interest; a loose one surfaces noise.">
+    <Panel title="Step 2 · Do the seeds agree?" description="Radar checks whether your seed papers are about the same thing. Papers that agree make a sharp interest; a mix of topics makes a blurry one.">
       {coh.error && <ErrorBox message={errorMessage(coh.error)} onRetry={coh.refresh} />}
       {coh.loading && (
         <div className="row muted" style={{ padding: '18px 0' }}><span className="spinner" style={{ width: 16, height: 16 }} /> Computing coherence from {plural(state.seeds.length || 1, 'seed')}…</div>
@@ -304,12 +317,23 @@ function StepCheck({ state }: { state: DraftState }) {
           <Callout tone={verdict.tone} title={verdict.title}>{verdict.body}</Callout>
           {c.n >= 2 && (
             <>
-              <div className="row-wrap small muted" style={{ gap: 16 }}>
-                <span>median similarity <b className="mono">{c.median.toFixed(3)}</b></span>
-                <span>spread (IQR) <b className="mono">{c.iqr.toFixed(3)}</b></span>
-                <span>{plural(c.n, 'seed')} · {((c.n * (c.n - 1)) / 2).toLocaleString()} pairs</span>
-              </div>
-              <CoherenceHistogram bins={c.bins} />
+              <AgreementMeter agreement={c.agreement ?? null} n={c.n} />
+              {c.least_similar && (
+                <div className="small muted">
+                  Least alike pair: <b>{c.least_similar.a_title || c.least_similar.a_id}</b> and <b>{c.least_similar.b_title || c.least_similar.b_id}</b>
+                  {' '}(similarity {c.least_similar.cosine.toFixed(2)}). If one of them is off-topic, go back and remove it.
+                </div>
+              )}
+              <details>
+                <summary className="small muted" style={{ cursor: 'pointer' }}>Technical detail</summary>
+                <div className="row-wrap small muted" style={{ gap: 16, margin: '8px 0' }}>
+                  <span>median pairwise cosine <b className="mono">{c.median.toFixed(3)}</b></span>
+                  <span>spread (IQR) <b className="mono">{c.iqr.toFixed(3)}</b></span>
+                  <span>{plural(c.n, 'seed')} · {((c.n * (c.n - 1)) / 2).toLocaleString()} pairs</span>
+                  {c.seed_similarity && <span>each seed vs the others <b className="mono">{c.seed_similarity.min.toFixed(3)}–{c.seed_similarity.max.toFixed(3)}</b></span>}
+                </div>
+                <CoherenceHistogram bins={c.bins} />
+              </details>
             </>
           )}
         </div>
@@ -325,11 +349,26 @@ function StepCheck({ state }: { state: DraftState }) {
   );
 }
 
-function verdictFor(n: number, median: number): { tone: 'ok' | 'warn' | 'err' | 'info'; title: string; body: string } {
-  if (n < 2) return { tone: 'info', title: 'Only one seed', body: 'There is nothing to compare it with, so coherence is not measured. The interest will be centred on that paper. You can add more seeds now or later.' };
-  if (median >= 0.75) return { tone: 'ok', title: 'Tight', body: 'The seeds cluster cleanly around one topic. Radar will find close matches.' };
-  if (median >= 0.6) return { tone: 'warn', title: 'Acceptable but loose', body: 'There is a real common topic, but it is broad. Adding a few more focused papers, or removing outliers, would sharpen results. You can continue as is.' };
-  return { tone: 'err', title: 'Low coherence', body: 'The seeds do not agree on a topic. Whichever sub-group is largest will dominate the scoring. Consider going back and splitting them into separate interests.' };
+function verdictFor(c: DraftCoherence): { tone: 'ok' | 'warn' | 'err' | 'info'; title: string; body: string } {
+  // Prefer the backend's calibrated reading; fall back to the same bands locally.
+  const label = c.label ?? (c.n < 2 ? 'single' : c.median >= 0.9 ? 'focused' : c.median >= 0.86 ? 'broad' : 'mixed');
+  const body = c.summary || '';
+  if (label === 'single' || label === 'none') return { tone: 'info', title: 'Only one seed', body: body || 'There is nothing to compare it with yet. The interest will be centred on that paper; add more seeds now or later.' };
+  if (label === 'focused') return { tone: 'ok', title: 'Your seeds agree', body: body || 'They describe one clear topic, so matches should be on target.' };
+  if (label === 'broad') return { tone: 'warn', title: 'Your seeds only loosely agree', body: body || 'They may cover two related topics. You can continue, but removing the odd ones out would sharpen results.' };
+  return { tone: 'err', title: "Your seeds don't share a topic", body: body || 'They are about as similar as random papers from the same field. Split them into separate interests or remove the ones that do not belong.' };
+}
+
+function AgreementMeter({ agreement, n }: { agreement: number | null; n: number }) {
+  if (agreement == null) return null;
+  const tone = agreementTone(agreement);
+  return (
+    <div className={`agreement agreement-${tone}`} title="0 = as unrelated as papers from different fields · 100 = near-identical papers. Focused interests score above about 60.">
+      <span className="small" style={{ fontWeight: 600 }}>Agreement</span>
+      <span className="agreement-track"><span className="agreement-fill" style={{ width: `${agreement}%` }} /></span>
+      <b className="mono">{agreement}</b><span className="small muted">/100 across {plural(n, 'seed')}</span>
+    </div>
+  );
 }
 
 // --- Step 3 ------------------------------------------------------------------
@@ -410,7 +449,9 @@ function StepThreshold({ state }: { state: DraftState }) {
 
   const result = job?.status === 'done' ? (job.result as DraftDryRun) : null;
   const scores = useMemo(() => result?.scores ?? [], [result]);
-  const suggested = useMemo(() => suggestThreshold(scores), [scores]);
+  const band = result?.seed_similarity ?? null;
+  const suggested = useMemo(() => result?.suggested_threshold ?? suggestThreshold(scores, band?.min ?? null), [result, scores, band]);
+  const [axisLo, axisHi] = useMemo(() => axisFor(scores, band, result?.score_range ?? null), [scores, band, result]);
   const value = state.threshold ?? suggested ?? 0.9;
   useEffect(() => {
     if (state.threshold === null && suggested != null) update({ threshold: suggested });
@@ -430,7 +471,7 @@ function StepThreshold({ state }: { state: DraftState }) {
   });
 
   return (
-    <Panel title="Step 4 · How strict should it be?" description="Radar runs a trial scan over the last 30 days and shows how every paper scored. Set the threshold where the good matches end. You can change it later.">
+    <Panel title="Step 4 · How strict should it be?" description="Radar runs a trial scan over the last 30 days and scores every paper it finds against your seeds. The shaded band shows where your own seed papers score; the suggested threshold sits just below it. Move the bar to trade volume for precision. You can change it later.">
       {kickError && <ErrorBox title="Couldn't start the trial scan" message={kickError} onRetry={kick} />}
       {job && job.status === 'running' && (
         <div className="stack">
@@ -445,19 +486,22 @@ function StepThreshold({ state }: { state: DraftState }) {
       {result && scores.length > 0 && (
         <div className="stack" style={{ gap: 16 }}>
           <Callout tone="info">
-            <b>{passing}</b> of <b>{scores.length}</b> papers from the last 30 days would have reached your feed at <b className="mono">{value.toFixed(2)}</b>.
-            {suggested != null && Math.abs(value - suggested) > 0.004 && <> Suggested: <b className="mono">{suggested.toFixed(2)}</b> (about 20 papers a month).</>}
+            <b>{passing}</b> of <b>{scores.length}</b> papers from the last 30 days ({scores.length ? Math.round((100 * passing) / scores.length) : 0}%) would have reached your feed at <b className="mono">{value.toFixed(3)}</b>.
+            {band && <> Your own seeds score <b className="mono">{band.min.toFixed(3)}–{band.max.toFixed(3)}</b>; papers above <b className="mono">{band.min.toFixed(3)}</b> are as close as your seeds.</>}
+            {suggested != null && Math.abs(value - suggested) > 0.0005 && (
+              <> <Button size="sm" variant="ghost" onClick={() => update({ threshold: suggested })}>Use suggested {suggested.toFixed(3)}</Button></>
+            )}
           </Callout>
-          <ThresholdHistogram scores={scores} value={value} onChange={(v) => update({ threshold: Number(v.toFixed(3)) })} />
+          <ThresholdHistogram scores={scores} value={value} min={axisLo} max={axisHi} seedBand={band} suggested={suggested} periodLabel="would pass · last 30 days" onChange={(v) => update({ threshold: Number(v.toFixed(3)) })} />
           {result.preview.length > 0 && (
             <div>
               <div className="field-label" style={{ marginBottom: 6 }}>Top matches from the trial scan</div>
               {result.preview.slice(0, 8).map((c, i) => (
-                <div className="preview-row" key={c.id || i} style={{ opacity: c.score >= value ? 1 : 0.5 }}>
-                  <span className="sc">{c.score.toFixed(3)}</span>
+                <div className="preview-row" key={c.id || i} style={{ opacity: (c.similarity ?? c.score) >= value ? 1 : 0.5 }}>
+                  <span className="sc">{(c.similarity ?? c.score).toFixed(3)}</span>
                   <span>
                     <div>{c.title}</div>
-                    <div className="v">{c.venue || '—'}{c.score < value ? ' · below threshold' : ''}</div>
+                    <div className="v">{c.venue || '—'}{(c.similarity ?? c.score) < value ? ' · below threshold' : ''}</div>
                   </span>
                 </div>
               ))}
@@ -479,11 +523,20 @@ function StepThreshold({ state }: { state: DraftState }) {
   );
 }
 
-function suggestThreshold(scores: number[]): number | null {
-  if (scores.length === 0) return null;
-  const sorted = [...scores].sort((a, b) => b - a);
-  const raw = sorted[Math.min(19, sorted.length - 1)];
-  return Number(Math.min(raw, 0.85).toFixed(2));
+/** Local fallback for older backends: same rule as rag_lib.calibration.suggest_threshold. */
+function suggestThreshold(scores: number[], seedMin: number | null): number | null {
+  const sorted = [...scores].filter(Number.isFinite).sort((a, b) => b - a);
+  if (seedMin != null) {
+    let thr = seedMin - 0.01;
+    if (sorted.length >= 10) {
+      const p75 = sorted[Math.floor(sorted.length * 0.25)];
+      const p98 = sorted[Math.floor(sorted.length * 0.02)];
+      thr = Math.min(Math.max(thr, p75), p98);
+    }
+    return Number(thr.toFixed(3));
+  }
+  if (sorted.length >= 10) return Number(sorted[Math.floor(sorted.length * 0.1)].toFixed(3));
+  return null;
 }
 
 export function currentDraftSlug(): string | null {

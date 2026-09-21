@@ -2,17 +2,32 @@ export type Health = 'ok' | 'warn' | 'err';
 export type Bucket = 'high' | 'medium' | 'low';
 export type CardState = 'saved' | 'dismissed' | null;
 
+export type CoherenceLabel = 'focused' | 'broad' | 'mixed' | 'single' | 'none';
+
+export interface SeedSimilarity {
+  min: number;
+  median: number;
+  max: number;
+}
+
 export interface Profile {
   key: string;
   name: string;
   hue: number;
   health: Health;
   threshold: number;
+  /** Median pairwise cosine among seeds. Read it through coherenceLabel / agreement. */
   coherence: number;
   seeds: number;
   saves30: number;
   dismisses30: number;
   isDraft?: boolean;
+  coherenceLabel?: CoherenceLabel;
+  /** 0–100 "how much the seeds agree", calibrated for the embedding model. */
+  agreement?: number | null;
+  /** Leave-one-out similarity band of the seeds to their centroid. */
+  seedSimMin?: number | null;
+  seedSimMax?: number | null;
 }
 
 export interface Card {
@@ -24,7 +39,11 @@ export interface Card {
   doi: string | null;
   openalex: string;
   profile: string;
+  /** Rank percentile within the interest's pool (1 = top). */
   score: number;
+  /** Raw cosine to the seed centroid — what the threshold is compared with. */
+  similarity?: number | null;
+  /** high = as similar as your own seeds, medium = above threshold, low = below. */
   bucket: Bucket;
   abstract: string;
   mesh: string[];
