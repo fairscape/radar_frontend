@@ -43,9 +43,11 @@ export function WizardPage({ draftSlug }: { draftSlug: string | null }) {
     if (draftSlug && draftSlug !== state.slug) {
       const row = profiles?.find((p) => p.key === draftSlug);
       if (!profiles) return;
-      if (!row) {
-        toast.error(`No draft called "${draftSlug}".`);
-        navigate(paths.wizard(), { replace: true });
+      if (!row || !row.isDraft) {
+        // Not a draft any more (just committed, or never existed): start clean.
+        if (!row) toast.error(`No draft called "${draftSlug}".`);
+        resetDraft();
+        navigate(row ? paths.interest(row.key) : paths.wizard(), { replace: true });
         return;
       }
       resetDraft();
@@ -58,7 +60,7 @@ export function WizardPage({ draftSlug }: { draftSlug: string | null }) {
     // arrives, so a draft created a moment ago is not mistaken for stale.
     if (profiles && !checkedRef.current) {
       checkedRef.current = true;
-      if (state.slug && !profiles.some((p) => p.key === state.slug)) {
+      if (state.slug && !profiles.some((p) => p.key === state.slug && p.isDraft)) {
         resetDraft();
         navigate(paths.wizard(), { replace: true });
         return;
@@ -460,6 +462,9 @@ function StepThreshold({ state }: { state: DraftState }) {
 
   const save = useAction(async () => {
     const profile = await commitDraft({ slug, threshold: Number(value.toFixed(3)), selected_topic_ids: state.selectedTopicIds ?? [], cron: DEFAULT_CRON, tz: DEFAULT_TZ });
+    // Leave the wizard before clearing its state, so no effect here can
+    // re-adopt the interest we just committed from the ``?draft=`` URL.
+    navigate(paths.interest(profile.key), { replace: true });
     reset();
     try {
       await startScan({ key: profile.key, name: profile.name }, { days: 7, limit: 500 });
@@ -467,7 +472,6 @@ function StepThreshold({ state }: { state: DraftState }) {
     } catch (e) {
       toast.error(`Saved, but the first scan didn't start: ${errorMessage(e)}`);
     }
-    navigate(paths.interest(profile.key), { replace: true });
   });
 
   return (

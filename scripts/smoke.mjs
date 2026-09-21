@@ -136,6 +136,12 @@ try {
   await clickText('button', 'Diagnostics');
   await waitText('Reranked');
 
+  section('new interest after saving one starts clean');
+  await page.goto(`${BASE}/interests/new`, { waitUntil: 'networkidle0' });
+  await waitText('Name it and add seed papers', 8000);
+  if (page.url().includes('?draft=')) failures.push('new wizard should not resume the committed interest');
+  else console.log('  ok   fresh wizard');
+
   section('feed triage');
   await clickText('a', 'Feed');
   await page.waitForSelector('.paper', { timeout: 10000 });
