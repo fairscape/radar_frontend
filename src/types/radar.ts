@@ -123,3 +123,53 @@ export interface RerankerComparisonResponse {
   max_rank_down: number;
   queries_used: string[];
 }
+
+export interface TopicYield {
+  topic_id: string;
+  display_name: string;
+  on: boolean;
+  n_candidates: number;
+  n_shown: number;
+  n_saved: number;
+  n_dismissed: number;
+  last_fetched_at: string | null;
+}
+
+export interface TopicYieldResponse {
+  ok: boolean;
+  key: string;
+  days: number;
+  topics: TopicYield[];
+}
+
+export interface FeedbackEvent {
+  id: number;
+  profile_id: number;
+  openalex_id: string;
+  doi: string | null;
+  action: string;
+  score: number | null;
+  selector: string | null;
+  ts: string;
+}
+
+export type LLMProvider = 'ollama' | 'anthropic' | 'openai';
+
+export interface BackendHealth {
+  status: string;
+  version: string;
+  ollama_model: string | null;
+  llm_provider?: LLMProvider | null;
+  llm_model?: string | null;
+}
+
+export interface ProviderInfo {
+  id: LLMProvider;
+  model: string;
+  configured: boolean;
+}
+
+export interface ProvidersResponse {
+  default: LLMProvider;
+  available: ProviderInfo[];
+}

@@ -1,14 +1,8 @@
-/**
- * Typed wrappers for the Phase 11 wizard endpoints.
- *
- * Names mirror the backend service in ``rag_lib/api/services/wizard.py``;
- * shapes mirror ``rag_lib/api/schemas.py``.
- */
-
+/** Draft-interest (wizard) endpoints. Shapes mirror ``rag_lib/api/schemas.py``. */
 import type { Card, Profile, SweepRow, Topic, VaultDoc } from '../../types/radar';
-import { api } from '../client';
+import { apiDelete, apiGet, apiPost } from '../client';
+import { invalidate } from '../../lib/query';
 import type { GatherRunStatus } from './profiles';
-import { dataBus } from '../../lib/dataBus';
 
 export interface Draft {
   slug: string;
@@ -26,15 +20,7 @@ export interface DraftCoherence {
 export interface DraftDryRun {
   sweep: SweepRow[];
   preview: Card[];
-  // Raw selector cosines, one per fetched candidate. The wizard's
-  // calibration step bins these into a histogram and lets the user
-  // slide θ to see how many would pass.
   scores: number[];
-}
-
-export interface DraftDryRunStart {
-  ok: true;
-  run_id: number;
 }
 
 export interface DraftDryRunStatus {
@@ -50,97 +36,42 @@ export interface CommitDraftRequest {
   tz?: string;
 }
 
-export interface WizardOption {
-  key: string;
-  label: string;
-  description: string;
-  default: boolean;
-}
+const enc = encodeURIComponent;
 
-export interface WizardOptions {
-  embedders: WizardOption[];
-  selectors: WizardOption[];
-}
-
-export function getWizardOptions(): Promise<WizardOptions> {
-  return api.get<WizardOptions>('/api/profiles/wizard/options');
-}
-
-export interface CreateDraftBody {
-  name: string;
-  embedding_model?: string;
-  selector?: string;
-}
-
-export function createDraft(body: CreateDraftBody | string): Promise<Draft> {
-  // Backwards-compatible: a bare string still works ("just give me a
-  // draft, server-side defaults are fine").
-  const payload = typeof body === 'string' ? { name: body } : body;
-  return api.post<Draft>('/api/profiles/draft', payload);
-}
-
-export async function uploadSeed(
-  file: File,
-  profileSlug: string,
-): Promise<VaultDoc> {
-  const form = new FormData();
-  form.append('file', file);
-  form.append('profile_slug', profileSlug);
-  const res = await api.postForm<VaultDoc>('/api/vault/upload', form);
-  dataBus.emit('vault:changed');
+export async function createDraft(name: string): Promise<Draft> {
+  const res = await apiPost<Draft>('/api/profiles/draft', { name });
+  invalidate('profiles');
   return res;
 }
 
 export function listSeedDocs(profileSlug: string): Promise<VaultDoc[]> {
-  return api.get<VaultDoc[]>(
-    `/api/vault/docs?tag=${encodeURIComponent(profileSlug)}`,
-  );
+  return apiGet<VaultDoc[]>('/api/vault/docs', { tag: profileSlug });
 }
 
 export function getDraftCoherence(slug: string): Promise<DraftCoherence> {
-  return api.post<DraftCoherence>(
-    `/api/profiles/draft/${encodeURIComponent(slug)}/coherence`,
-  );
+  return apiPost<DraftCoherence>(`/api/profiles/draft/${enc(slug)}/coherence`);
 }
 
 export function getDraftTopics(slug: string): Promise<Topic[]> {
-  return api.get<Topic[]>(
-    `/api/profiles/draft/${encodeURIComponent(slug)}/topics`,
-  );
+  return apiGet<Topic[]>(`/api/profiles/draft/${enc(slug)}/topics`);
 }
 
-export function dryRunDraft(
-  slug: string,
-  body: { days: number; thresholds?: number[] },
-): Promise<DraftDryRunStart> {
-  return api.post<DraftDryRunStart>(
-    `/api/profiles/draft/${encodeURIComponent(slug)}/dry-run`,
-    body,
-  );
+export function startDraftDryRun(slug: string, days = 30): Promise<{ ok: true; run_id: number }> {
+  return apiPost<{ ok: true; run_id: number }>(`/api/profiles/draft/${enc(slug)}/dry-run`, { days });
 }
 
-export function getDraftDryRunStatus(
-  slug: string,
-  runId: number,
-): Promise<DraftDryRunStatus> {
-  return api.get<DraftDryRunStatus>(
-    `/api/profiles/draft/${encodeURIComponent(slug)}/dry-run/${runId}`,
-  );
+export function getDraftDryRunStatus(slug: string, runId: number): Promise<DraftDryRunStatus> {
+  return apiGet<DraftDryRunStatus>(`/api/profiles/draft/${enc(slug)}/dry-run/${runId}`);
 }
 
 export async function commitDraft(body: CommitDraftRequest): Promise<Profile> {
-  const res = await api.post<Profile>('/api/profiles', body);
-  // New profile lives in the sidebar list and changes vault tag counts
-  // (the seeds are tagged to it).
-  dataBus.emit('profiles:changed');
-  dataBus.emit('vault:changed');
+  const res = await apiPost<Profile>('/api/profiles', body);
+  invalidate('profiles', 'vault', 'radar');
   return res;
 }
 
 export async function deleteDraft(slug: string): Promise<{ ok: boolean }> {
-  const res = await api.delete<{ ok: boolean }>(
-    `/api/profiles/draft/${encodeURIComponent(slug)}`,
-  );
-  dataBus.emit('profiles:changed');
+  const res = await apiDelete<{ ok: boolean }>(`/api/profiles/draft/${enc(slug)}`);
+  invalidate('profiles', 'vault');
   return res;
 }

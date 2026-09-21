@@ -1,0 +1,491 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useProfiles, useVaultDocs } from '../api/hooks';
+import { uploadPdf } from '../api/endpoints/vault';
+import {
+  commitDraft,
+  createDraft,
+  deleteDraft,
+  getDraftCoherence,
+  getDraftTopics,
+  type DraftDryRun,
+} from '../api/endpoints/wizard';
+import { getDraft, resetDraft, useDraft, type DraftState } from '../lib/draft';
+import { errorMessage, plural } from '../lib/format';
+import { findJob, startDryRun, startImport, startScan, useJob } from '../lib/jobs';
+import { useQuery, invalidate } from '../lib/query';
+import { navigate, paths } from '../lib/router';
+import { TERMS } from '../lib/terms';
+import { toast } from '../lib/toast';
+import type { ProsopiaImportResult } from '../types/prosopia';
+import { Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, confirmDialog, useAction } from '../ui';
+import { Link } from '../ui/Link';
+import { CoherenceHistogram, JobProgress, ThresholdHistogram } from '../ui/domain';
+
+const STEPS = [
+  { n: 1, label: 'Seeds', hint: 'name + papers' },
+  { n: 2, label: 'Check', hint: 'do they cluster?' },
+  { n: 3, label: 'Topics', hint: 'what to query' },
+  { n: 4, label: 'Threshold', hint: 'trial scan + save' },
+];
+
+const DEFAULT_CRON = '0 4 * * *';
+const DEFAULT_TZ = 'UTC';
+
+export function WizardPage({ draftSlug }: { draftSlug: string | null }) {
+  const { state, update, reset } = useDraft();
+  const { data: profiles } = useProfiles();
+  const [resuming, setResuming] = useState(false);
+
+  // Resume a server-side draft from ``?draft=slug``; keep the URL in sync otherwise.
+  useEffect(() => {
+    if (draftSlug && draftSlug !== state.slug) {
+      const row = profiles?.find((p) => p.key === draftSlug);
+      if (!profiles) return;
+      if (!row) {
+        toast.error(`No draft called "${draftSlug}".`);
+        navigate(paths.wizard(), { replace: true });
+        return;
+      }
+      resetDraft();
+      update({ slug: row.key, name: row.name, step: 1, source: 'upload' });
+      setResuming(true);
+      return;
+    }
+    if (!draftSlug && state.slug) navigate(paths.wizard(state.slug), { replace: true });
+  }, [draftSlug, state.slug, profiles, update]);
+
+  useEffect(() => {
+    if (resuming && state.slug === draftSlug) setResuming(false);
+  }, [resuming, state.slug, draftSlug]);
+
+  const step = state.step;
+  const canGo = (n: number) => n < step || (n === 2 && !!state.slug) || (n === 3 && !!state.slug && step >= 3) || n === step;
+
+  async function cancel() {
+    if (!state.slug) {
+      reset();
+      navigate(paths.interests);
+      return;
+    }
+    const ok = await confirmDialog({
+      title: 'Discard this draft?',
+      body: (
+        <>
+          <p>"{state.name}" and its uploaded seeds will be deleted.</p>
+          <p>If you would rather come back later, just leave this page: the draft stays under {TERMS.Interests} → Drafts.</p>
+        </>
+      ),
+      confirmLabel: 'Delete draft',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteDraft(state.slug);
+      toast.success('Draft deleted.');
+    } catch (e) {
+      toast.error(`Couldn't delete the draft on the server: ${errorMessage(e)}`);
+    }
+    reset();
+    navigate(paths.interests);
+  }
+
+  return (
+    <div className="page">
+      <nav className="crumbs"><Link href={paths.interests}>{TERMS.Interests}</Link><Icon name="chevron-right" size={12} /><span>{TERMS.newInterest}</span></nav>
+      <header className="page-head">
+        <div>
+          <h1 className="page-title">{state.name ? state.name : TERMS.newInterest}</h1>
+          <p className="page-sub">Four short steps. Your progress is saved as a draft, so you can leave and come back.</p>
+        </div>
+        <div className="page-actions">
+          <Button variant="ghost" onClick={() => navigate(paths.interests)} title="Keep the draft and come back later">Save for later</Button>
+          <Button variant="danger" icon="trash" onClick={cancel}>{state.slug ? 'Delete draft' : 'Cancel'}</Button>
+        </div>
+      </header>
+
+      <div className="wizard">
+        <aside className="wizard-rail" aria-label="Steps">
+          {STEPS.map((s) => {
+            const cls = s.n === step ? 'current' : s.n < step ? 'done' : '';
+            const clickable = s.n !== step && canGo(s.n);
+            return (
+              <div key={s.n} className={`wizard-step ${cls} ${clickable ? 'clickable' : ''}`} onClick={() => clickable && update({ step: s.n })} role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : -1} onKeyDown={(e) => { if (clickable && (e.key === 'Enter' || e.key === ' ')) update({ step: s.n }); }}>
+                <span className="wizard-step-n">{s.n < step ? <Icon name="check" size={12} /> : s.n}</span>
+                <span>{s.label}<small>{s.hint}</small></span>
+              </div>
+            );
+          })}
+        </aside>
+        <div>
+          {resuming ? <LoadingRows rows={3} /> : (
+            <>
+              {step === 1 && <StepSeeds state={state} />}
+              {step === 2 && <StepCheck state={state} />}
+              {step === 3 && <StepTopics state={state} />}
+              {step === 4 && <StepThreshold state={state} />}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Step 1 ------------------------------------------------------------------
+
+function StepSeeds({ state }: { state: DraftState }) {
+  const { update, addSeed } = useDraft();
+  const [name, setName] = useState(state.name);
+  const [ref, setRef] = useState(state.prosopia?.ref ?? '');
+  const importJob = useJob(state.importJobId);
+  const create = useAction(async () => {
+    const d = await createDraft(name.trim());
+    update({ slug: d.slug, name: d.name, source: 'upload' });
+  });
+  const imp = useAction(async () => {
+    const job = await startImport(ref.trim(), name.trim() || undefined);
+    update({ importJobId: job.id, source: 'prosopia', name: name.trim() || job.profileName, slug: job.profileKey, prosopia: { ref: ref.trim(), nSeeds: null } });
+  });
+
+  // When an import finishes, record its result and continue.
+  useEffect(() => {
+    if (!importJob || importJob.status !== 'done') return;
+    const r = importJob.result as ProsopiaImportResult | null;
+    update({
+      slug: (r?.draft_slug as string | undefined) ?? importJob.profileKey,
+      name: (r?.name as string | undefined) ?? importJob.profileName,
+      prosopia: { ref: state.prosopia?.ref ?? ref, nSeeds: typeof r?.drafted === 'number' ? r.drafted : null },
+    });
+  }, [importJob, update, state.prosopia?.ref, ref]);
+
+  if (!state.slug) {
+    return (
+      <Panel title="Step 1 · Name it and add seed papers" description="Seeds are the papers that define what you are interested in. 5–15 focused papers work best; one is enough to start.">
+        <div className="stack" style={{ gap: 16 }}>
+          <Field label="Name" hint="How this interest appears in the feed and the sidebar.">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Neonatal vital-sign monitoring" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && state.source === 'upload') void create.run(); }} />
+          </Field>
+          <div>
+            <div className="field-label" style={{ marginBottom: 8 }}>Where do the seeds come from?</div>
+            <div className="source-picker" role="radiogroup">
+              <button type="button" role="radio" aria-checked={state.source === 'upload'} className={`source-option ${state.source === 'upload' ? 'on' : ''}`} onClick={() => update({ source: 'upload' })}>
+                <Icon name="upload" />
+                <div><b>Upload PDFs</b><span>Drop in papers you have on disk. Radar extracts the text and resolves each one on OpenAlex.</span></div>
+              </button>
+              <button type="button" role="radio" aria-checked={state.source === 'prosopia'} className={`source-option ${state.source === 'prosopia' ? 'on' : ''}`} onClick={() => update({ source: 'prosopia' })}>
+                <Icon name="interests" />
+                <div><b>Import from Prosopia</b><span>Use every paper on a Prosopia researcher profile as the seed set.</span></div>
+              </button>
+            </div>
+          </div>
+          {state.source === 'upload' ? (
+            <div className="row">
+              <Button variant="primary" iconRight="arrow-right" onClick={() => create.run()} loading={create.busy} disabled={!name.trim()}>Create draft and add PDFs</Button>
+              {create.error && <span className="field-error">{create.error}</span>}
+            </div>
+          ) : (
+            <div className="stack">
+              <Field label="Prosopia profile" hint="A profile slug, an ORCID, or the profile URL. Leave the name blank to use the profile's own name.">
+                <Input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="e.g. sheffield-nathan or 0000-0002-…" disabled={importJob?.status === 'running'} onKeyDown={(e) => { if (e.key === 'Enter') void imp.run(); }} />
+              </Field>
+              {importJob && importJob.status === 'running' && <JobProgress job={importJob} />}
+              {importJob?.status === 'error' && <ErrorBox compact title="Import failed" message={importJob.error} />}
+              <div className="row">
+                <Button variant="primary" icon="upload" onClick={() => imp.run()} loading={imp.busy || importJob?.status === 'running'} disabled={!ref.trim()}>Import papers</Button>
+                {imp.error && <span className="field-error">{imp.error}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      </Panel>
+    );
+  }
+  return <SeedUploader state={state} addSeed={addSeed} />;
+}
+
+function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: import('../types/radar').VaultDoc) => void }) {
+  const { update } = useDraft();
+  const slug = state.slug!;
+  const docs = useVaultDocs(slug);
+  const importJob = useJob(state.importJobId);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [over, setOver] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+  const [failures, setFailures] = useState<string[]>([]);
+  const seeds = docs.data ?? state.seeds;
+  const importing = importJob?.status === 'running';
+  const haveSeeds = seeds.length > 0;
+
+  async function upload(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const list = Array.from(files);
+    setFailures([]);
+    for (let i = 0; i < list.length; i++) {
+      setProgress({ done: i, total: list.length, current: list[i].name });
+      try {
+        const doc = await uploadPdf(list[i], slug);
+        addSeed(doc);
+      } catch (e) {
+        setFailures((f) => [...f, `${list[i].name}: ${errorMessage(e)}`]);
+      }
+    }
+    setProgress(null);
+    invalidate(`vault/docs?tag=${slug}`);
+  }
+
+  return (
+    <Panel title="Step 1 · Seed papers" description={state.prosopia ? `Imported from Prosopia (${state.prosopia.ref}). You can add more PDFs.` : 'Upload the PDFs that define this interest. Each becomes a seed.'}>
+      {importing && importJob && <div style={{ marginBottom: 14 }}><JobProgress job={importJob} /></div>}
+      <div
+        className={`dropzone ${over ? 'over' : ''} ${progress ? 'busy' : ''}`}
+        onClick={() => !progress && inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => { e.preventDefault(); setOver(false); void upload(e.dataTransfer.files); }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click(); }}
+      >
+        <Icon name="upload" size={20} />
+        {progress ? (
+          <span>Uploading {progress.done + 1} of {progress.total}: <b>{progress.current}</b></span>
+        ) : (
+          <span><b>Drop PDFs here</b> or click to browse. Several at once is fine.</span>
+        )}
+        <input ref={inputRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ''; }} />
+      </div>
+      {failures.length > 0 && <div style={{ marginTop: 10 }}><ErrorBox compact title="Some files were not added" message={failures.map((f) => <div key={f}>{f}</div>)} /></div>}
+
+      <div style={{ marginTop: 16 }}>
+        <div className="row spread" style={{ marginBottom: 6 }}>
+          <span className="field-label">Seeds · {seeds.length}</span>
+          {docs.fetching && <span className="small muted">refreshing…</span>}
+        </div>
+        {docs.error && !docs.data && <ErrorBox compact message={errorMessage(docs.error)} onRetry={docs.refresh} />}
+        {seeds.length === 0 && !docs.loading && !importing && <p className="muted small">No seeds yet.</p>}
+        {seeds.map((d, i) => (
+          <div className="seed-row" key={d.id}>
+            <span className="idx">{String(i + 1).padStart(2, '0')}</span>
+            <span className="truncate" title={d.title}>{d.title || d.id}</span>
+            <span className="muted small">{d.pages} pages</span>
+            <span className="muted small">{d.authors.slice(0, 2).join(', ')}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="wizard-foot">
+        <span className="note">
+          {seeds.length === 0 ? 'Add at least one seed to continue.' : seeds.length === 1 ? 'One seed works, but coherence cannot be measured; the centroid is that paper.' : seeds.length < 5 ? 'A few more seeds would make the interest sharper.' : 'Good seed count.'}
+        </span>
+        <Button variant="primary" iconRight="arrow-right" disabled={!haveSeeds || importing || !!progress} onClick={() => update({ step: 2 })}>
+          Next: check coherence
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
+// --- Step 2 ------------------------------------------------------------------
+
+function StepCheck({ state }: { state: DraftState }) {
+  const { update } = useDraft();
+  const slug = state.slug!;
+  const coh = useQuery(`draft/${slug}/coherence`, () => getDraftCoherence(slug));
+  const c = coh.data;
+  const verdict = c ? verdictFor(c.n, c.median) : null;
+  return (
+    <Panel title="Step 2 · Do the seeds agree?" description="Radar measures how similar the seeds are to each other. A tight cluster makes a precise interest; a loose one surfaces noise.">
+      {coh.error && <ErrorBox message={errorMessage(coh.error)} onRetry={coh.refresh} />}
+      {coh.loading && (
+        <div className="row muted" style={{ padding: '18px 0' }}><span className="spinner" style={{ width: 16, height: 16 }} /> Computing coherence from {plural(state.seeds.length || 1, 'seed')}…</div>
+      )}
+      {c && verdict && (
+        <div className="stack">
+          <Callout tone={verdict.tone} title={verdict.title}>{verdict.body}</Callout>
+          {c.n >= 2 && (
+            <>
+              <div className="row-wrap small muted" style={{ gap: 16 }}>
+                <span>median similarity <b className="mono">{c.median.toFixed(3)}</b></span>
+                <span>spread (IQR) <b className="mono">{c.iqr.toFixed(3)}</b></span>
+                <span>{plural(c.n, 'seed')} · {((c.n * (c.n - 1)) / 2).toLocaleString()} pairs</span>
+              </div>
+              <CoherenceHistogram bins={c.bins} />
+            </>
+          )}
+        </div>
+      )}
+      <div className="wizard-foot">
+        <Button icon="arrow-left" onClick={() => update({ step: 1 })}>Back to seeds</Button>
+        <div className="row">
+          <Button variant="ghost" icon="refresh" onClick={coh.refresh} loading={coh.fetching}>Recompute</Button>
+          <Button variant="primary" iconRight="arrow-right" disabled={!c} onClick={() => update({ step: 3 })}>Next: choose topics</Button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function verdictFor(n: number, median: number): { tone: 'ok' | 'warn' | 'err' | 'info'; title: string; body: string } {
+  if (n < 2) return { tone: 'info', title: 'Only one seed', body: 'There is nothing to compare it with, so coherence is not measured. The interest will be centred on that paper. You can add more seeds now or later.' };
+  if (median >= 0.75) return { tone: 'ok', title: 'Tight', body: 'The seeds cluster cleanly around one topic. Radar will find close matches.' };
+  if (median >= 0.6) return { tone: 'warn', title: 'Acceptable but loose', body: 'There is a real common topic, but it is broad. Adding a few more focused papers, or removing outliers, would sharpen results. You can continue as is.' };
+  return { tone: 'err', title: 'Low coherence', body: 'The seeds do not agree on a topic. Whichever sub-group is largest will dominate the scoring. Consider going back and splitting them into separate interests.' };
+}
+
+// --- Step 3 ------------------------------------------------------------------
+
+function StepTopics({ state }: { state: DraftState }) {
+  const { update, toggleTopic } = useDraft();
+  const slug = state.slug!;
+  const topics = useQuery(`draft/${slug}/topics`, () => getDraftTopics(slug));
+  useEffect(() => {
+    if (topics.data && state.selectedTopicIds === null) update({ selectedTopicIds: topics.data.map((t) => t.id) });
+  }, [topics.data, state.selectedTopicIds, update]);
+  const selected = new Set(state.selectedTopicIds ?? []);
+  const list = topics.data ?? [];
+  return (
+    <Panel title="Step 3 · What should Radar query?" description="These topics were aggregated from the seeds' OpenAlex records. Radar asks OpenAlex for new papers in each selected topic, then scores them. Fewer, sharper topics mean less noise.">
+      {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
+      {topics.loading && <LoadingRows rows={3} />}
+      {topics.data && list.length === 0 && (
+        <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics. Go back and add seeds with DOIs, or continue without topic filters (Radar will fall back to a broader query)." />
+      )}
+      {list.length > 0 && (
+        <>
+          <div className="row spread" style={{ marginBottom: 10 }}>
+            <span className="small muted">{selected.size} of {list.length} selected</span>
+            <div className="row">
+              <Button size="sm" variant="ghost" onClick={() => update({ selectedTopicIds: list.map((t) => t.id) })}>Select all</Button>
+              <Button size="sm" variant="ghost" onClick={() => update({ selectedTopicIds: [] })}>Clear</Button>
+            </div>
+          </div>
+          <div className="topics">
+            {list.map((t) => (
+              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.count} seed${t.count === 1 ? '' : 's'} carry this topic · ${t.source === 'umls' ? 'mapped via UMLS' : 'OpenAlex topic'} ${t.id}`}>
+                <span className="tick">{selected.has(t.id) && <Icon name="check" size={10} />}</span>
+                {t.name}
+                <span className="tc">{t.count}</span>
+                {t.source === 'umls' && <span className="src">UMLS</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <div className="wizard-foot">
+        <Button icon="arrow-left" onClick={() => update({ step: 2 })}>Back</Button>
+        <Button variant="primary" iconRight="arrow-right" disabled={!topics.data || (list.length > 0 && selected.size === 0)} onClick={() => update({ step: 4 })}>Next: set the threshold</Button>
+      </div>
+    </Panel>
+  );
+}
+
+// --- Step 4 ------------------------------------------------------------------
+
+function StepThreshold({ state }: { state: DraftState }) {
+  const { update, reset } = useDraft();
+  const slug = state.slug!;
+  const job = useJob(state.dryRunJobId);
+  const [kickError, setKickError] = useState<string | null>(null);
+  const kicking = useRef(false);
+
+  async function kick() {
+    if (kicking.current) return;
+    kicking.current = true;
+    setKickError(null);
+    try {
+      const j = await startDryRun(slug, state.name, 30);
+      update({ dryRunJobId: j.id });
+    } catch (e) {
+      setKickError(errorMessage(e));
+    } finally {
+      kicking.current = false;
+    }
+  }
+
+  // Start the trial scan once on entry (or if the remembered job vanished).
+  useEffect(() => {
+    if (!state.dryRunJobId || !findJob(state.dryRunJobId)) void kick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  const result = job?.status === 'done' ? (job.result as DraftDryRun) : null;
+  const scores = useMemo(() => result?.scores ?? [], [result]);
+  const suggested = useMemo(() => suggestThreshold(scores), [scores]);
+  const value = state.threshold ?? suggested ?? 0.9;
+  useEffect(() => {
+    if (state.threshold === null && suggested != null) update({ threshold: suggested });
+  }, [state.threshold, suggested, update]);
+  const passing = scores.filter((s) => s >= value).length;
+
+  const save = useAction(async () => {
+    const profile = await commitDraft({ slug, threshold: Number(value.toFixed(3)), selected_topic_ids: state.selectedTopicIds ?? [], cron: DEFAULT_CRON, tz: DEFAULT_TZ });
+    reset();
+    try {
+      await startScan({ key: profile.key, name: profile.name }, { days: 7, limit: 500 });
+      toast.success(`"${profile.name}" is live. Scanning the last 7 days now.`);
+    } catch (e) {
+      toast.error(`Saved, but the first scan didn't start: ${errorMessage(e)}`);
+    }
+    navigate(paths.interest(profile.key), { replace: true });
+  });
+
+  return (
+    <Panel title="Step 4 · How strict should it be?" description="Radar runs a trial scan over the last 30 days and shows how every paper scored. Set the threshold where the good matches end. You can change it later.">
+      {kickError && <ErrorBox title="Couldn't start the trial scan" message={kickError} onRetry={kick} />}
+      {job && job.status === 'running' && (
+        <div className="stack">
+          <JobProgress job={job} />
+          <p className="small muted">This typically takes one to three minutes. Leaving the page is fine; the result is kept.</p>
+        </div>
+      )}
+      {job && job.status === 'error' && <ErrorBox title="The trial scan failed" message={job.error} onRetry={kick} />}
+      {result && scores.length === 0 && (
+        <EmptyState compact icon="search" title="The trial scan found no papers" body="Nothing recent matched the selected topics. You can still save with a default threshold and adjust it after the first real scan." />
+      )}
+      {result && scores.length > 0 && (
+        <div className="stack" style={{ gap: 16 }}>
+          <Callout tone="info">
+            <b>{passing}</b> of <b>{scores.length}</b> papers from the last 30 days would have reached your feed at <b className="mono">{value.toFixed(2)}</b>.
+            {suggested != null && Math.abs(value - suggested) > 0.004 && <> Suggested: <b className="mono">{suggested.toFixed(2)}</b> (about 20 papers a month).</>}
+          </Callout>
+          <ThresholdHistogram scores={scores} value={value} onChange={(v) => update({ threshold: Number(v.toFixed(3)) })} />
+          {result.preview.length > 0 && (
+            <div>
+              <div className="field-label" style={{ marginBottom: 6 }}>Top matches from the trial scan</div>
+              {result.preview.slice(0, 8).map((c, i) => (
+                <div className="preview-row" key={c.id || i} style={{ opacity: c.score >= value ? 1 : 0.5 }}>
+                  <span className="sc">{c.score.toFixed(3)}</span>
+                  <span>
+                    <div>{c.title}</div>
+                    <div className="v">{c.venue || '—'}{c.score < value ? ' · below threshold' : ''}</div>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {save.error && <div style={{ marginTop: 12 }}><ErrorBox compact title="Couldn't save" message={save.error} /></div>}
+      <div className="wizard-foot">
+        <Button icon="arrow-left" onClick={() => update({ step: 3 })}>Back</Button>
+        <div className="row">
+          {job?.status !== 'running' && <Button variant="ghost" icon="refresh" onClick={kick}>Run trial again</Button>}
+          <Button variant="primary" icon="check" onClick={() => save.run()} loading={save.busy} disabled={!result && job?.status !== 'error'} title={!result ? 'Wait for the trial scan to finish' : undefined}>
+            Save {TERMS.interest} and start scanning
+          </Button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function suggestThreshold(scores: number[]): number | null {
+  if (scores.length === 0) return null;
+  const sorted = [...scores].sort((a, b) => b - a);
+  const raw = sorted[Math.min(19, sorted.length - 1)];
+  return Number(Math.min(raw, 0.85).toFixed(2));
+}
+
+export function currentDraftSlug(): string | null {
+  return getDraft().slug;
+}

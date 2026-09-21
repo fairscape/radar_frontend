@@ -1,16 +1,6 @@
-/**
- * Real-API vault endpoint helpers.
- *
- * Signatures mirror ``src/mock-api/endpoints/vault.ts`` so views can
- * swap branches via ``src/lib/apiSwitch.ts``. ``ingestPdf`` is kept as a
- * passthrough to the multipart upload endpoint so any straggling
- * caller (the mock used to expose it) still resolves; the wizard owns
- * the canonical upload path.
- */
-
 import { apiGet, apiPostMultipart } from '../client';
+import { invalidate } from '../../lib/query';
 import type { VaultDoc, VaultStats } from '../../types/radar';
-import { dataBus } from '../../lib/dataBus';
 
 export interface VaultMeta {
   rootPath: string;
@@ -37,23 +27,15 @@ export function getTagCounts(): Promise<Record<string, number>> {
   return apiGet<Record<string, number>>('/api/vault/tags');
 }
 
-export async function uploadPdf(
-  file: File,
-  profileSlug?: string,
-): Promise<VaultDoc> {
+/**
+ * Upload one PDF. With ``profileSlug`` the document is tagged to that
+ * interest and, for drafts and live interests alike, becomes a seed.
+ */
+export async function uploadPdf(file: File, profileSlug?: string): Promise<VaultDoc> {
   const form = new FormData();
   form.append('file', file);
   if (profileSlug) form.append('profile_slug', profileSlug);
   const res = await apiPostMultipart<VaultDoc>('/api/vault/upload', form);
-  dataBus.emit('vault:changed');
+  invalidate('vault', 'profiles');
   return res;
-}
-
-// Compat shim for the mock's ``ingestPdf(filename)`` signature. The
-// real API requires a File, so callers that only have a filename will
-// fail — Phase 11 wizard uses ``uploadPdf`` directly.
-export async function ingestPdf(_filename: string): Promise<{ ok: true; id: string }> {
-  throw new Error(
-    'ingestPdf(filename) is mock-only; use uploadPdf(file, profileSlug) against the real backend.',
-  );
 }
