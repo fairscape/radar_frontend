@@ -11,6 +11,7 @@ import type { Bucket, Card, CardState, Profile } from '../types/radar';
 import { Badge, Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, Kbd, LoadingRows, Segmented, Select } from '../ui';
 import { Link } from '../ui/Link';
 import { BucketBadge, InterestName, ScoreValue } from '../ui/domain';
+import { AddInterestCards } from './HomePage';
 
 type BucketFilter = 'all' | Bucket;
 
@@ -239,18 +240,12 @@ export function FeedPage() {
 
 function Onboarding() {
   return (
-    <div>
+    <div className="stack" style={{ gap: 16 }}>
       <Callout tone="info" title={`Radar needs an ${TERMS.interest} to scan for`}>
-        An {TERMS.interest} is a handful of papers you already care about. Radar learns what they have in common and watches OpenAlex for more like them.
+        An {TERMS.interest} is a set of papers you already care about. Radar learns what they have in common and watches OpenAlex for more like them. Add one from:
       </Callout>
-      <div className="onboarding">
-        <div className="onboarding-step"><Icon name="upload" /><b>1. Add seed papers</b><p>Upload 5–15 PDFs, or import every paper on your Prosopia profile.</p></div>
-        <div className="onboarding-step"><Icon name="sliders" /><b>2. Set the threshold</b><p>A trial scan shows real scores from the last 30 days. You pick how strict to be.</p></div>
-        <div className="onboarding-step"><Icon name="radar" /><b>3. Triage daily</b><p>New matches land here every morning. Save or dismiss each one.</p></div>
-      </div>
-      <Link href={paths.wizard()} className="btn btn-primary btn-lg">
-        <Icon name="plus" size={16} /> Create your first {TERMS.interest}
-      </Link>
+      <AddInterestCards />
+      <Link href={paths.home} className="home-link">See everything you can do in Radar <Icon name="arrow-right" size={13} /></Link>
     </div>
   );
 }

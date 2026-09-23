@@ -7,13 +7,19 @@ import type { VaultDoc } from '../types/radar';
 
 const STORAGE_KEY = 'radar.wizard.v2';
 
-export type SeedSource = 'upload' | 'prosopia';
+/** Where a draft's seeds come from. ``orcid`` pulls the author's works from OpenAlex; ``prosopia`` a published profile. */
+export type SeedSource = 'upload' | 'orcid' | 'prosopia';
+
+export function isSeedSource(v: unknown): v is SeedSource {
+  return v === 'upload' || v === 'orcid' || v === 'prosopia';
+}
 
 export interface DraftState {
   slug: string | null;
   name: string;
   source: SeedSource;
   seeds: VaultDoc[];
+  /** The import this draft came from (Prosopia slug or ORCID), if any. */
   prosopia: { ref: string; nSeeds: number | null } | null;
   importJobId: string | null;
   dryRunJobId: string | null;
@@ -90,6 +96,10 @@ export function useDraft() {
       set((s) => (s.seeds.some((d) => d.id === doc.id) ? s : { ...s, seeds: [...s.seeds, doc] })),
     [],
   );
+  const removeSeed = useCallback(
+    (id: string) => set((s) => ({ ...s, seeds: s.seeds.filter((d) => d.id !== id) })),
+    [],
+  );
   const toggleTopic = useCallback(
     (id: string) =>
       set((s) => {
@@ -101,5 +111,5 @@ export function useDraft() {
       }),
     [],
   );
-  return { state, update, addSeed, toggleTopic, reset: resetDraft };
+  return { state, update, addSeed, removeSeed, toggleTopic, reset: resetDraft };
 }

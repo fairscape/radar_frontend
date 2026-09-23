@@ -27,7 +27,7 @@ export function LoginPage() {
           Radar watches OpenAlex for you. Describe an interest with a handful of seed papers, and every day it scores what is new against them and shows you only what clears the bar.
         </p>
         <div className="login-steps">
-          <div className="login-step"><span className="login-step-n">1</span><div><b>Create an interest</b><span>Upload seed PDFs or import your Prosopia profile. Radar measures how tightly they cluster and picks the topics to watch.</span></div></div>
+          <div className="login-step"><span className="login-step-n">1</span><div><b>Add an interest</b><span>Upload PDFs, or import a researcher's papers by ORCID or Prosopia profile. Radar measures how tightly they cluster and picks the topics to watch.</span></div></div>
           <div className="login-step"><span className="login-step-n">2</span><div><b>Set the threshold</b><span>A trial scan shows real scores; you choose how strict to be.</span></div></div>
           <div className="login-step"><span className="login-step-n">3</span><div><b>Triage the feed</b><span>Save what is useful, dismiss the rest. Your choices tune the scoring over time.</span></div></div>
         </div>

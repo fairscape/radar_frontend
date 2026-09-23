@@ -9,7 +9,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { gatherNow, listProfileRuns, type GatherRunStatus } from '../api/endpoints/profiles';
-import { getProsopiaImportStatus, startProsopiaImport } from '../api/endpoints/prosopia';
+import { getProsopiaImportStatus, startOrcidImport as postOrcidImport, startProsopiaImport } from '../api/endpoints/prosopia';
 import { getDraftDryRunStatus, startDraftDryRun, type DraftDryRun } from '../api/endpoints/wizard';
 import type { ProsopiaImportResult } from '../types/prosopia';
 import { errorMessage } from './format';
@@ -33,6 +33,10 @@ export interface Job {
   nProcessed: number | null;
   nTotal: number | null;
   message: string | null;
+  /** When the current step began and what ``nProcessed`` read then — the
+   *  base for the rate / time-left estimate in ``jobEstimate``. */
+  stepStartedAt: number | null;
+  stepBase: number | null;
   error: string | null;
   /** One line for the status strip once finished. */
   summary: string | null;
@@ -65,7 +69,7 @@ const STEP_LABELS: Record<JobKind, Record<string, string>> = {
     done: 'Done',
   },
   import: {
-    fetching_profile: 'Fetching Prosopia profile',
+    fetching_profile: 'Fetching profile',
     resolving: 'Resolving papers',
     embedding: 'Embedding seeds',
     attaching: 'Attaching seeds',
@@ -81,7 +85,7 @@ export function stepLabel(job: Pick<Job, 'kind' | 'step' | 'status'>): string {
 }
 
 export function kindLabel(kind: JobKind): string {
-  return kind === 'scan' ? 'Scan' : kind === 'dryrun' ? 'Trial scan' : 'Prosopia import';
+  return kind === 'scan' ? 'Scan' : kind === 'dryrun' ? 'Trial scan' : 'Import';
 }
 
 let jobs: Job[] = load();
@@ -141,13 +145,46 @@ async function tick() {
   }
 }
 
-function progressFrom(run: GatherRunStatus): Partial<Job> {
-  return {
+function progressFrom(job: Job, run: GatherRunStatus): Partial<Job> {
+  const p: Partial<Job> = {
     step: run.current_step,
     nProcessed: run.n_processed,
     nTotal: run.n_total,
     message: run.last_message,
   };
+  // A new step restarts the clock: the rate of "embedding" says nothing
+  // about "fetching", and a counter that reset would give a negative rate.
+  const reset = run.current_step !== job.step || job.stepStartedAt == null || (run.n_processed ?? 0) < (job.stepBase ?? 0);
+  if (reset) {
+    p.stepStartedAt = Date.now();
+    p.stepBase = run.n_processed ?? 0;
+  }
+  return p;
+}
+
+export interface JobEstimate {
+  /** Items per second over the current step. */
+  perSec: number;
+  /** Seconds until the current step's ``nTotal`` at that rate. */
+  secondsLeft: number | null;
+}
+
+/** Live throughput for a running job, or null until there is enough signal. */
+export function jobEstimate(job: Job, now = Date.now()): JobEstimate | null {
+  if (job.status !== 'running' || job.stepStartedAt == null || job.stepBase == null || job.nProcessed == null) return null;
+  const done = job.nProcessed - job.stepBase;
+  const elapsed = (now - job.stepStartedAt) / 1000;
+  if (done < 5 || elapsed < 3) return null;
+  const perSec = done / elapsed;
+  const left = job.nTotal != null && job.nTotal > job.nProcessed ? (job.nTotal - job.nProcessed) / perSec : null;
+  return { perSec, secondsLeft: left };
+}
+
+export function fmtSeconds(s: number): string {
+  const r = Math.max(0, Math.round(s));
+  if (r < 60) return `${r}s`;
+  const m = Math.floor(r / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m ${r % 60}s`;
 }
 
 async function pollOne(job: Job) {
@@ -157,7 +194,7 @@ async function pollOne(job: Job) {
       const run = runs.find((r) => r.id === job.runId);
       if (!run) throw new Error('run not found');
       if (!run.finished_at) {
-        patch(job.id, progressFrom(run));
+        patch(job.id, progressFrom(job, run));
         return;
       }
       if (run.error) return fail(job, run.error);
@@ -174,7 +211,7 @@ async function pollOne(job: Job) {
     if (job.kind === 'dryrun') {
       const status = await getDraftDryRunStatus(job.profileKey, job.runId);
       if (!status.run.finished_at) {
-        patch(job.id, progressFrom(status.run));
+        patch(job.id, progressFrom(job, status.run));
         return;
       }
       if (status.run.error) return fail(job, status.run.error);
@@ -187,7 +224,7 @@ async function pollOne(job: Job) {
     }
     const status = await getProsopiaImportStatus(job.runId);
     if (!status.run.finished_at) {
-      patch(job.id, progressFrom(status.run));
+      patch(job.id, progressFrom(job, status.run));
       return;
     }
     if (status.run.error) return fail(job, status.run.error);
@@ -238,6 +275,8 @@ function base(kind: JobKind, runId: number, profileKey: string, profileName: str
     nProcessed: null,
     nTotal: null,
     message: null,
+    stepStartedAt: null,
+    stepBase: null,
     error: null,
     summary: null,
     result: null,
@@ -262,9 +301,14 @@ export async function startDryRun(slug: string, name: string, days = 30): Promis
   return add({ ...base('dryrun', run_id, slug, name), days });
 }
 
-export async function startImport(ref: string, name?: string): Promise<Job> {
-  const start = await startProsopiaImport({ ref, ...(name ? { name } : {}) });
+export async function startImport(ref: string, name?: string, paperIds?: string[]): Promise<Job> {
+  const start = await startProsopiaImport({ ref, ...(name ? { name } : {}), ...(paperIds ? { paper_ids: paperIds } : {}) });
   return add(base('import', start.run_id, start.draft_slug, name || ref));
+}
+
+export async function startOrcidImport(orcid: string, openalexIds: string[], name?: string): Promise<Job> {
+  const start = await postOrcidImport({ orcid, openalex_ids: openalexIds, ...(name ? { name } : {}) });
+  return add(base('import', start.run_id, start.draft_slug, name || orcid));
 }
 
 export function dismissJob(id: string) {

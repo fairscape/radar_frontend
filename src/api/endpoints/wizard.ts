@@ -88,6 +88,13 @@ export async function commitDraft(body: CommitDraftRequest): Promise<Profile> {
   return res;
 }
 
+/** Take one paper out of a draft's seeds. The paper stays in the vault. */
+export async function removeDraftSeed(slug: string, openalexId: string): Promise<{ ok: boolean }> {
+  const res = await apiDelete<{ ok: boolean }>(`/api/profiles/draft/${enc(slug)}/seeds/${enc(openalexId)}`);
+  invalidate('profiles', 'vault', `draft/${slug}/`);
+  return res;
+}
+
 export async function deleteDraft(slug: string): Promise<{ ok: boolean }> {
   const res = await apiDelete<{ ok: boolean }>(`/api/profiles/draft/${enc(slug)}`);
   invalidate('profiles', 'vault');

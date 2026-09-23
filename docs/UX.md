@@ -9,7 +9,7 @@ and how the UI is shaped around that. Read it before adding a screen.
 | UI word        | Backend word        | What it is                                                                 |
 |----------------|---------------------|----------------------------------------------------------------------------|
 | **Interest**   | `profile`           | A named set of seed papers + topic filters + a score threshold. The unit Radar scans for. Renamed because "Profile" now means a Prosopia researcher profile. |
-| **Seed**       | seed / vault doc    | A paper that defines an interest. Comes from an uploaded PDF or a Prosopia import. |
+| **Seed**       | seed / vault doc    | A paper that defines an interest. Comes from an uploaded PDF, or from a Prosopia import (by profile slug/URL or by ORCID). |
 | **Topic**      | topic filter        | An OpenAlex (or UMLS-mapped) concept the gatherer queries. Aggregated from the seeds. |
 | **Threshold**  | `threshold` (θ)     | Minimum similarity (raw cosine to the seed centroid) for a candidate to reach the feed. Set on a histogram of real scores, next to the band where the user's own seeds score. |
 | **Agreement**  | `coherence_median` + `rag_lib.calibration` | How much the seeds are about the same thing, 0–100, with a label (focused / broad / mixed). Replaces raw "coherence" in the UI; see the backend's `docs/CALIBRATION.md` for the measured bands. |
@@ -28,8 +28,15 @@ changing the word again is one edit. API paths still say `profiles`.
 - `POST /api/profiles/draft` creates a draft interest. Uploading PDFs
   with `profile_slug` attaches them as seeds. `POST /api/import/prosopia`
   creates a draft and seeds it in the background (poll `/api/import/prosopia/{run}`).
+  Its `ref` may be a Prosopia slug, a profile URL, or an ORCID; an ORCID
+  is resolved to a slug by scanning the Prosopia profile list for a
+  matching `rid`, so the researcher must have published a profile there.
 - `POST /draft/{slug}/coherence` measures how tightly the seeds cluster.
   One seed has no pairwise statistic; the backend reports 0.0.
+- `DELETE /draft/{slug}/seeds/{openalex_id}` takes one seed out of the
+  draft (the paper stays in the vault). The wizard offers it on every
+  seed row in step 1 and on both papers of the least-alike pair in
+  step 2, so an off-topic import can be pruned and re-checked in place.
 - `GET /draft/{slug}/topics` returns the aggregated topics.
 - `POST /draft/{slug}/dry-run` starts an async 30-day trial scan that does
   **not** persist candidates; the result gives raw scores for the
@@ -63,8 +70,12 @@ Three things the old UI got wrong about this process:
 
 1. **There was no path into it.** A new user landed on a feed that said
    "no cards" with no explanation, and the wizard was a small link in a
-   sidebar. Now: no interests ⇒ the feed *is* the onboarding, with a
-   single primary action.
+   sidebar. Now: a user with no interests lands on `/start`, a one-page
+   "what you can do" that leads with *add an interest* and offers the
+   three ways to build one (PDFs, an ORCID, a Prosopia profile), each a
+   link into the wizard with that source preselected. The Radar mark in
+   the sidebar goes back to that page from anywhere. The empty feed and
+   the empty interests list show the same three cards.
 2. **Long-running work was invisible.** Scans, dry-runs and imports run
    for minutes. State lived inside one component and vanished when you
    navigated. Now: a global job tracker (`src/lib/jobs.ts`) persists
@@ -78,9 +89,10 @@ Three things the old UI got wrong about this process:
 
 | Route                | Screen            | Primary action                        |
 |----------------------|-------------------|---------------------------------------|
+| `/start`             | Start             | What you can do; add an interest from PDFs / ORCID / Prosopia |
 | `/feed`              | Feed              | Save / dismiss papers; Scan now       |
 | `/interests`         | Interests         | New interest; resume or delete drafts |
-| `/interests/new`     | New interest      | Step-by-step wizard (resumable by `?draft=slug`) |
+| `/interests/new`     | New interest      | Step-by-step wizard (resumable by `?draft=slug`; `?source=upload|orcid|prosopia` preselects the seed source) |
 | `/interests/:key`    | Interest          | Scan now; tune threshold; add seeds   |
 | `/vault`             | Vault             | Upload PDFs; ask a question           |
 | `/settings`          | Settings          | Contact email; theme; sign out        |

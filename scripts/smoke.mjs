@@ -65,12 +65,25 @@ function section(t) { console.log(`\n== ${t}`); }
 
 try {
   // ---------------- Fresh user: onboarding → wizard → first scan → feed ----------------
-  section('fresh user login');
+  section('fresh user login → start page');
   await login('new@example.com');
-  await expectText('Radar needs an interest to scan for', 'onboarding');
-  await shot('onboarding');
-  await clickText('a', 'Create your first interest');
+  await waitText('What you can do in Radar');
+  if (!page.url().endsWith('/start')) failures.push(`fresh user should land on /start, got ${page.url()}`); else console.log('  ok   landed on /start');
+  await expectText('Add an interest');
+  await expectText('An ORCID');
+  await shot('start');
+  // The feed itself still explains what to do when there is nothing.
+  await clickText('a', 'Feed');
+  await waitText('Radar needs an interest to scan for');
+  await expectText('Papers you have', 'feed empty state offers the three ways in');
+  await shot('feed-empty');
+  // The Radar mark is the way back to the overview.
+  await page.click('.sidebar-brand');
+  await waitText('What you can do in Radar');
+  await clickText('a.home-way', 'Papers you have');
   await waitText('Name it and add seed papers');
+  const uploadOn = await page.$eval('.source-option.on', (el) => el.innerText);
+  if (!uploadOn.includes('Papers you have')) failures.push('?source=upload should preselect PDFs'); else console.log('  ok   source preselected');
   await shot('wizard-step1');
 
   section('wizard: name + upload');
@@ -257,24 +270,98 @@ try {
   await shot('settings-dark');
   await clickText('.seg', 'Light');
 
+  section('orcid import: validation, empty orcid, pick list');
+  await page.goto(`${BASE}/interests/new?source=orcid`, { waitUntil: 'networkidle0' });
+  await waitText('ORCID iD');
+  await page.type('input[placeholder^="0000-0001"]', 'not-an-orcid');
+  await waitText('does not look like an ORCID');
+  const findDisabled = await page.$$eval('button', (bs) => bs.find((b) => b.innerText.includes('Find papers'))?.disabled);
+  if (!findDisabled) failures.push('Find papers should be disabled for a malformed ORCID'); else console.log('  ok   find disabled for bad orcid');
+  await page.click('input[placeholder^="0000-0001"]', { clickCount: 3 });
+  await page.type('input[placeholder^="0000-0001"]', 'https://orcid.org/0000-0002-0000-0000');
+  await clickText('button', 'Find papers');
+  await waitText('No papers on OpenAlex for this ORCID', 5000);
+  await shot('orcid-empty');
+  // The source picker must still be usable after a lookup: switch away and back.
+  await clickText('.source-option', 'A Prosopia profile');
+  await waitText('Prosopia profile');
+  await clickText('.source-option', 'An ORCID');
+  await waitText('ORCID iD');
+  console.log('  ok   source picker switches both ways');
+  await page.click('input[placeholder^="0000-0001"]', { clickCount: 3 });
+  await page.type('input[placeholder^="0000-0001"]', '0000-0001-5643-4068');
+  await clickText('button', 'Find papers');
+  await waitText('10 of 10 papers selected', 5000);
+  // Untick one, then import the rest.
+  await page.click('.pick-row input');
+  await waitText('9 of 10 papers selected');
+  await shot('orcid-picklist');
+  await clickText('button', 'Import 9 papers');
+  await waitText('Import ·', 5000);
+  await waitText('from ORCID 0000-0001-5643-4068', 30000);
+  await waitText('Seeds · 12', 30000);
+  await expectText('Nathan C. Sheffield', 'draft named after the author');
+  await shot('orcid-imported');
+  // Seeds can be pruned: from the list in step 1, and from the least-alike pair in step 2.
+  // DOM clicks: the "Seed removed." toast sits over the footer buttons.
+  const domClick = (sel, s) => page.$$eval(sel, (els, s) => { const el = els.find((e) => e.innerText.includes(s)); el?.click(); return !!el; }, s)
+    .then((ok) => { if (!ok) failures.push(`no ${sel} with text "${s}"`); });
+  await page.click('.seed-row.removable .icon-btn');
+  await waitText('Remove this seed?');
+  await clickText('.dialog button', 'Remove seed');
+  await waitText('Seeds · 11', 5000);
+  await domClick('button', 'Next: check coherence');
+  await waitText('across 11 seeds', 10000);
+  await expectText('Least alike pair');
+  await shot('check-least-alike');
+  await domClick('.pair-row button', 'Remove');
+  await waitText('Remove this seed?');
+  await clickText('.dialog button', 'Remove seed');
+  await waitText('across 10 seeds', 10000);
+  await domClick('button', 'Back to seeds');
+  await waitText('Seeds · 10', 5000);
+  console.log('  ok   seeds removable in steps 1 and 2');
+  // "Choose a different way" goes back to the picker (confirm, since seeds exist).
+  await clickText('button', 'Choose a different way to add seeds');
+  await waitText('Start over?');
+  await clickText('.dialog button', 'Start over');
+  await waitText('Where do the seeds come from?', 5000);
+  console.log('  ok   start over returns to the picker');
+
   section('prosopia import wizard');
   await page.goto(`${BASE}/interests/new`, { waitUntil: 'networkidle0' });
   await waitText('Where do the seeds come from');
-  await clickText('.source-option', 'Import from Prosopia');
+  await clickText('.source-option', 'A Prosopia profile');
   await page.type('input[placeholder^="e.g. sheffield"]', 'unknown-person');
-  await clickText('button', 'Import papers');
-  await waitText('no Prosopia profile found', 5000);
+  await clickText('button', 'Find papers');
+  await waitText("prosopia profile 'unknown-person' not found", 5000);
   await page.click('input[placeholder^="e.g. sheffield"]', { clickCount: 3 });
-  await page.type('input[placeholder^="e.g. sheffield"]', 'sheffield-nathan');
-  await clickText('button', 'Import papers');
-  await waitText('Prosopia import ·', 5000);
-  await shot('prosopia-importing');
-  await waitText('Imported from Prosopia', 30000);
+  await page.type('input[placeholder^="e.g. sheffield"]', 'https://prosopia.databio.org/api/v1/profiles/sheffield-nathan/content/profile.jsonld');
+  await clickText('button', 'Find papers');
+  await waitText('12 of 12 papers selected', 5000);
+  await clickText('button', 'None');
+  await waitText('0 of 12 papers selected');
+  const impOff = await page.$$eval('button', (bs) => bs.find((b) => b.innerText.startsWith('Import 0'))?.disabled);
+  if (!impOff) failures.push('Import should be disabled with nothing selected'); else console.log('  ok   import disabled with nothing selected');
+  await clickText('button', 'All');
+  await page.click('.pick-row input');
+  await page.click('.pick-row:nth-child(2) input');
+  await waitText('10 of 12 papers selected');
+  // No horizontal overflow: the long titles must truncate inside the panel.
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  if (overflow) failures.push('pick list widened the page'); else console.log('  ok   pick list stays inside the page');
+  await shot('prosopia-picklist');
+  await clickText('button', 'Import 10 papers');
+  await waitText('Import ·', 5000);
+  await waitText('Imported from Prosopia (sheffield-nathan)', 30000);
   await waitText('Seeds · 12', 10000);
   await shot('prosopia-imported');
   await clickText('button', 'Next: check coherence');
   await waitText('Your seeds agree', 8000);
   await waitText('Agreement');
+  const fillW = await page.$eval('.agreement-fill', (el) => el.getBoundingClientRect().width);
+  if (!(fillW > 20)) failures.push(`agreement bar fill is ${fillW}px wide`); else console.log(`  ok   agreement bar fills (${Math.round(fillW)}px)`);
+  await shot('agreement');
 
   section('not found + deep link');
   await page.goto(`${BASE}/interests/nope`, { waitUntil: 'networkidle0' });

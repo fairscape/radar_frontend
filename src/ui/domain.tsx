@@ -2,7 +2,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { Bucket, Profile, RerankerCandidate } from '../types/radar';
 import { Badge, Button, Icon, ProgressBar, Swatch, type Tone } from './index';
-import { kindLabel, stepLabel, type Job } from '../lib/jobs';
+import { kindLabel, stepLabel, type Job, jobEstimate, fmtSeconds } from '../lib/jobs';
 import { paths } from '../lib/router';
 import { Link } from './Link';
 import { fmtDuration } from '../lib/format';
@@ -76,6 +76,8 @@ export function InterestName({ profile, link = true }: { profile: Profile; link?
 export function JobProgress({ job, compact }: { job: Job; compact?: boolean }) {
   const frac = job.nTotal && job.nProcessed != null && job.nTotal > 0 ? job.nProcessed / job.nTotal : null;
   const counts = job.nTotal != null && job.nProcessed != null ? `${job.nProcessed.toLocaleString()} / ${job.nTotal.toLocaleString()}` : '';
+  const est = jobEstimate(job);
+  const estimate = est ? `${est.secondsLeft != null ? `about ${fmtSeconds(est.secondsLeft)} left · ` : ''}${est.perSec >= 10 ? Math.round(est.perSec) : est.perSec.toFixed(1)}/s` : '';
   if (job.status === 'error') {
     return (
       <div className="row" style={{ color: 'var(--err)', fontSize: 13 }}>
@@ -94,7 +96,7 @@ export function JobProgress({ job, compact }: { job: Job; compact?: boolean }) {
     <ProgressBar
       value={job.step && job.step !== 'loading_profile' ? frac : null}
       label={compact ? undefined : `${kindLabel(job.kind)} · ${stepLabel(job)}`}
-      sub={compact ? undefined : `${counts}${counts && job.message ? ' · ' : ''}${job.message ?? ''}`.trim() || fmtDuration(new Date(job.startedAt).toISOString(), null)}
+      sub={compact ? undefined : [counts, estimate, job.message ?? ''].filter(Boolean).join(' · ') || fmtDuration(new Date(job.startedAt).toISOString(), null)}
     />
   );
 }

@@ -15,7 +15,7 @@ export function App() {
 
   useEffect(() => {
     const titles: Record<string, string> = {
-      feed: 'Feed', interests: 'Interests', interest: 'Interest', wizard: 'New interest', vault: 'Vault', settings: 'Settings', notfound: 'Not found',
+      home: 'Start', feed: 'Feed', interests: 'Interests', interest: 'Interest', wizard: 'New interest', vault: 'Vault', settings: 'Settings', notfound: 'Not found',
     };
     document.title = `${titles[route.name] ?? 'Radar'} · Radar`;
   }, [route.name]);

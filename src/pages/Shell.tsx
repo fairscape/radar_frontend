@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useProfiles, useVaultStats } from '../api/hooks';
 import { TERMS } from '../lib/terms';
 import { dismissJob, kindLabel, stepLabel, useJobs, type Job } from '../lib/jobs';
@@ -6,6 +7,7 @@ import { setThemePref, useTheme } from '../lib/theme';
 import { Button, Icon, IconButton, Spinner, Swatch, type IconName } from '../ui';
 import { Link } from '../ui/Link';
 import { JobProgress } from '../ui/domain';
+import { HomePage } from './HomePage';
 import { FeedPage } from './FeedPage';
 import { InterestsPage } from './InterestsPage';
 import { InterestDetailPage } from './InterestDetailPage';
@@ -14,22 +16,33 @@ import { VaultPage } from './VaultPage';
 import { SettingsPage } from './SettingsPage';
 import { NotFoundPage } from './NotFoundPage';
 
-const NAV: { name: Route['name']; href: string; label: string; icon: IconName }[] = [
-  { name: 'feed', href: paths.feed, label: TERMS.feed, icon: 'radar' },
-  { name: 'interests', href: paths.interests, label: TERMS.Interests, icon: 'interests' },
-  { name: 'vault', href: paths.vault, label: TERMS.vault, icon: 'vault' },
+const NAV: { name: Route['name']; href: string; label: string; icon: IconName; hint: string }[] = [
+  { name: 'feed', href: paths.feed, label: TERMS.feed, icon: 'radar', hint: `New papers, scored against your ${TERMS.interests}` },
+  { name: 'interests', href: paths.interests, label: TERMS.Interests, icon: 'interests', hint: `The topics Radar scans for, each defined by a set of papers` },
+  { name: 'vault', href: paths.vault, label: TERMS.vault, icon: 'vault', hint: 'Your uploaded PDFs; ask questions about them' },
 ];
 
 export function Shell({ route, email }: { route: Route; email: string }) {
+  const { data: profiles } = useProfiles();
+
+  // A user with nothing set up yet lands on "what you can do" rather
+  // than an empty feed. Only from the bare root, so /feed stays /feed.
+  useEffect(() => {
+    if (route.name === 'feed' && window.location.pathname === '/' && profiles && profiles.length === 0) {
+      navigate(paths.home, { replace: true });
+    }
+  }, [route.name, profiles]);
+
   return (
     <div className="app">
       <Sidebar route={route} email={email} />
       <div className="main">
         <JobsStrip />
+        {route.name === 'home' && <HomePage />}
         {route.name === 'feed' && <FeedPage />}
         {route.name === 'interests' && <InterestsPage />}
         {route.name === 'interest' && <InterestDetailPage profileKey={route.key} />}
-        {route.name === 'wizard' && <WizardPage draftSlug={route.draft} />}
+        {route.name === 'wizard' && <WizardPage draftSlug={route.draft} source={route.source} />}
         {route.name === 'vault' && <VaultPage />}
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'notfound' && <NotFoundPage path={route.path} />}
@@ -53,14 +66,14 @@ function Sidebar({ route, email }: { route: Route; email: string }) {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand">
+      <Link href={paths.home} className={`sidebar-brand ${route.name === 'home' ? 'active' : ''}`} title="What you can do in Radar">
         <span className="brand-mark"><Icon name="radar" size={15} /></span>
         <span className="brand-name">Radar</span>
-        <span className="brand-ver">v1.0</span>
-      </div>
+        <Icon name="help" size={14} className="brand-help" />
+      </Link>
       <nav className="nav" aria-label="Main">
         {NAV.map((n) => (
-          <Link key={n.name} href={n.href} className={`nav-item ${route.name === n.name ? 'active' : ''}`}>
+          <Link key={n.name} href={n.href} className={`nav-item ${route.name === n.name ? 'active' : ''}`} title={n.hint}>
             <Icon name={n.icon} size={16} />
             <span>{n.label}</span>
             {counts[n.name] != null && <span className="nav-count">{counts[n.name]}</span>}
@@ -70,7 +83,7 @@ function Sidebar({ route, email }: { route: Route; email: string }) {
           <span className="nav-section-label">Your {TERMS.interests}</span>
           <IconButton icon="plus" label={TERMS.newInterest} size="sm" onClick={() => navigate(paths.wizard())} />
         </div>
-        {profiles && profiles.length === 0 && <div className="nav-empty">None yet.</div>}
+        {profiles && profiles.length === 0 && <div className="nav-empty">None yet. <Link href={paths.wizard()}>Add one</Link></div>}
         {live.map((p) => {
           const scanning = jobs.some((j) => j.kind === 'scan' && j.profileKey === p.key && j.status === 'running');
           return (

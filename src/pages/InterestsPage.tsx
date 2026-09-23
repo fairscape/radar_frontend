@@ -11,6 +11,7 @@ import type { Profile } from '../types/radar';
 import { Button, EmptyState, ErrorBox, Icon, LoadingRows, Panel, Spinner, Swatch, confirmDialog } from '../ui';
 import { Link } from '../ui/Link';
 import { HealthBadge } from '../ui/domain';
+import { AddInterestCards } from './HomePage';
 
 export function InterestsPage() {
   const { data: profiles, loading, error, refresh } = useProfiles();
@@ -37,8 +38,8 @@ export function InterestsPage() {
         <EmptyState
           icon="interests"
           title={`No ${TERMS.interests} yet`}
-          body={`Create one from a few seed papers. It takes about five minutes, most of it waiting for the trial scan.`}
-          action={<Link href={paths.wizard()} className="btn btn-primary"><Icon name="plus" size={16} /> Create your first {TERMS.interest}</Link>}
+          body={`An ${TERMS.interest} is a topic you want to follow, defined by a set of papers. It takes about five minutes to set up, most of it waiting for the trial scan. Start from:`}
+          action={<AddInterestCards />}
         />
       )}
 

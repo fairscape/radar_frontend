@@ -418,6 +418,23 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     if (!p || !run) return err(404, 'dry-run not found');
     return json({ run, result: st.dryRuns[run.id]?.result ?? null });
   }
+  m = path.match(/^\/api\/profiles\/draft\/([^/]+)\/seeds\/([^/]+)$/);
+  if (m && method === 'DELETE') {
+    const slug = decodeURIComponent(m[1]);
+    const id = decodeURIComponent(m[2]);
+    const p = findProfile(slug);
+    if (!p || !p.is_draft) return err(404, `draft '${slug}' not found`);
+    // Mock seeds and vault docs carry different ids; match either, then the other by title.
+    const doc = st.docs.find((d) => d.id === id && d.tags.includes(slug));
+    const seed = p.seeds.find((s) => s.id === id || s.id === `W${id}` || (doc && s.title === doc.title));
+    if (!doc && !seed) return err(404, `'${id}' is not a seed of draft '${slug}'`);
+    p.seeds = p.seeds.filter((s) => s !== seed);
+    const title = doc?.title ?? seed?.title;
+    const gone = doc ?? st.docs.find((d) => d.tags.includes(slug) && d.title === title);
+    if (gone) gone.tags = gone.tags.filter((t) => t !== slug);
+    p.topics = [];
+    return json({ ok: true });
+  }
   m = path.match(/^\/api\/profiles\/draft\/([^/]+)$/);
   if (m && method === 'DELETE') {
     const slug = decodeURIComponent(m[1]);
@@ -504,12 +521,63 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     return err(404, `no route ${method} ${path}`);
   }
 
+  // --- orcid import ---
+  m = path.match(/^\/api\/import\/orcid\/([^/]+)\/works$/);
+  if (m && method === 'GET') {
+    const orcid = decodeURIComponent(m[1]).replace(/^https?:\/\/orcid\.org\//i, '').toUpperCase();
+    if (!/^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(orcid)) return err(400, `'${orcid}' is not an ORCID iD (expected 0000-0000-0000-0000)`);
+    // One ORCID with nothing on OpenAlex, everyone else gets a shelf of papers.
+    if (orcid === '0000-0002-0000-0000') return json({ orcid, name: null, works: [] });
+    const works = Array.from({ length: 10 }, (_, i) => ({
+      openalex_id: `W7${orcid.slice(-4)}${i}`, doi: `10.1234/mock.${i}`, title: i === 1 ? `${pick(TITLES, 6)}: a deliberately long subtitle that keeps going so the pick list has to truncate it instead of widening the page` : pick(TITLES, i + 5), year: 2026 - (i % 6), venue: pick(VENUES, i), type: 'article',
+      cited_by_count: Math.max(0, 40 - i * 4), authors: [orcid === '0000-0001-5643-4068' ? 'Nathan C. Sheffield' : 'Mock Researcher', pick(AUTHORS, i)], n_authors: 2 + (i % 5), author_position: i % 3 === 0 ? 'first' : 'middle',
+    }));
+    return json({ orcid, name: orcid === '0000-0001-5643-4068' ? 'Nathan C. Sheffield' : 'Mock Researcher', works });
+  }
+  if (path === '/api/import/orcid' && method === 'POST') {
+    const orcid = String(body?.orcid ?? '').trim().replace(/^https?:\/\/orcid\.org\//i, '').toUpperCase();
+    const ids = Array.isArray(body?.openalex_ids) ? (body!.openalex_ids as string[]) : [];
+    if (!/^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(orcid)) return err(400, 'orcid must be an ORCID iD such as 0000-0001-5643-4068');
+    if (ids.length === 0) return err(400, 'select at least one work to import');
+    const name = String(body?.name ?? '').trim() || (orcid === '0000-0001-5643-4068' ? 'Nathan C. Sheffield' : 'Mock Researcher');
+    let slug = slugify(name);
+    if (findProfile(slug)) slug = `${slug}-${st.nextId}`;
+    const p: MockProfile = { id: st.nextId++, slug, name, hue: 140, is_draft: true, threshold: 0, coherence: 0, seeds: [], topics: [], candidates: [], runs: [], feedback: [] };
+    st.profiles.push(p);
+    const run: MockRun = { id: st.nextId++, profile_id: p.id, started_at: nowIso(), finished_at: null, since_date: null, filter_string: null, tier_used: 'orcid_import', n_fetched: null, n_new: null, n_redup: null, api_calls: null, error: null, current_step: null, n_processed: null, n_total: null, last_message: null };
+    p.runs.unshift(run);
+    st.imports[run.id] = { slug, result: null };
+    startSim(st, p, run, { kind: 'import', slug, ref: orcid, name });
+    return json({ draft_slug: slug, run_id: run.id });
+  }
+
+  // --- prosopia works listing ---
+  if (path === '/api/import/prosopia/works' && method === 'GET') {
+    const ref = String(q.get('ref') ?? '').trim();
+    if (!ref) return err(400, 'ref must be a non-empty slug, profile URL or ORCID');
+    if (/unknown|missing/i.test(ref)) return err(404, `prosopia profile '${ref}' not found`);
+    // Same rule as the backend: the segment after "profiles" in an API URL,
+    // the first segment of a site URL, the bare value otherwise.
+    const segs = ref.replace(/^https?:\/\/[^/]+\//i, '').split(/[?#]/)[0].split('/').filter(Boolean);
+    const at = segs.indexOf('profiles');
+    const slug = at >= 0 && segs[at + 1] ? segs[at + 1] : /^https?:/i.test(ref) ? (segs[0] ?? ref) : (segs[segs.length - 1] ?? ref);
+    const works = Array.from({ length: 12 }, (_, i) => ({
+      id: `${slug}-${2014 + i}-paper${i}`, title: i === 0 ? `${pick(TITLES, 3)}: a deliberately long subtitle that keeps going so the pick list has to truncate it instead of widening the page` : pick(TITLES, i + 3), year: 2025 - (i % 8), venue: pick(VENUES, i), doi: `10.1234/mock.${slug}.${i}`, openalex_id: `W9${i}${i}`,
+      cited_by_count: Math.max(0, 60 - i * 5), authors: ['Nathan C. Sheffield', pick(AUTHORS, i), pick(AUTHORS, i + 2)], n_authors: 3 + (i % 4),
+    }));
+    return json({ slug, name: 'Nathan C. Sheffield', works });
+  }
+
   // --- prosopia import ---
   if (path === '/api/import/prosopia' && method === 'POST') {
     const ref = String(body?.ref ?? '').trim();
     if (!ref) return err(422, 'ref is required');
     if (/unknown|missing/i.test(ref)) return err(404, `no Prosopia profile found for '${ref}'`);
-    const name = String(body?.name ?? '').trim() || `Papers of ${ref.replace(/-/g, ' ')}`;
+    // ORCID refs resolve against the (one-entry) mock profile list, like the real client.
+    const orcid = ref.replace(/^https?:\/\/orcid\.org\//i, '').toUpperCase();
+    const isOrcid = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(orcid);
+    if (isOrcid && orcid !== '0000-0001-5643-4068') return err(404, `no Prosopia profile with ORCID '${orcid}'`);
+    const name = String(body?.name ?? '').trim() || (isOrcid ? 'Nathan C. Sheffield' : `Papers of ${ref.replace(/-/g, ' ')}`);
     let slug = slugify(name);
     if (findProfile(slug)) slug = `${slug}-${st.nextId}`;
     const p: MockProfile = { id: st.nextId++, slug, name, hue: 210, is_draft: true, threshold: 0, coherence: 0, seeds: [], topics: [], candidates: [], runs: [], feedback: [] };

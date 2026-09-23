@@ -1,39 +1,66 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProfiles, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
+import { fetchOrcidWorks, fetchProsopiaWorks } from '../api/endpoints/prosopia';
 import {
   commitDraft,
   createDraft,
   deleteDraft,
   getDraftCoherence,
   getDraftTopics,
+  removeDraftSeed,
   type DraftCoherence,
   type DraftDryRun,
 } from '../api/endpoints/wizard';
-import { getDraft, resetDraft, useDraft, type DraftState } from '../lib/draft';
+import { getDraft, isSeedSource, resetDraft, useDraft, type DraftState, type SeedSource } from '../lib/draft';
 import { errorMessage, plural } from '../lib/format';
-import { findJob, startDryRun, startImport, startScan, useJob } from '../lib/jobs';
+import { findJob, startDryRun, startImport, startOrcidImport, startScan, useJob, type Job } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { ProsopiaImportResult } from '../types/prosopia';
-import { Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, confirmDialog, useAction } from '../ui';
+import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, confirmDialog, useAction } from '../ui';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, JobProgress, ThresholdHistogram, agreementTone, axisFor } from '../ui/domain';
 
 const STEPS = [
-  { n: 1, label: 'Seeds', hint: 'name + papers' },
-  { n: 2, label: 'Check', hint: 'do they cluster?' },
-  { n: 3, label: 'Topics', hint: 'what to query' },
-  { n: 4, label: 'Threshold', hint: 'trial scan + save' },
+  { n: 1, label: 'Seeds', hint: 'name it, add papers' },
+  { n: 2, label: 'Check', hint: 'do the papers agree?' },
+  { n: 3, label: 'Topics', hint: 'what to search for' },
+  { n: 4, label: 'Threshold', hint: 'how strict, then save' },
 ];
+
+const ORCID_RE = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/i;
+/** A bare ORCID or an orcid.org URL, normalised to the bare id; null if it is neither. */
+function parseOrcid(raw: string): string | null {
+  const v = raw.trim().replace(/^https?:\/\/(www\.)?orcid\.org\//i, '').replace(/\/+$/, '');
+  return ORCID_RE.test(v) ? v.toUpperCase() : null;
+}
 
 const DEFAULT_CRON = '0 4 * * *';
 const DEFAULT_TZ = 'UTC';
 
-export function WizardPage({ draftSlug }: { draftSlug: string | null }) {
+const SOURCES: { source: SeedSource; icon: import('../ui').IconName; title: string; body: string }[] = [
+  { source: 'upload', icon: 'upload', title: 'Papers you have', body: 'Upload PDFs. Radar reads each one and finds it on OpenAlex.' },
+  { source: 'orcid', icon: 'id', title: 'An ORCID', body: "A researcher's papers on OpenAlex. You pick which ones count." },
+  { source: 'prosopia', icon: 'interests', title: 'A Prosopia profile', body: 'The papers on a Prosopia researcher profile. You pick which ones count.' },
+];
+
+export function WizardPage({ draftSlug, source }: { draftSlug: string | null; source: string | null }) {
   const { state, update, reset } = useDraft();
+
+  // ``?source=`` preselects where the seeds come from (from the home
+  // page's three entry points). Only meaningful before a draft exists.
+  // Applied once per URL value: re-applying on every state change would
+  // snap the picker back to the URL's source whenever the user clicked
+  // another one.
+  const appliedSource = useRef<string | null>(null);
+  useEffect(() => {
+    if (draftSlug || state.slug || !isSeedSource(source) || appliedSource.current === source) return;
+    appliedSource.current = source;
+    if (source !== state.source) update({ source });
+  }, [draftSlug, source, state.slug, state.source, update]);
   const { data: profiles } = useProfiles();
   const [resuming, setResuming] = useState(false);
   const checkedRef = useRef(false);
@@ -110,7 +137,7 @@ export function WizardPage({ draftSlug }: { draftSlug: string | null }) {
       <header className="page-head">
         <div>
           <h1 className="page-title">{state.name ? state.name : TERMS.newInterest}</h1>
-          <p className="page-sub">Four short steps. Your progress is saved as a draft, so you can leave and come back.</p>
+          <p className="page-sub">An {TERMS.interest} is a topic Radar follows for you, defined by a set of papers. Four short steps; your progress is saved as a draft, so you can leave and come back.</p>
         </div>
         <div className="page-actions">
           <Button variant="ghost" onClick={() => navigate(paths.interests)} title="Keep the draft and come back later">Save for later</Button>
@@ -151,15 +178,10 @@ export function WizardPage({ draftSlug }: { draftSlug: string | null }) {
 function StepSeeds({ state }: { state: DraftState }) {
   const { update, addSeed } = useDraft();
   const [name, setName] = useState(state.name);
-  const [ref, setRef] = useState(state.prosopia?.ref ?? '');
   const importJob = useJob(state.importJobId);
   const create = useAction(async () => {
     const d = await createDraft(name.trim());
     update({ slug: d.slug, name: d.name, source: 'upload' });
-  });
-  const imp = useAction(async () => {
-    const job = await startImport(ref.trim(), name.trim() || undefined);
-    update({ importJobId: job.id, source: 'prosopia', name: name.trim() || job.profileName, slug: job.profileKey, prosopia: { ref: ref.trim(), nSeeds: null } });
   });
 
   // When an import finishes, record its result and continue.
@@ -169,53 +191,222 @@ function StepSeeds({ state }: { state: DraftState }) {
     update({
       slug: (r?.draft_slug as string | undefined) ?? importJob.profileKey,
       name: (r?.name as string | undefined) ?? importJob.profileName,
-      prosopia: { ref: state.prosopia?.ref ?? ref, nSeeds: typeof r?.drafted === 'number' ? r.drafted : null },
+      prosopia: { ref: state.prosopia?.ref ?? '', nSeeds: typeof r?.drafted === 'number' ? r.drafted : null },
     });
-  }, [importJob, update, state.prosopia?.ref, ref]);
+  }, [importJob, update, state.prosopia?.ref]);
 
   if (!state.slug) {
     return (
       <Panel title="Step 1 · Name it and add seed papers" description="Seeds are the papers that define what you are interested in. 5–15 focused papers work best; one is enough to start.">
         <div className="stack" style={{ gap: 16 }}>
-          <Field label="Name" hint="How this interest appears in the feed and the sidebar.">
+          <Field label="Name" hint={state.source === 'upload' ? 'How this interest appears in the feed and the sidebar.' : "How this interest appears in the feed and the sidebar. Leave it blank to use the researcher's name."}>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Neonatal vital-sign monitoring" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && state.source === 'upload') void create.run(); }} />
           </Field>
           <div>
             <div className="field-label" style={{ marginBottom: 8 }}>Where do the seeds come from?</div>
             <div className="source-picker" role="radiogroup">
-              <button type="button" role="radio" aria-checked={state.source === 'upload'} className={`source-option ${state.source === 'upload' ? 'on' : ''}`} onClick={() => update({ source: 'upload' })}>
-                <Icon name="upload" />
-                <div><b>Upload PDFs</b><span>Drop in papers you have on disk. Radar extracts the text and resolves each one on OpenAlex.</span></div>
-              </button>
-              <button type="button" role="radio" aria-checked={state.source === 'prosopia'} className={`source-option ${state.source === 'prosopia' ? 'on' : ''}`} onClick={() => update({ source: 'prosopia' })}>
-                <Icon name="interests" />
-                <div><b>Import from Prosopia</b><span>Use every paper on a Prosopia researcher profile as the seed set.</span></div>
-              </button>
+              {SOURCES.map((o) => (
+                <button key={o.source} type="button" role="radio" aria-checked={state.source === o.source} className={`source-option ${state.source === o.source ? 'on' : ''}`} disabled={importJob?.status === 'running'} onClick={() => update({ source: o.source })}>
+                  <Icon name={o.icon} />
+                  <div><b>{o.title}</b><span>{o.body}</span></div>
+                </button>
+              ))}
             </div>
           </div>
-          {state.source === 'upload' ? (
+          {state.source === 'upload' && (
             <div className="row">
               <Button variant="primary" iconRight="arrow-right" onClick={() => create.run()} loading={create.busy} disabled={!name.trim()}>Create draft and add PDFs</Button>
               {create.error && <span className="field-error">{create.error}</span>}
             </div>
-          ) : (
-            <div className="stack">
-              <Field label="Prosopia profile" hint="A profile slug, an ORCID, or the profile URL. Leave the name blank to use the profile's own name.">
-                <Input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="e.g. sheffield-nathan or 0000-0002-…" disabled={importJob?.status === 'running'} onKeyDown={(e) => { if (e.key === 'Enter') void imp.run(); }} />
-              </Field>
-              {importJob && importJob.status === 'running' && <JobProgress job={importJob} />}
-              {importJob?.status === 'error' && <ErrorBox compact title="Import failed" message={importJob.error} />}
-              <div className="row">
-                <Button variant="primary" icon="upload" onClick={() => imp.run()} loading={imp.busy || importJob?.status === 'running'} disabled={!ref.trim()}>Import papers</Button>
-                {imp.error && <span className="field-error">{imp.error}</span>}
-              </div>
-            </div>
           )}
+          {state.source === 'orcid' && <WorkPicker key="orcid" name={name.trim()} spec={ORCID_PICKER} />}
+          {state.source === 'prosopia' && <WorkPicker key="prosopia" name={name.trim()} spec={PROSOPIA_PICKER} />}
         </div>
       </Panel>
     );
   }
   return <SeedUploader state={state} addSeed={addSeed} />;
+}
+
+/** A paper offered for import, whichever service listed it. */
+interface PickWork {
+  id: string;
+  title: string;
+  year: number | null;
+  venue: string | null;
+  type?: string | null;
+  cited_by_count?: number | null;
+  authors: string[];
+  n_authors?: number | null;
+}
+
+interface PickerSpec {
+  label: string;
+  hint: string;
+  placeholder: string;
+  /** The key to look up, or null when the text is not usable yet. */
+  parse: (raw: string) => string | null;
+  parseError: string;
+  find: (key: string) => Promise<{ key: string; name: string | null; works: PickWork[] }>;
+  start: (key: string, ids: string[], name?: string) => Promise<Job>;
+  emptyTitle: string;
+  emptyBody: string;
+}
+
+/** OpenAlex work types that read as papers; software and dataset records start unticked. */
+const PAPER_TYPES = new Set(['article', 'preprint', 'review', 'book-chapter', 'book', 'conference-paper', 'dissertation', 'letter', 'report', 'editorial', 'erratum', 'reference-entry', 'paratext', 'other']);
+function papersOf(works: PickWork[]): PickWork[] {
+  return works.filter((w) => !w.type || PAPER_TYPES.has(w.type));
+}
+
+const ORCID_PICKER: PickerSpec = {
+  label: 'ORCID iD',
+  hint: 'Radar lists every paper OpenAlex attributes to this ORCID; untick the ones that should not count.',
+  placeholder: '0000-0001-5643-4068 or https://orcid.org/…',
+  parse: parseOrcid,
+  parseError: 'That does not look like an ORCID (0000-0000-0000-0000).',
+  find: async (orcid) => {
+    const r = await fetchOrcidWorks(orcid);
+    return { key: r.orcid, name: r.name, works: r.works.map((w) => ({ id: w.openalex_id, title: w.title, year: w.year, venue: w.venue, type: w.type, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors })) };
+  },
+  start: (orcid, ids, name) => startOrcidImport(orcid, ids, name),
+  emptyTitle: 'No papers on OpenAlex for this ORCID',
+  emptyBody: 'OpenAlex has no works with this ORCID on an authorship. Check the iD, or upload PDFs instead.',
+};
+
+const PROSOPIA_PICKER: PickerSpec = {
+  label: 'Prosopia profile',
+  hint: "The profile's slug or its URL. Radar lists the profile's papers; untick the ones that should not count.",
+  placeholder: 'e.g. sheffield-nathan or https://prosopia.databio.org/…',
+  parse: (raw) => raw.trim() || null,
+  parseError: '',
+  find: async (ref) => {
+    const r = await fetchProsopiaWorks(ref);
+    return { key: r.slug, name: r.name, works: r.works.map((w) => ({ id: w.id, title: w.title, year: w.year, venue: w.venue, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors })) };
+  },
+  start: (slug, ids, name) => startImport(slug, name, ids),
+  emptyTitle: 'This profile lists no papers',
+  emptyBody: 'The profile exists but has no papers to import. Upload PDFs instead.',
+};
+
+/**
+ * Lookup → the papers found → a pick list → import the kept ones. The
+ * list is fetched on demand ("Find papers") so a typo does not fire a
+ * request per keystroke, and papers start ticked because pruning a few
+ * is the common case.
+ */
+function WorkPicker({ name, spec }: { name: string; spec: PickerSpec }) {
+  const { state, update } = useDraft();
+  const importJob = useJob(state.importJobId);
+  const [raw, setRaw] = useState(state.prosopia?.ref ?? '');
+  const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[] } | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const key = spec.parse(raw);
+  const running = importJob?.status === 'running';
+
+  const find = useAction(async () => {
+    if (!key) return;
+    const res = await spec.find(key);
+    setListing({ forRaw: raw.trim(), ...res });
+    setPicked(new Set(papersOf(res.works).map((w) => w.id)));
+  });
+  const imp = useAction(async () => {
+    if (!listing || picked.size === 0) return;
+    const job = await spec.start(listing.key, Array.from(picked), name || undefined);
+    update({ importJobId: job.id, name: name || listing.name || job.profileName, slug: job.profileKey, prosopia: { ref: listing.key, nSeeds: null } });
+  });
+
+  function toggle(id: string) {
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
+
+  const current = listing && listing.forRaw === raw.trim() ? listing : null;
+  const nonPapers = current ? current.works.length - papersOf(current.works).length : 0;
+  return (
+    <div className="stack">
+      <Field label={spec.label} hint={spec.hint} error={raw.trim() && !key ? spec.parseError : null}>
+        <div className="pick-find">
+          <Input value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={spec.placeholder} disabled={running} onKeyDown={(e) => { if (e.key === 'Enter') void find.run(); }} />
+          <Button icon="search" onClick={() => find.run()} loading={find.busy} disabled={!key || running}>Find papers</Button>
+        </div>
+      </Field>
+      {find.error && <ErrorBox compact title="Couldn't list papers" message={find.error} onRetry={() => find.run()} />}
+      {current && current.works.length === 0 && (
+        <EmptyState compact icon="search" title={spec.emptyTitle} body={spec.emptyBody} />
+      )}
+      {current && current.works.length > 0 && (
+        <div className="stack" style={{ gap: 8 }}>
+          <div className="pick-head">
+            <span className="field-label">{current.name ? `${current.name} · ` : ''}{picked.size} of {current.works.length} papers selected</span>
+            <span className="row" style={{ gap: 6 }}>
+              <Button size="sm" variant="ghost" disabled={running} onClick={() => setPicked(new Set(current.works.map((w) => w.id)))}>All</Button>
+              {nonPapers > 0 && <Button size="sm" variant="ghost" disabled={running} onClick={() => setPicked(new Set(papersOf(current.works).map((w) => w.id)))}>Papers only</Button>}
+              <Button size="sm" variant="ghost" disabled={running} onClick={() => setPicked(new Set())}>None</Button>
+            </span>
+          </div>
+          {nonPapers > 0 && <p className="small muted" style={{ margin: 0 }}>{plural(nonPapers, 'software or dataset record')} start unticked; tick any that should count.</p>}
+          <div className="pick-list" role="group" aria-label="Papers to import">
+            {current.works.map((w) => (
+              <label className={`pick-row ${picked.has(w.id) ? 'on' : ''}`} key={w.id}>
+                <input type="checkbox" checked={picked.has(w.id)} disabled={running} onChange={() => toggle(w.id)} />
+                <span>
+                  <div className="truncate" title={w.title}>{w.title}</div>
+                  <div className="v">{[w.year, w.venue, w.n_authors && w.n_authors > 3 ? `${w.authors.slice(0, 2).join(', ')} +${w.n_authors - 2}` : w.authors.join(', ')].filter(Boolean).join(' · ')}</div>
+                </span>
+                <span className="row" style={{ gap: 8 }}>
+                  {w.type && !PAPER_TYPES.has(w.type) && <span className="pick-type">{w.type}</span>}
+                  <span className="muted small mono">{w.cited_by_count != null ? `${w.cited_by_count} cit.` : ''}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {importJob && running && <JobProgress job={importJob} />}
+          {importJob?.status === 'error' && <ErrorBox compact title="Import failed" message={importJob.error} />}
+          <div className="row">
+            <Button variant="primary" icon="upload" onClick={() => imp.run()} loading={imp.busy || running} disabled={picked.size === 0}>Import {plural(picked.size, 'paper')}</Button>
+            {imp.error && <span className="field-error">{imp.error}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Take a seed out of the draft, after a confirm (an imported paper can't
+ * be re-added one at a time). Topics and the dry run depend on the seeds,
+ * so their choices are cleared and recomputed on the way forward.
+ */
+function useRemoveSeed(slug: string) {
+  const { update, removeSeed } = useDraft();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  async function remove(id: string, title: string) {
+    const ok = await confirmDialog({
+      title: 'Remove this seed?',
+      body: <p>"{title || id}" will no longer count towards this {TERMS.interest}. The paper stays in your library, and you can upload it again later.</p>,
+      confirmLabel: 'Remove seed',
+      danger: true,
+    });
+    if (!ok) return false;
+    setBusyId(id);
+    try {
+      await removeDraftSeed(slug, id);
+      removeSeed(id);
+      update({ selectedTopicIds: null, dryRunJobId: null, threshold: null });
+      toast.success('Seed removed.');
+      return true;
+    } catch (e) {
+      toast.error(`Couldn't remove the seed: ${errorMessage(e)}`);
+      return false;
+    } finally {
+      setBusyId(null);
+    }
+  }
+  return { remove, busyId };
 }
 
 function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: import('../types/radar').VaultDoc) => void }) {
@@ -229,7 +420,25 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
   const [failures, setFailures] = useState<string[]>([]);
   const seeds = docs.data ?? state.seeds;
   const importing = importJob?.status === 'running';
+  const removal = useRemoveSeed(slug);
   const haveSeeds = seeds.length > 0;
+  // Back to the source picker. The draft on the server is thrown away
+  // (an import creates one per attempt) and the wizard keeps the name.
+  const startOver = useAction(async () => {
+    if (seeds.length > 0) {
+      const ok = await confirmDialog({ title: 'Start over?', body: `This deletes the draft "${state.name}" and its ${plural(seeds.length, 'seed')}. The name and source choice are kept.`, confirmLabel: 'Start over', danger: true });
+      if (!ok) return;
+    }
+    try {
+      await deleteDraft(slug);
+    } catch {
+      /* an orphaned draft is harmless; the list shows it under Drafts */
+    }
+    // Drop ``?draft=`` first: with it still in the URL the resume effect
+    // would re-adopt the draft from the not-yet-refreshed interests list.
+    navigate(paths.wizard(), { replace: true });
+    update({ slug: null, seeds: [], prosopia: null, importJobId: null, dryRunJobId: null, selectedTopicIds: null, threshold: null, step: 1 });
+  });
 
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -249,7 +458,12 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
   }
 
   return (
-    <Panel title="Step 1 · Seed papers" description={state.prosopia ? `Imported from Prosopia (${state.prosopia.ref}). You can add more PDFs.` : 'Upload the PDFs that define this interest. Each becomes a seed.'}>
+    <Panel title="Step 1 · Seed papers" description={state.prosopia ? (state.source === 'orcid' ? `Imported ${state.prosopia.nSeeds != null ? `${state.prosopia.nSeeds} papers ` : ''}from ORCID ${state.prosopia.ref}. You can add more PDFs.` : `Imported from Prosopia (${state.prosopia.ref}). You can add more PDFs.`) : 'Upload the PDFs that define this interest. Each becomes a seed.'}>
+      {!importing && (
+        <p className="small muted" style={{ marginTop: -6, marginBottom: 12 }}>
+          Wrong source? <button type="button" className="linklike" onClick={() => void startOver.run()} disabled={startOver.busy}>Choose a different way to add seeds</button>{seeds.length > 0 ? ' — this discards the draft and its seeds.' : '.'}
+        </p>
+      )}
       {importing && importJob && <div style={{ marginBottom: 14 }}><JobProgress job={importJob} /></div>}
       <div
         className={`dropzone ${over ? 'over' : ''} ${progress ? 'busy' : ''}`}
@@ -279,11 +493,12 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
         {docs.error && !docs.data && <ErrorBox compact message={errorMessage(docs.error)} onRetry={docs.refresh} />}
         {seeds.length === 0 && !docs.loading && !importing && <p className="muted small">No seeds yet.</p>}
         {seeds.map((d, i) => (
-          <div className="seed-row" key={d.id}>
+          <div className="seed-row removable" key={d.id}>
             <span className="idx">{String(i + 1).padStart(2, '0')}</span>
             <span className="truncate" title={d.title}>{d.title || d.id}</span>
-            <span className="muted small">{d.pages} pages</span>
+            <span className="muted small">{d.pages ? `${d.pages} pages` : ''}</span>
             <span className="muted small">{d.authors.slice(0, 2).join(', ')}</span>
+            <IconButton icon="trash" size="sm" label={`Remove "${d.title || d.id}" from the seeds`} disabled={importing || !!progress || removal.busyId !== null} onClick={() => void removal.remove(d.id, d.title)} />
           </div>
         ))}
       </div>
@@ -308,6 +523,12 @@ function StepCheck({ state }: { state: DraftState }) {
   const coh = useQuery(`draft/${slug}/coherence`, () => getDraftCoherence(slug));
   const c = coh.data;
   const verdict = c ? verdictFor(c) : null;
+  const removal = useRemoveSeed(slug);
+  async function removeAndRecheck(id: string, title: string) {
+    if (!(await removal.remove(id, title))) return;
+    // Nothing left to check: back to adding seeds.
+    if (c && c.n <= 1) update({ step: 1 });
+  }
   return (
     <Panel title="Step 2 · Do the seeds agree?" description="Radar checks whether your seed papers are about the same thing. Papers that agree make a sharp interest; a mix of topics makes a blurry one.">
       {coh.error && <ErrorBox message={errorMessage(coh.error)} onRetry={coh.refresh} />}
@@ -321,9 +542,20 @@ function StepCheck({ state }: { state: DraftState }) {
             <>
               <AgreementMeter agreement={c.agreement ?? null} n={c.n} />
               {c.least_similar && (
-                <div className="small muted">
-                  Least alike pair: <b>{c.least_similar.a_title || c.least_similar.a_id}</b> and <b>{c.least_similar.b_title || c.least_similar.b_id}</b>
-                  {' '}(similarity {c.least_similar.cosine.toFixed(2)}). If one of them is off-topic, go back and remove it.
+                <div className="stack" style={{ gap: 6 }}>
+                  <div className="small muted">
+                    Least alike pair (similarity {c.least_similar.cosine.toFixed(2)}). If one of them is off-topic, remove it and Radar re-checks the rest.
+                  </div>
+                  {[
+                    { id: c.least_similar.a_id, title: c.least_similar.a_title },
+                    { id: c.least_similar.b_id, title: c.least_similar.b_title },
+                  ].map((p) => (
+                    <div className="seed-row pair-row" key={p.id}>
+                      <span className="truncate" title={p.title}>{p.title || p.id}</span>
+                      <Button size="sm" variant="ghost" icon="trash" loading={removal.busyId === p.id} disabled={removal.busyId !== null || coh.fetching} onClick={() => void removeAndRecheck(p.id, p.title)}>Remove</Button>
+                    </div>
+                  ))}
+                  <div className="small muted">To remove other seeds or add new ones, go <button type="button" className="linklike" onClick={() => update({ step: 1 })}>back to seeds</button>.</div>
                 </div>
               )}
               <details>
@@ -478,10 +710,7 @@ function StepThreshold({ state }: { state: DraftState }) {
     <Panel title="Step 4 · How strict should it be?" description="Radar runs a trial scan over the last 30 days and scores every paper it finds against your seeds. The shaded band shows where your own seed papers score; the suggested threshold sits just below it. Move the bar to trade volume for precision. You can change it later.">
       {kickError && <ErrorBox title="Couldn't start the trial scan" message={kickError} onRetry={kick} />}
       {job && job.status === 'running' && (
-        <div className="stack">
-          <JobProgress job={job} />
-          <p className="small muted">This typically takes one to three minutes. Leaving the page is fine; the result is kept.</p>
-        </div>
+        <JobProgress job={job} />
       )}
       {job && job.status === 'error' && <ErrorBox title="The trial scan failed" message={job.error} onRetry={kick} />}
       {result && scores.length === 0 && (
