@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useProfileDetail, useProfileRuns, useProfiles } from '../api/hooks';
+import { useProfileDetail, useProfileRuns, useProfiles, useResearchers } from '../api/hooks';
 import {
   candidateScores,
   getRerankerComparison,
@@ -65,7 +65,7 @@ export function InterestDetailPage({ profileKey }: { profileKey: string }) {
             {profile.name}
             <HealthBadge profile={profile} />
           </h1>
-          <p className="page-sub">{health.hint}</p>
+          <p className="page-sub">{health.hint}{profile.researcherId != null && <BuiltFrom id={profile.researcherId} />}</p>
         </div>
         <div className="page-actions">
           <Button icon="radar" onClick={() => goToFeedFor(profile.key)}>View in feed</Button>
@@ -416,4 +416,12 @@ function ScanDialog({ profile, open, onClose }: { profile: Profile; open: boolea
       </div>
     </Dialog>
   );
+}
+
+/** "Built from the profile of X", when the interest came from a stored researcher. */
+function BuiltFrom({ id }: { id: number }) {
+  const { data: researchers } = useResearchers();
+  const r = researchers?.find((x) => x.id === id);
+  if (!r) return null;
+  return <> · Built from the {TERMS.profile} of <Link href={paths.profile(r.id)}>{r.name}</Link></>;
 }

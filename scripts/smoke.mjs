@@ -5,8 +5,9 @@
  *   npm run test:smoke
  *
  * Walks the real flows (first run → wizard → auto-scan → feed triage,
- * vault upload + chat, settings, draft delete, Prosopia import, forced
- * API failures) and fails on any console error or unmet expectation.
+ * vault upload + chat, settings, draft delete, Prosopia import, stored
+ * profiles and interests built from them, forced API failures) and
+ * fails on any console error or unmet expectation.
  * Screenshots land in SHOTS (default ./smoke-shots).
  */
 import puppeteer from 'puppeteer-core';
@@ -362,6 +363,90 @@ try {
   const fillW = await page.$eval('.agreement-fill', (el) => el.getBoundingClientRect().width);
   if (!(fillW > 20)) failures.push(`agreement bar fill is ${fillW}px wide`); else console.log(`  ok   agreement bar fills (${Math.round(fillW)}px)`);
   await shot('agreement');
+
+  section('profiles: the stored researcher, and an interest built from it');
+  await page.goto(`${BASE}/profiles`, { waitUntil: 'networkidle0' });
+  await waitText('Nathan C. Sheffield', 5000);
+  await expectText('Add a profile');
+  // The wizard's Prosopia import above saved the researcher too; the seeded demo one has 14 papers.
+  await shot('profiles');
+  await clickText('a.interest-card', 'Nathan C. Sheffield');
+  await waitText('built from these papers', 5000);
+  // The profile opens on its suggested interests: two groups, each one click from a draft.
+  await waitText('groups found in', 8000);
+  await expectText('Neonatal intensive care', 'first suggestion named by topic');
+  await expectText('loosely related', 'loose paper flagged on a suggestion');
+  await shot('profile-suggested');
+  await clickText('button', 'Choose papers');
+  await waitText('9 of 10 papers selected', 5000);
+  await clickText('button', 'Create interest with 9 papers');
+  await waitText('Seeds · 9', 10000);
+  await expectText('from the profile of Nathan C. Sheffield', 'draft from a suggestion lands in the wizard');
+  await page.goBack({ waitUntil: 'networkidle0' });
+  await page.goto(`${BASE}/profiles/7`, { waitUntil: 'networkidle0' });
+  await waitText('groups found in', 8000);
+  await clickText('button', 'Papers');
+  await waitText('Everything imported for this researcher', 5000);
+  await expectText('unmatched', 'unmatched paper flagged');
+  await clickText('button', 'Interests');
+  await waitText('FAIR data provenance', 5000);
+  await clickText('button', 'About');
+  await waitText('Affiliation');
+  await shot('profile-detail');
+  await clickText('button', 'New interest from these papers');
+  await waitText('Whose papers to start from', 8000);
+  const profileOn = await page.$eval('.source-option.on', (el) => el.innerText);
+  if (!profileOn.includes('A saved profile')) failures.push('profile source should be preselected'); else console.log('  ok   profile source preselected');
+  await waitText('of 14 papers selected', 5000);
+  await page.click('.pick-row input');
+  await waitText('13 of 14 papers selected');
+  await page.type('input[placeholder^="e.g. Neonatal"]', 'Region set standards');
+  await clickText('button', 'Create draft with 13 seeds');
+  await waitText('13 papers from the profile of Nathan C. Sheffield', 8000);
+  await waitText('Seeds · 13', 8000);
+  await shot('wizard-from-profile');
+  await clickText('button', 'Next: check coherence');
+  await waitText('across 13 seeds', 10000);
+  console.log('  ok   draft from a profile goes straight to the check');
+  // The interest remembers where it came from.
+  await page.goto(`${BASE}/interests/fair-provenance`, { waitUntil: 'networkidle0' });
+  await waitText('Built from the profile of', 5000);
+  const builtHref = await page.$$eval('.page-sub a', (as) => as.map((a) => a.getAttribute('href')).find((h) => h && h.startsWith('/profiles/')));
+  if (!builtHref) failures.push('interest page should link to its profile'); else console.log(`  ok   links to ${builtHref}`);
+
+  section('profiles: import by ORCID from the Profiles page');
+  await page.goto(`${BASE}/profiles`, { waitUntil: 'networkidle0' });
+  await waitText('Look up by');
+  await page.type('input[placeholder^="0000-0001"]', '0000-0002-1825-0097');
+  await clickText('button', 'Find papers');
+  await waitText('10 of 10 papers selected', 5000);
+  await clickText('button', 'Save 10 papers');
+  await waitText('Import · Mock Researcher', 5000);
+  await waitText('Profile "Mock Researcher" imported', 30000);
+  await waitText('10 papers imported', 5000);
+  await shot('profiles-imported');
+  await clickText('a.interest-card', 'Mock Researcher');
+  await waitText('none built from this profile yet', 8000);
+  await clickText('button', 'About');
+  await waitText('OpenAlex works by ORCID 0000-0002-1825-0097');
+  await expectText('Only the name and papers');
+  // Forgetting asks first.
+  await clickText('button', 'Forget');
+  await waitText('Forget Mock Researcher?');
+  await clickText('.dialog button', 'Forget');
+  await waitText('Forgot Mock Researcher', 5000);
+  if (!page.url().endsWith('/profiles')) failures.push(`forget should return to /profiles, got ${page.url()}`); else console.log('  ok   forget returns to the list');
+
+  section('profiles: fresh user has none');
+  await login('brand-new@example.com');
+  await waitText('What you can do in Radar');
+  await expectText('A saved profile');
+  await clickText('a.home-way', 'A saved profile');
+  await waitText('No profiles saved yet', 5000);
+  await page.goto(`${BASE}/interests/new?source=profile`, { waitUntil: 'networkidle0' });
+  await waitText('No saved profiles yet', 5000);
+  await login('demo@example.com');
+  await waitText('Feed', 5000);
 
   section('not found + deep link');
   await page.goto(`${BASE}/interests/nope`, { waitUntil: 'networkidle0' });

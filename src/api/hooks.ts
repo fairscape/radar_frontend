@@ -4,6 +4,7 @@ import type { DailyRadarFilters } from '../types/radar';
 import { getChatHistory, getBackendHealth, getChatProviders } from './endpoints/chat';
 import { getProfileDetail, listProfileFeedback, listProfileRuns, listProfiles } from './endpoints/profiles';
 import { getDailyRadar } from './endpoints/radar';
+import { getResearcher, getResearcherSuggestions, listResearchers } from './endpoints/researchers';
 import { getTagCounts, getVaultMeta, getVaultStats, listVaultDocs } from './endpoints/vault';
 
 export const keys = {
@@ -16,6 +17,9 @@ export const keys = {
   vaultStats: 'vault/stats',
   vaultTags: 'vault/tags',
   vaultMeta: 'vault/meta',
+  researchers: 'researchers',
+  researcher: (id: number) => `researchers/${id}`,
+  researcherSuggestions: (id: number) => `researchers/${id}/suggestions`,
   chatHistory: 'chat/history',
   health: 'health',
   providers: 'chat/providers',
@@ -67,4 +71,16 @@ export function useBackendHealth() {
 
 export function useChatProviders() {
   return useQuery(keys.providers, getChatProviders);
+}
+
+export function useResearchers() {
+  return useQuery(keys.researchers, listResearchers);
+}
+
+export function useResearcher(id: number | null) {
+  return useQuery(id != null ? keys.researcher(id) : null, () => getResearcher(id!));
+}
+
+export function useResearcherSuggestions(id: number | null) {
+  return useQuery(id != null ? keys.researcherSuggestions(id) : null, () => getResearcherSuggestions(id!));
 }

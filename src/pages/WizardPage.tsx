@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useProfiles, useVaultDocs } from '../api/hooks';
+import { useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
-import { fetchOrcidWorks, fetchProsopiaWorks } from '../api/endpoints/prosopia';
+import { createInterestFromResearcher } from '../api/endpoints/researchers';
 import {
   commitDraft,
   createDraft,
@@ -20,9 +20,10 @@ import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { ProsopiaImportResult } from '../types/prosopia';
-import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, confirmDialog, useAction } from '../ui';
+import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Select, confirmDialog, useAction } from '../ui';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, JobProgress, ThresholdHistogram, agreementTone, axisFor } from '../ui/domain';
+import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP, PaperPickList, papersOf, type Lookup, type PickWork } from '../ui/pickers';
 
 const STEPS = [
   { n: 1, label: 'Seeds', hint: 'name it, add papers' },
@@ -31,13 +32,6 @@ const STEPS = [
   { n: 4, label: 'Threshold', hint: 'how strict, then save' },
 ];
 
-const ORCID_RE = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/i;
-/** A bare ORCID or an orcid.org URL, normalised to the bare id; null if it is neither. */
-function parseOrcid(raw: string): string | null {
-  const v = raw.trim().replace(/^https?:\/\/(www\.)?orcid\.org\//i, '').replace(/\/+$/, '');
-  return ORCID_RE.test(v) ? v.toUpperCase() : null;
-}
-
 const DEFAULT_CRON = '0 4 * * *';
 const DEFAULT_TZ = 'UTC';
 
@@ -45,29 +39,38 @@ const SOURCES: { source: SeedSource; icon: import('../ui').IconName; title: stri
   { source: 'upload', icon: 'upload', title: 'Papers you have', body: 'Upload PDFs. Radar reads each one and finds it on OpenAlex.' },
   { source: 'orcid', icon: 'id', title: 'An ORCID', body: "A researcher's papers on OpenAlex. You pick which ones count." },
   { source: 'prosopia', icon: 'interests', title: 'A Prosopia profile', body: 'The papers on a Prosopia researcher profile. You pick which ones count.' },
+  { source: 'profile', icon: 'user', title: `A saved ${TERMS.profile}`, body: `Papers from a ${TERMS.profile} you already imported. No waiting: they are ready to use.` },
 ];
 
-export function WizardPage({ draftSlug, source }: { draftSlug: string | null; source: string | null }) {
+export function WizardPage({ draftSlug, source, researcher }: { draftSlug: string | null; source: string | null; researcher?: number | null }) {
   const { state, update, reset } = useDraft();
 
   // ``?source=`` preselects where the seeds come from (from the home
-  // page's three entry points). Only meaningful before a draft exists.
-  // Applied once per URL value: re-applying on every state change would
-  // snap the picker back to the URL's source whenever the user clicked
-  // another one.
+  // page's entry points, or a profile's "new interest" button). It is a
+  // request for a *new* interest: a draft still open in this tab is set
+  // aside (it stays on the server, under Interests → Drafts) rather
+  // than resumed. Applied once per URL value: re-applying on every
+  // state change would snap the picker back to the URL's source
+  // whenever the user clicked another one.
   const appliedSource = useRef<string | null>(null);
   useEffect(() => {
-    if (draftSlug || state.slug || !isSeedSource(source) || appliedSource.current === source) return;
+    if (draftSlug || !isSeedSource(source) || appliedSource.current === source) return;
     appliedSource.current = source;
-    if (source !== state.source) update({ source });
+    if (getDraft().slug) resetDraft();
+    if (source !== getDraft().source) update({ source });
   }, [draftSlug, source, state.slug, state.source, update]);
   const { data: profiles } = useProfiles();
   const [resuming, setResuming] = useState(false);
-  const checkedRef = useRef(false);
+  const staleCheck = useRef<unknown[] | 'done' | null>(null);
 
   // Resume a server-side draft from ``?draft=slug``; keep the URL in sync otherwise.
+  // Reads the store directly rather than ``state``: the effect above may
+  // have just cleared the draft in this same commit (and StrictMode
+  // replays effects), and a stale slug here would push ``?draft=`` for
+  // the draft that was set aside.
   useEffect(() => {
-    if (draftSlug && draftSlug !== state.slug) {
+    const slug = getDraft().slug;
+    if (draftSlug && draftSlug !== slug) {
       const row = profiles?.find((p) => p.key === draftSlug);
       if (!profiles) return;
       if (!row || !row.isDraft) {
@@ -83,17 +86,30 @@ export function WizardPage({ draftSlug, source }: { draftSlug: string | null; so
       return;
     }
     // A remembered draft that no longer exists on the server (deleted
-    // elsewhere) must not be resumed. Checked once, when the list first
-    // arrives, so a draft created a moment ago is not mistaken for stale.
-    if (profiles && !checkedRef.current) {
-      checkedRef.current = true;
-      if (state.slug && !profiles.some((p) => p.key === state.slug && p.isDraft)) {
+    // elsewhere) must not be resumed. A draft created a moment ago (from
+    // a profile's suggestion, say) is not in the cached list yet, so a
+    // miss triggers one fresh fetch and only a second miss counts.
+    // The second miss must come from a *different* list object: StrictMode
+    // replays this effect with the same stale list, and that replay is
+    // not evidence of anything.
+    if (profiles && staleCheck.current !== 'done') {
+      const missing = !!slug && !profiles.some((p) => p.key === slug && p.isDraft);
+      if (!missing) {
+        staleCheck.current = 'done';
+      } else if (staleCheck.current === null) {
+        staleCheck.current = profiles;
+        invalidate('profiles');
+        return;
+      } else if (staleCheck.current !== profiles) {
+        staleCheck.current = 'done';
         resetDraft();
         navigate(paths.wizard(), { replace: true });
         return;
+      } else {
+        return;
       }
     }
-    if (!draftSlug && state.slug) navigate(paths.wizard(state.slug), { replace: true });
+    if (!draftSlug && slug) navigate(paths.wizard(slug), { replace: true });
   }, [draftSlug, state.slug, profiles, update]);
 
   useEffect(() => {
@@ -161,7 +177,7 @@ export function WizardPage({ draftSlug, source }: { draftSlug: string | null; so
         <div>
           {resuming ? <LoadingRows rows={3} /> : (
             <>
-              {step === 1 && <StepSeeds state={state} />}
+              {step === 1 && <StepSeeds state={state} preselectResearcher={researcher ?? null} />}
               {step === 2 && <StepCheck state={state} />}
               {step === 3 && <StepTopics state={state} />}
               {step === 4 && <StepThreshold state={state} />}
@@ -175,7 +191,7 @@ export function WizardPage({ draftSlug, source }: { draftSlug: string | null; so
 
 // --- Step 1 ------------------------------------------------------------------
 
-function StepSeeds({ state }: { state: DraftState }) {
+function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselectResearcher: number | null }) {
   const { update, addSeed } = useDraft();
   const [name, setName] = useState(state.name);
   const importJob = useJob(state.importJobId);
@@ -199,7 +215,7 @@ function StepSeeds({ state }: { state: DraftState }) {
     return (
       <Panel title="Step 1 · Name it and add seed papers" description="Seeds are the papers that define what you are interested in. 5–15 focused papers work best; one is enough to start.">
         <div className="stack" style={{ gap: 16 }}>
-          <Field label="Name" hint={state.source === 'upload' ? 'How this interest appears in the feed and the sidebar.' : "How this interest appears in the feed and the sidebar. Leave it blank to use the researcher's name."}>
+          <Field label="Name" hint={state.source === 'upload' ? 'How this interest appears in the feed and the sidebar.' : state.source === 'profile' ? "How this interest appears in the feed and the sidebar. Several interests can come from one profile, so say what this one is about." : "How this interest appears in the feed and the sidebar. Leave it blank to use the researcher's name."}>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Neonatal vital-sign monitoring" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && state.source === 'upload') void create.run(); }} />
           </Field>
           <div>
@@ -219,8 +235,9 @@ function StepSeeds({ state }: { state: DraftState }) {
               {create.error && <span className="field-error">{create.error}</span>}
             </div>
           )}
-          {state.source === 'orcid' && <WorkPicker key="orcid" name={name.trim()} spec={ORCID_PICKER} />}
-          {state.source === 'prosopia' && <WorkPicker key="prosopia" name={name.trim()} spec={PROSOPIA_PICKER} />}
+          {state.source === 'orcid' && <WorkPicker key="orcid" name={name.trim()} lookup={ORCID_LOOKUP} start={(orcid, ids, n) => startOrcidImport(orcid, ids, n)} />}
+          {state.source === 'prosopia' && <WorkPicker key="prosopia" name={name.trim()} lookup={PROSOPIA_LOOKUP} start={(slug, ids, n) => startImport(slug, n, ids)} />}
+          {state.source === 'profile' && <ResearcherSeedPicker key="profile" name={name.trim()} preselect={preselectResearcher} />}
         </div>
       </Panel>
     );
@@ -228,147 +245,80 @@ function StepSeeds({ state }: { state: DraftState }) {
   return <SeedUploader state={state} addSeed={addSeed} />;
 }
 
-/** A paper offered for import, whichever service listed it. */
-interface PickWork {
-  id: string;
-  title: string;
-  year: number | null;
-  venue: string | null;
-  type?: string | null;
-  cited_by_count?: number | null;
-  authors: string[];
-  n_authors?: number | null;
-}
-
-interface PickerSpec {
-  label: string;
-  hint: string;
-  placeholder: string;
-  /** The key to look up, or null when the text is not usable yet. */
-  parse: (raw: string) => string | null;
-  parseError: string;
-  find: (key: string) => Promise<{ key: string; name: string | null; works: PickWork[] }>;
-  start: (key: string, ids: string[], name?: string) => Promise<Job>;
-  emptyTitle: string;
-  emptyBody: string;
-}
-
-/** OpenAlex work types that read as papers; software and dataset records start unticked. */
-const PAPER_TYPES = new Set(['article', 'preprint', 'review', 'book-chapter', 'book', 'conference-paper', 'dissertation', 'letter', 'report', 'editorial', 'erratum', 'reference-entry', 'paratext', 'other']);
-function papersOf(works: PickWork[]): PickWork[] {
-  return works.filter((w) => !w.type || PAPER_TYPES.has(w.type));
-}
-
-const ORCID_PICKER: PickerSpec = {
-  label: 'ORCID iD',
-  hint: 'Radar lists every paper OpenAlex attributes to this ORCID; untick the ones that should not count.',
-  placeholder: '0000-0001-5643-4068 or https://orcid.org/…',
-  parse: parseOrcid,
-  parseError: 'That does not look like an ORCID (0000-0000-0000-0000).',
-  find: async (orcid) => {
-    const r = await fetchOrcidWorks(orcid);
-    return { key: r.orcid, name: r.name, works: r.works.map((w) => ({ id: w.openalex_id, title: w.title, year: w.year, venue: w.venue, type: w.type, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors })) };
-  },
-  start: (orcid, ids, name) => startOrcidImport(orcid, ids, name),
-  emptyTitle: 'No papers on OpenAlex for this ORCID',
-  emptyBody: 'OpenAlex has no works with this ORCID on an authorship. Check the iD, or upload PDFs instead.',
-};
-
-const PROSOPIA_PICKER: PickerSpec = {
-  label: 'Prosopia profile',
-  hint: "The profile's slug or its URL. Radar lists the profile's papers; untick the ones that should not count.",
-  placeholder: 'e.g. sheffield-nathan or https://prosopia.databio.org/…',
-  parse: (raw) => raw.trim() || null,
-  parseError: '',
-  find: async (ref) => {
-    const r = await fetchProsopiaWorks(ref);
-    return { key: r.slug, name: r.name, works: r.works.map((w) => ({ id: w.id, title: w.title, year: w.year, venue: w.venue, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors })) };
-  },
-  start: (slug, ids, name) => startImport(slug, name, ids),
-  emptyTitle: 'This profile lists no papers',
-  emptyBody: 'The profile exists but has no papers to import. Upload PDFs instead.',
-};
-
 /**
- * Lookup → the papers found → a pick list → import the kept ones. The
- * list is fetched on demand ("Find papers") so a typo does not fire a
- * request per keystroke, and papers start ticked because pruning a few
- * is the common case.
+ * The wizard's lookup pickers (ORCID, Prosopia): the shared picker plus
+ * the draft bookkeeping. The import creates the draft on the server,
+ * so the job's key is the draft slug and step 1 continues there.
  */
-function WorkPicker({ name, spec }: { name: string; spec: PickerSpec }) {
+function WorkPicker({ name, lookup, start }: { name: string; lookup: Lookup; start: (key: string, ids: string[], name?: string) => Promise<Job> }) {
   const { state, update } = useDraft();
   const importJob = useJob(state.importJobId);
-  const [raw, setRaw] = useState(state.prosopia?.ref ?? '');
-  const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[] } | null>(null);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const key = spec.parse(raw);
-  const running = importJob?.status === 'running';
+  return (
+    <LookupPicker
+      lookup={lookup}
+      job={importJob}
+      initialRaw={state.prosopia?.ref ?? ''}
+      start={(key, ids) => start(key, ids, name || undefined)}
+      onStarted={(job, listing) => {
+        update({ importJobId: job.id, name: name || listing.name || job.profileName, slug: job.profileKey, prosopia: { ref: listing.key, nSeeds: null } });
+      }}
+    />
+  );
+}
 
-  const find = useAction(async () => {
-    if (!key) return;
-    const res = await spec.find(key);
-    setListing({ forRaw: raw.trim(), ...res });
-    setPicked(new Set(papersOf(res.works).map((w) => w.id)));
-  });
-  const imp = useAction(async () => {
-    if (!listing || picked.size === 0) return;
-    const job = await spec.start(listing.key, Array.from(picked), name || undefined);
-    update({ importJobId: job.id, name: name || listing.name || job.profileName, slug: job.profileKey, prosopia: { ref: listing.key, nSeeds: null } });
+/**
+ * Seeds from a stored profile. Nothing is imported: the papers were
+ * resolved and embedded when the profile was, so creating the draft is
+ * one request and the wizard continues to the seed list at once.
+ */
+function ResearcherSeedPicker({ name, preselect }: { name: string; preselect: number | null }) {
+  const { update } = useDraft();
+  const list = useResearchers();
+  const [id, setId] = useState<number | null>(preselect);
+  const chosenId = id ?? (list.data && list.data.length > 0 ? list.data[0].id : null);
+  const detail = useResearcher(chosenId);
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+  const papers = detail.data?.papers ?? [];
+  const works: PickWork[] = useMemo(() => papers.map((p) => ({ id: p.id, title: p.title, year: p.year, venue: p.venue, authors: p.authors, note: p.resolved_by === 'none' ? 'unmatched' : null })), [papers]);
+  // Every paper starts ticked once the list is known; changing profile resets the selection.
+  useEffect(() => { setPicked(null); }, [chosenId]);
+  const current = picked ?? new Set(papersOf(works).map((w) => w.id));
+  const researcher = detail.data?.researcher ?? list.data?.find((r) => r.id === chosenId) ?? null;
+  const finalName = name || (researcher ? `${researcher.name}'s papers` : '');
+
+  const create = useAction(async () => {
+    if (chosenId == null || current.size === 0 || !finalName.trim()) return;
+    const res = await createInterestFromResearcher(chosenId, { name: finalName.trim(), openalex_ids: Array.from(current) });
+    update({ slug: res.draft.slug, name: res.draft.name, source: 'profile', researcher: { id: chosenId, name: researcher?.name ?? '', nSeeds: res.n_seeds }, prosopia: null, importJobId: null });
+    toast.success(`Draft created with ${plural(res.n_seeds, 'seed')}.`);
   });
 
-  function toggle(id: string) {
-    setPicked((p) => {
-      const n = new Set(p);
-      if (n.has(id)) n.delete(id); else n.add(id);
-      return n;
-    });
+  if (list.error && !list.data) return <ErrorBox compact message={errorMessage(list.error)} onRetry={list.refresh} />;
+  if (list.loading && !list.data) return <LoadingRows rows={2} />;
+  if (list.data && list.data.length === 0) {
+    return (
+      <EmptyState compact icon="user" title={`No saved ${TERMS.profiles} yet`} body={`Import a researcher under ${TERMS.Profiles} first, or use an ORCID or a Prosopia profile here: importing either also saves the ${TERMS.profile}.`} action={<Link href={paths.profiles} className="btn">Open {TERMS.Profiles}</Link>} />
+    );
   }
-
-  const current = listing && listing.forRaw === raw.trim() ? listing : null;
-  const nonPapers = current ? current.works.length - papersOf(current.works).length : 0;
   return (
     <div className="stack">
-      <Field label={spec.label} hint={spec.hint} error={raw.trim() && !key ? spec.parseError : null}>
-        <div className="pick-find">
-          <Input value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={spec.placeholder} disabled={running} onKeyDown={(e) => { if (e.key === 'Enter') void find.run(); }} />
-          <Button icon="search" onClick={() => find.run()} loading={find.busy} disabled={!key || running}>Find papers</Button>
-        </div>
+      <Field label={TERMS.Profile} hint={`Whose papers to start from. Manage these under ${TERMS.Profiles}.`}>
+        <Select value={chosenId ?? ''} onChange={(e) => setId(Number(e.target.value))}>
+          {(list.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name} · {r.n_papers} papers{r.importing ? ' (importing…)' : ''}</option>)}
+        </Select>
       </Field>
-      {find.error && <ErrorBox compact title="Couldn't list papers" message={find.error} onRetry={() => find.run()} />}
-      {current && current.works.length === 0 && (
-        <EmptyState compact icon="search" title={spec.emptyTitle} body={spec.emptyBody} />
+      {detail.error && !detail.data && <ErrorBox compact message={errorMessage(detail.error)} onRetry={detail.refresh} />}
+      {detail.loading && !detail.data && <LoadingRows rows={3} />}
+      {detail.data && works.length === 0 && (
+        <EmptyState compact icon="search" title={`This ${TERMS.profile} has no papers yet`} body={researcher?.importing ? 'Its import is still running. Come back in a moment.' : `Re-import it under ${TERMS.Profiles}, or choose another source.`} />
       )}
-      {current && current.works.length > 0 && (
+      {detail.data && works.length > 0 && (
         <div className="stack" style={{ gap: 8 }}>
-          <div className="pick-head">
-            <span className="field-label">{current.name ? `${current.name} · ` : ''}{picked.size} of {current.works.length} papers selected</span>
-            <span className="row" style={{ gap: 6 }}>
-              <Button size="sm" variant="ghost" disabled={running} onClick={() => setPicked(new Set(current.works.map((w) => w.id)))}>All</Button>
-              {nonPapers > 0 && <Button size="sm" variant="ghost" disabled={running} onClick={() => setPicked(new Set(papersOf(current.works).map((w) => w.id)))}>Papers only</Button>}
-              <Button size="sm" variant="ghost" disabled={running} onClick={() => setPicked(new Set())}>None</Button>
-            </span>
-          </div>
-          {nonPapers > 0 && <p className="small muted" style={{ margin: 0 }}>{plural(nonPapers, 'software or dataset record')} start unticked; tick any that should count.</p>}
-          <div className="pick-list" role="group" aria-label="Papers to import">
-            {current.works.map((w) => (
-              <label className={`pick-row ${picked.has(w.id) ? 'on' : ''}`} key={w.id}>
-                <input type="checkbox" checked={picked.has(w.id)} disabled={running} onChange={() => toggle(w.id)} />
-                <span>
-                  <div className="truncate" title={w.title}>{w.title}</div>
-                  <div className="v">{[w.year, w.venue, w.n_authors && w.n_authors > 3 ? `${w.authors.slice(0, 2).join(', ')} +${w.n_authors - 2}` : w.authors.join(', ')].filter(Boolean).join(' · ')}</div>
-                </span>
-                <span className="row" style={{ gap: 8 }}>
-                  {w.type && !PAPER_TYPES.has(w.type) && <span className="pick-type">{w.type}</span>}
-                  <span className="muted small mono">{w.cited_by_count != null ? `${w.cited_by_count} cit.` : ''}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          {importJob && running && <JobProgress job={importJob} />}
-          {importJob?.status === 'error' && <ErrorBox compact title="Import failed" message={importJob.error} />}
+          <PaperPickList works={works} picked={current} onChange={setPicked} head={researcher?.name ?? null} ariaLabel="Papers to use as seeds" />
           <div className="row">
-            <Button variant="primary" icon="upload" onClick={() => imp.run()} loading={imp.busy || running} disabled={picked.size === 0}>Import {plural(picked.size, 'paper')}</Button>
-            {imp.error && <span className="field-error">{imp.error}</span>}
+            <Button variant="primary" iconRight="arrow-right" onClick={() => create.run()} loading={create.busy} disabled={current.size === 0 || !finalName.trim()}>Create draft with {plural(current.size, 'seed')}</Button>
+            {!name && researcher && <span className="small muted">Named "{finalName}" unless you type a name above.</span>}
+            {create.error && <span className="field-error">{create.error}</span>}
           </div>
         </div>
       )}
@@ -437,7 +387,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
     // Drop ``?draft=`` first: with it still in the URL the resume effect
     // would re-adopt the draft from the not-yet-refreshed interests list.
     navigate(paths.wizard(), { replace: true });
-    update({ slug: null, seeds: [], prosopia: null, importJobId: null, dryRunJobId: null, selectedTopicIds: null, threshold: null, step: 1 });
+    update({ slug: null, seeds: [], prosopia: null, researcher: null, importJobId: null, dryRunJobId: null, selectedTopicIds: null, threshold: null, step: 1 });
   });
 
   async function upload(files: FileList | null) {
@@ -458,7 +408,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
   }
 
   return (
-    <Panel title="Step 1 · Seed papers" description={state.prosopia ? (state.source === 'orcid' ? `Imported ${state.prosopia.nSeeds != null ? `${state.prosopia.nSeeds} papers ` : ''}from ORCID ${state.prosopia.ref}. You can add more PDFs.` : `Imported from Prosopia (${state.prosopia.ref}). You can add more PDFs.`) : 'Upload the PDFs that define this interest. Each becomes a seed.'}>
+    <Panel title="Step 1 · Seed papers" description={state.researcher ? `${plural(state.researcher.nSeeds, 'paper')} from the ${TERMS.profile} of ${state.researcher.name}. You can add more PDFs.` : state.prosopia ? (state.source === 'orcid' ? `Imported ${state.prosopia.nSeeds != null ? `${state.prosopia.nSeeds} papers ` : ''}from ORCID ${state.prosopia.ref}. You can add more PDFs.` : `Imported from Prosopia (${state.prosopia.ref}). You can add more PDFs.`) : 'Upload the PDFs that define this interest. Each becomes a seed.'}>
       {!importing && (
         <p className="small muted" style={{ marginTop: -6, marginBottom: 12 }}>
           Wrong source? <button type="button" className="linklike" onClick={() => void startOver.run()} disabled={startOver.busy}>Choose a different way to add seeds</button>{seeds.length > 0 ? ' — this discards the draft and its seeds.' : '.'}

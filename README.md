@@ -14,10 +14,17 @@ vocabulary (an **interest** in the UI is a `profile` on the wire).
   Save / dismiss with buttons or keyboard (`j` `k` `s` `x`). Filter by
   interest and score bucket. Start a scan without leaving the page.
 - **Interests** (`/interests`): create an interest in four steps (seeds
-  from PDFs or a Prosopia import → coherence check → topics → threshold
-  from a trial scan). Saving starts the first scan. Each interest has a
-  detail page with seeds, topics, threshold tuning, scan history and
-  reranker diagnostics. Drafts can be resumed or deleted.
+  from PDFs, an ORCID, a Prosopia profile or a saved profile → coherence
+  check → topics → threshold from a trial scan). Saving starts the first
+  scan. Each interest has a detail page with seeds, topics, threshold
+  tuning, scan history and reranker diagnostics. Drafts can be resumed
+  or deleted.
+- **Profiles** (`/profiles`): researchers you have imported (by ORCID or
+  from Prosopia), with their papers matched on OpenAlex and embedded
+  once. Build any number of interests from any subset of a profile's
+  papers without waiting for another import. Each profile page opens on
+  two or three suggested interests found by grouping the papers'
+  embeddings; each is one click from a draft.
 - **Vault** (`/vault`): uploaded PDFs, filterable and tagged by interest,
   with grounded question answering over any subset.
 - **Settings** (`/settings`): contact email for OpenAlex, theme, sign out.

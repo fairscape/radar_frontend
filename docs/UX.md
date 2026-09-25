@@ -8,7 +8,8 @@ and how the UI is shaped around that. Read it before adding a screen.
 
 | UI word        | Backend word        | What it is                                                                 |
 |----------------|---------------------|----------------------------------------------------------------------------|
-| **Interest**   | `profile`           | A named set of seed papers + topic filters + a score threshold. The unit Radar scans for. Renamed because "Profile" now means a Prosopia researcher profile. |
+| **Interest**   | `profile`           | A named set of seed papers + topic filters + a score threshold. The unit Radar scans for. Renamed because "Profile" now means a researcher profile. |
+| **Profile**    | `researcher`        | A stored person: a Prosopia profile or an ORCID, the metadata the source published (name, affiliation, expertise, grants), and their papers, resolved on OpenAlex and embedded once. Any subset of those papers can seed an interest, as many times as wanted, without another import. Several per user. |
 | **Seed**       | seed / vault doc    | A paper that defines an interest. Comes from an uploaded PDF, or from a Prosopia import (by profile slug/URL or by ORCID). |
 | **Topic**      | topic filter        | An OpenAlex (or UMLS-mapped) concept the gatherer queries. Aggregated from the seeds. |
 | **Threshold**  | `threshold` (θ)     | Minimum similarity (raw cosine to the seed centroid) for a candidate to reach the feed. Set on a histogram of real scores, next to the band where the user's own seeds score. |
@@ -31,6 +32,33 @@ changing the word again is one edit. API paths still say `profiles`.
   Its `ref` may be a Prosopia slug, a profile URL, or an ORCID; an ORCID
   is resolved to a slug by scanning the Prosopia profile list for a
   matching `rid`, so the researcher must have published a profile there.
+  `POST /api/import/orcid` does the same from the works OpenAlex lists
+  for an ORCID. Both also record the researcher (below), so the papers
+  they embed are on hand for the next interest.
+- **Researchers** (`/api/researchers`, "profiles" in the UI). `POST
+  /import` with `source` (`prosopia` | `orcid`), `ref` and an optional
+  `paper_ids` selection stores the person and imports their papers in
+  the background under the same run/status route as the wizard's
+  imports; no draft is created. Re-importing refreshes the same row.
+  `GET` lists them, `GET /{id}` returns the papers, the source metadata
+  and the interests built from them, `DELETE /{id}` forgets the person
+  (papers and interests stay). `POST /{id}/interests` with a `name` and
+  an optional `openalex_ids` subset creates a draft seeded with those
+  papers **synchronously**, because they are already embedded; the
+  wizard resumes it at the coherence check. `POST
+  /api/profiles/draft/{slug}/seeds` attaches papers the user already
+  has to any draft. An interest carries `researcherId` when it was built
+  from a profile.
+- **Suggested interests.** `GET /api/researchers/{id}/suggestions` groups
+  the profile's papers by their stored embeddings (average-linkage
+  clustering, cut on the calibrated coherence bands; see the backend's
+  `rag_lib/api/services/suggestions.py`) and returns at most three
+  groups, largest first, each with a name from its distinctive OpenAlex
+  topic, an agreement score, and the paper ids. Not every paper has to
+  be in a group: one-offs are left out, and papers in a group but
+  below the same-field floor come back as `loose_ids`, unticked. A
+  small profile, or one that already reads as a single topic, gets one
+  suggestion and a `note` saying why. It is a read: nothing is embedded.
 - `POST /draft/{slug}/coherence` measures how tightly the seeds cluster.
   One seed has no pairwise statistic; the backend reports 0.0.
 - `DELETE /draft/{slug}/seeds/{openalex_id}` takes one seed out of the
@@ -89,11 +117,13 @@ Three things the old UI got wrong about this process:
 
 | Route                | Screen            | Primary action                        |
 |----------------------|-------------------|---------------------------------------|
-| `/start`             | Start             | What you can do; add an interest from PDFs / ORCID / Prosopia |
+| `/start`             | Start             | What you can do; add an interest from PDFs / ORCID / Prosopia / a saved profile |
 | `/feed`              | Feed              | Save / dismiss papers; Scan now       |
 | `/interests`         | Interests         | New interest; resume or delete drafts |
-| `/interests/new`     | New interest      | Step-by-step wizard (resumable by `?draft=slug`; `?source=upload|orcid|prosopia` preselects the seed source) |
-| `/interests/:key`    | Interest          | Scan now; tune threshold; add seeds   |
+| `/interests/new`     | New interest      | Step-by-step wizard (resumable by `?draft=slug`; `?source=upload|orcid|prosopia|profile` preselects the seed source and starts a fresh draft, setting aside one still open in the tab; `&researcher=id` preselects the profile) |
+| `/interests/:key`    | Interest          | Scan now; tune threshold; add seeds; links to the profile it was built from |
+| `/profiles`          | Profiles          | Saved researchers; add one by ORCID or Prosopia lookup |
+| `/profiles/:id`      | Profile           | Suggested interests (default tab: two or three groups, each one click from a draft), papers, interests built from them, source metadata; new interest from these papers; re-import; forget |
 | `/vault`             | Vault             | Upload PDFs; ask a question           |
 | `/settings`          | Settings          | Contact email; theme; sign out        |
 
@@ -114,6 +144,13 @@ Rules applied everywhere:
   the threshold is compared against (the rank percentile is secondary).
 - Data fetching goes through one small cache (`src/lib/query.ts`) so the
   sidebar and the page share requests; mutations invalidate by key prefix.
+- The paper pick list (`src/ui/pickers.tsx`) is one component wherever a
+  researcher's papers are offered as checkboxes: the wizard's ORCID and
+  Prosopia sources, its "saved profile" source, and the Profiles page.
+  Papers start ticked; software and dataset records start unticked.
+- Import jobs started from the wizard are shown inside the wizard only;
+  profile imports (which have no draft) appear in the status strip, with
+  "Open" leading to the profile.
 
 ## 5. Mock mode
 

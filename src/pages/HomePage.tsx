@@ -1,4 +1,4 @@
-import { useProfiles } from '../api/hooks';
+import { useProfiles, useResearchers } from '../api/hooks';
 import { errorMessage } from '../lib/format';
 import { paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
@@ -61,21 +61,26 @@ export function HomePage() {
   );
 }
 
-const WAYS: { source: 'upload' | 'orcid' | 'prosopia'; icon: IconName; title: string; body: string }[] = [
+const WAYS: { source: 'upload' | 'orcid' | 'prosopia' | 'profile'; icon: IconName; title: string; body: string }[] = [
   { source: 'upload', icon: 'upload', title: 'Papers you have', body: 'Upload PDFs. Five to fifteen focused papers work best; one is enough to start.' },
-  { source: 'orcid', icon: 'id', title: 'An ORCID', body: "Import a researcher's published papers, looked up by ORCID on Prosopia." },
+  { source: 'orcid', icon: 'id', title: 'An ORCID', body: "Import a researcher's published papers from OpenAlex by ORCID." },
   { source: 'prosopia', icon: 'interests', title: 'A Prosopia profile', body: 'Import every paper on a Prosopia researcher profile.' },
+  { source: 'profile', icon: 'user', title: `A saved ${TERMS.profile}`, body: `Pick papers from a researcher you already imported. Nothing to wait for.` },
 ];
 
-/** The three ways into the wizard. Shared by the home page and empty states. */
+/** The ways into the wizard. Shared by the home page and empty states. */
 export function AddInterestCards() {
+  const { data: researchers } = useResearchers();
+  // The fourth way only makes sense once a profile exists; until then
+  // the card leads to the Profiles page, where one can be imported.
+  const haveProfiles = (researchers?.length ?? 0) > 0;
   return (
     <div className="home-ways">
       {WAYS.map((w) => (
-        <Link key={w.source} href={paths.wizardFrom(w.source)} className="home-way">
+        <Link key={w.source} href={w.source === 'profile' && !haveProfiles ? paths.profiles : paths.wizardFrom(w.source)} className="home-way">
           <Icon name={w.icon} size={18} />
           <b>{w.title}</b>
-          <span>{w.body}</span>
+          <span>{w.source === 'profile' && researchers && !haveProfiles ? `Import a researcher under ${TERMS.Profiles} first; ORCID and Prosopia imports save one automatically.` : w.body}</span>
         </Link>
       ))}
     </div>

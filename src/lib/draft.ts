@@ -7,11 +7,15 @@ import type { VaultDoc } from '../types/radar';
 
 const STORAGE_KEY = 'radar.wizard.v2';
 
-/** Where a draft's seeds come from. ``orcid`` pulls the author's works from OpenAlex; ``prosopia`` a published profile. */
-export type SeedSource = 'upload' | 'orcid' | 'prosopia';
+/**
+ * Where a draft's seeds come from. ``orcid`` pulls the author's works from
+ * OpenAlex; ``prosopia`` a published profile; ``profile`` picks from a
+ * researcher already stored in Radar (no import, the papers are embedded).
+ */
+export type SeedSource = 'upload' | 'orcid' | 'prosopia' | 'profile';
 
 export function isSeedSource(v: unknown): v is SeedSource {
-  return v === 'upload' || v === 'orcid' || v === 'prosopia';
+  return v === 'upload' || v === 'orcid' || v === 'prosopia' || v === 'profile';
 }
 
 export interface DraftState {
@@ -21,6 +25,8 @@ export interface DraftState {
   seeds: VaultDoc[];
   /** The import this draft came from (Prosopia slug or ORCID), if any. */
   prosopia: { ref: string; nSeeds: number | null } | null;
+  /** The stored researcher this draft was built from, if any. */
+  researcher: { id: number; name: string; nSeeds: number } | null;
   importJobId: string | null;
   dryRunJobId: string | null;
   selectedTopicIds: string[] | null;
@@ -34,6 +40,7 @@ export const EMPTY_DRAFT: DraftState = {
   source: 'upload',
   seeds: [],
   prosopia: null,
+  researcher: null,
   importJobId: null,
   dryRunJobId: null,
   selectedTopicIds: null,
@@ -79,6 +86,16 @@ export function resetDraft() {
 
 export function getDraft(): DraftState {
   return current;
+}
+
+/**
+ * Set draft fields from outside the wizard (a page that just created a
+ * draft on the server and is about to open it). Going through the
+ * store rather than ``?draft=`` alone means the wizard does not have to
+ * find the new draft in a profiles list that may not have refreshed yet.
+ */
+export function setDraft(p: Partial<DraftState>): void {
+  set((s) => ({ ...s, ...p }));
 }
 
 export function useDraft() {

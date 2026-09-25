@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useProfiles, useVaultStats } from '../api/hooks';
+import { useProfiles, useResearchers, useVaultStats } from '../api/hooks';
 import { TERMS } from '../lib/terms';
 import { dismissJob, kindLabel, stepLabel, useJobs, type Job } from '../lib/jobs';
 import { navigate, paths, type Route } from '../lib/router';
@@ -13,12 +13,15 @@ import { InterestsPage } from './InterestsPage';
 import { InterestDetailPage } from './InterestDetailPage';
 import { WizardPage } from './WizardPage';
 import { VaultPage } from './VaultPage';
+import { ProfilesPage } from './ProfilesPage';
+import { ProfileDetailPage } from './ProfileDetailPage';
 import { SettingsPage } from './SettingsPage';
 import { NotFoundPage } from './NotFoundPage';
 
 const NAV: { name: Route['name']; href: string; label: string; icon: IconName; hint: string }[] = [
   { name: 'feed', href: paths.feed, label: TERMS.feed, icon: 'radar', hint: `New papers, scored against your ${TERMS.interests}` },
   { name: 'interests', href: paths.interests, label: TERMS.Interests, icon: 'interests', hint: `The topics Radar scans for, each defined by a set of papers` },
+  { name: 'profiles', href: paths.profiles, label: TERMS.Profiles, icon: 'user', hint: `Researchers you imported, with their papers; build ${TERMS.interests} from them` },
   { name: 'vault', href: paths.vault, label: TERMS.vault, icon: 'vault', hint: 'Your uploaded PDFs; ask questions about them' },
 ];
 
@@ -42,7 +45,9 @@ export function Shell({ route, email }: { route: Route; email: string }) {
         {route.name === 'feed' && <FeedPage />}
         {route.name === 'interests' && <InterestsPage />}
         {route.name === 'interest' && <InterestDetailPage profileKey={route.key} />}
-        {route.name === 'wizard' && <WizardPage draftSlug={route.draft} source={route.source} />}
+        {route.name === 'wizard' && <WizardPage draftSlug={route.draft} source={route.source} researcher={route.researcher} />}
+        {route.name === 'profiles' && <ProfilesPage />}
+        {route.name === 'profile' && <ProfileDetailPage id={route.id} />}
         {route.name === 'vault' && <VaultPage />}
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'notfound' && <NotFoundPage path={route.path} />}
@@ -54,15 +59,18 @@ export function Shell({ route, email }: { route: Route; email: string }) {
 function Sidebar({ route, email }: { route: Route; email: string }) {
   const { data: profiles } = useProfiles();
   const { data: vaultStats } = useVaultStats();
+  const { data: researchers } = useResearchers();
   const jobs = useJobs();
   const { resolved } = useTheme();
   const live = (profiles ?? []).filter((p) => !p.isDraft);
   const drafts = (profiles ?? []).filter((p) => p.isDraft);
   const counts: Partial<Record<Route['name'], number | undefined>> = {
     interests: profiles?.length,
+    profiles: researchers?.length,
     vault: vaultStats?.docs,
   };
   const activeKey = route.name === 'interest' ? route.key : route.name === 'wizard' ? route.draft : null;
+  const navActive = (name: Route['name']) => route.name === name || (name === 'profiles' && route.name === 'profile');
 
   return (
     <aside className="sidebar">
@@ -73,7 +81,7 @@ function Sidebar({ route, email }: { route: Route; email: string }) {
       </Link>
       <nav className="nav" aria-label="Main">
         {NAV.map((n) => (
-          <Link key={n.name} href={n.href} className={`nav-item ${route.name === n.name ? 'active' : ''}`} title={n.hint}>
+          <Link key={n.name} href={n.href} className={`nav-item ${navActive(n.name) ? 'active' : ''}`} title={n.hint}>
             <Icon name={n.icon} size={16} />
             <span>{n.label}</span>
             {counts[n.name] != null && <span className="nav-count">{counts[n.name]}</span>}
@@ -114,7 +122,7 @@ function Sidebar({ route, email }: { route: Route; email: string }) {
 }
 
 function JobsStrip() {
-  const jobs = useJobs().filter((j) => !j.dismissed && j.kind !== 'dryrun' && j.kind !== 'import');
+  const jobs = useJobs().filter((j) => !j.dismissed && j.kind !== 'dryrun' && (j.kind !== 'import' || j.researcherId != null));
   if (jobs.length === 0) return null;
   return (
     <div className="jobs-strip" aria-live="polite">
@@ -138,8 +146,8 @@ function JobRow({ job }: { job: Job }) {
         {job.status === 'running' ? <JobProgress job={job} compact /> : job.status === 'error' && <div className="job-msg">{job.error}</div>}
       </div>
       <div className="job-side">
-        {job.status === 'done' && <Button size="sm" variant="ghost" onClick={() => navigate(paths.feed)}>View feed</Button>}
-        <Link href={paths.interest(job.profileKey)} className="btn btn-ghost btn-sm">Open</Link>
+        {job.status === 'done' && job.researcherId == null && <Button size="sm" variant="ghost" onClick={() => navigate(paths.feed)}>View feed</Button>}
+        <Link href={job.researcherId != null ? paths.profile(job.researcherId) : paths.interest(job.profileKey)} className="btn btn-ghost btn-sm">Open</Link>
         {job.status !== 'running' && <IconButton icon="x" label="Dismiss" size="sm" onClick={() => dismissJob(job.id)} />}
       </div>
     </div>

@@ -12,6 +12,11 @@ export const TERMS = {
   Interest: 'Interest',
   Interests: 'Interests',
   newInterest: 'New interest',
+  /** A stored researcher (the API says "researcher"): a person and their papers. */
+  profile: 'profile',
+  profiles: 'profiles',
+  Profile: 'Profile',
+  Profiles: 'Profiles',
   feed: 'Feed',
   vault: 'Vault',
   scan: 'scan',

@@ -11,6 +11,7 @@
  * can be provoked from a browser console or a smoke test.
  */
 import type { Card, ChatTurn, Profile, Topic, VaultDoc } from '../types/radar';
+import type { Researcher, ResearcherPaper } from '../types/researchers';
 
 interface MockRun {
   id: number;
@@ -31,12 +32,30 @@ interface MockRun {
   last_message: string | null;
 }
 
+interface MockResearcher {
+  id: number;
+  source: 'prosopia' | 'orcid';
+  key: string;
+  name: string;
+  orcid: string | null;
+  affiliation: string | null;
+  url: string | null;
+  base_url: string | null;
+  expertise: string | null;
+  grants: Record<string, unknown>[];
+  papers: ResearcherPaper[];
+  imported_at: string | null;
+  last_run_id: number | null;
+  created_at: string;
+}
+
 interface MockProfile {
   id: number;
   slug: string;
   name: string;
   hue: number;
   is_draft: boolean;
+  researcher_id?: number | null;
   threshold: number;
   coherence: number;
   seeds: { id: string; title: string; year: number; coh: number }[];
@@ -55,7 +74,10 @@ interface MockState {
   dryRuns: Record<number, { slug: string; result: { sweep: unknown[]; preview: Card[]; scores: number[]; suggested_threshold?: number; seed_similarity?: { min: number; median: number; max: number }; score_range?: number[] } | null }>;
   imports: Record<number, { slug: string; result: Record<string, unknown> | null }>;
   /** Unfinished simulated runs, so a page reload can resume them. */
-  sims: Record<number, { kind: 'scan' | 'dryrun' | 'import'; slug: string; days?: number; limit?: number; ref?: string; name?: string }>;
+  sims: Record<number, { kind: 'scan' | 'dryrun' | 'import' | 'rimport'; slug: string; days?: number; limit?: number; ref?: string; name?: string; researcherId?: number; paperIds?: string[] }>;
+  /** Stored researchers ("profiles" in the UI) and the runs of their imports. */
+  researchers: MockResearcher[];
+  researcherRuns: MockRun[];
   nextId: number;
 }
 
@@ -118,8 +140,43 @@ function nowIso(offsetMs = 0) {
   return new Date(Date.now() + offsetMs).toISOString();
 }
 
+function mockResearcherPapers(key: string, n: number, ids?: string[]): ResearcherPaper[] {
+  return Array.from({ length: n }, (_, i) => {
+    const unmatched = i === n - 1;
+    return {
+      id: ids?.[i] ?? (unmatched ? `prosopia:${key}:paper${i}` : `https://openalex.org/W8${key.length}${i}`),
+      title: pick(TITLES, i + 2), year: 2025 - (i % 9), venue: pick(VENUES, i + 1), doi: unmatched ? null : `10.1234/mock.${key}.${i}`,
+      authors: ['Nathan C. Sheffield', pick(AUTHORS, i), pick(AUTHORS, i + 3)], abstract: null,
+      resolved_by: unmatched ? 'none' : i % 5 === 4 ? 'doi' : 'work_id', summary: unmatched ? 'Only the profile summary describes this work.' : null, pdf_url: null, added_at: nowIso(-86400000 * 5),
+    };
+  });
+}
+
+function toResearcher(st: MockState, r: MockResearcher): Researcher {
+  const run = st.researcherRuns.find((x) => x.id === r.last_run_id) ?? null;
+  return {
+    id: r.id, source: r.source, key: r.key, name: r.name, orcid: r.orcid, affiliation: r.affiliation, url: r.url, base_url: r.base_url,
+    n_papers: r.papers.length, n_interests: st.profiles.filter((p) => p.researcher_id === r.id).length,
+    imported_at: r.imported_at, last_run_id: r.last_run_id, importing: !!run && !run.finished_at, last_error: run?.error ?? null, created_at: r.created_at,
+  };
+}
+
+/** Find or create the stored researcher an import refers to (mirrors the backend's upsert). */
+function ensureResearcher(st: MockState, source: 'prosopia' | 'orcid', key: string, name: string): MockResearcher {
+  let r = st.researchers.find((x) => x.source === source && x.key === key);
+  if (r) { r.name = name || r.name; return r; }
+  const orcid = source === 'orcid' ? key : key === 'sheffield-nathan' ? '0000-0001-5643-4068' : null;
+  r = {
+    id: st.nextId++, source, key, name, orcid, affiliation: source === 'prosopia' ? 'University of Virginia' : null,
+    url: source === 'prosopia' ? `https://prosopia.databio.org/${key}` : `https://orcid.org/${key}`, base_url: source === 'prosopia' ? 'https://prosopia.databio.org' : null,
+    expertise: null, grants: [], papers: [], imported_at: null, last_run_id: null, created_at: nowIso(),
+  };
+  st.researchers.push(r);
+  return r;
+}
+
 function seedState(email: string): MockState {
-  const st: MockState = { email, mailto: email, profiles: [], docs: [], chat: [], dryRuns: {}, imports: {}, sims: {}, nextId: 100 };
+  const st: MockState = { email, mailto: email, profiles: [], docs: [], chat: [], dryRuns: {}, imports: {}, sims: {}, researchers: [], researcherRuns: [], nextId: 100 };
   if (!/^(demo|test)@/.test(email)) return st;
 
   const mk = (id: number, slug: string, name: string, hue: number, threshold: number, coherence: number, topics: [string, string, number, boolean, string | null][]): MockProfile => ({
@@ -147,6 +204,17 @@ function seedState(email: string): MockState {
   const draft: MockProfile = { ...mk(3, 'draft-wearables', 'Wearable sensors (draft)', 300, 0.0, 0.0, []), is_draft: true, seeds: [] };
   draft.seeds = [{ id: 'W3000', title: pick(TITLES, 11), year: 2024, coh: 0 }];
   st.profiles = [a, b, draft];
+  // One stored researcher, from whom the FAIR interest was built.
+  const sheffield: MockResearcher = {
+    id: 7, source: 'prosopia', key: 'sheffield-nathan', name: 'Nathan C. Sheffield', orcid: '0000-0001-5643-4068', affiliation: 'University of Virginia', url: 'https://prosopia.databio.org/sheffield-nathan', base_url: 'https://prosopia.databio.org',
+    expertise: 'Genomic region sets, epigenomics, reproducible computational pipelines and the FAIR sharing of biomedical data.',
+    grants: [{ name: 'Standards for genomic interval data', funder: 'NIH NHGRI', role: 'pi' }],
+    papers: mockResearcherPapers('sheffield-nathan', 14),
+    imported_at: nowIso(-86400000 * 5), last_run_id: 13, created_at: nowIso(-86400000 * 5),
+  };
+  st.researchers = [sheffield];
+  st.researcherRuns = [{ id: 13, profile_id: 0, started_at: nowIso(-86400000 * 5), finished_at: nowIso(-86400000 * 5 + 70000), since_date: null, filter_string: null, tier_used: 'researcher_import', n_fetched: 14, n_new: 14, n_redup: 0, api_calls: 3, error: null, current_step: 'done', n_processed: 14, n_total: 14, last_message: null }];
+  b.researcher_id = sheffield.id;
   st.docs = [
     ...a.seeds.map((s, i) => ({ id: `doc-a-${i}`, title: s.title, authors: [pick(AUTHORS, i)], venue: pick(VENUES, i), tags: [a.slug], pages: 8 + i, chunks: 40 + i * 3, added: nowIso(-86400000 * (30 - i)) })),
     ...b.seeds.map((s, i) => ({ id: `doc-b-${i}`, title: s.title, authors: [pick(AUTHORS, i + 3)], venue: pick(VENUES, i + 1), tags: [b.slug], pages: 12 + i, chunks: 60 + i * 2, added: nowIso(-86400000 * (20 - i)) })),
@@ -175,6 +243,8 @@ function restoreStates() {
     if (!raw) return;
     for (const [k, v] of JSON.parse(raw) as [string, MockState][]) {
       v.sims ??= {};
+      v.researchers ??= [];
+      v.researcherRuns ??= [];
       states.set(k, v);
       for (const [runId, sim] of Object.entries(v.sims)) resumeSim(v, Number(runId), sim);
     }
@@ -199,7 +269,7 @@ function toProfile(p: MockProfile): Profile {
   const health = label === 'focused' ? 'ok' : label === 'mixed' ? 'err' : 'warn';
   const agreement = n >= 2 ? Math.round(100 * Math.max(0, Math.min(1, (p.coherence - 0.82) / 0.13))) : null;
   const band = seedBand(p);
-  return { key: p.slug, name: p.name, hue: p.hue, health, threshold: p.threshold, coherence: p.coherence, seeds: n, saves30, dismisses30, isDraft: p.is_draft, coherenceLabel: label, agreement, seedSimMin: band?.min ?? null, seedSimMax: band?.max ?? null };
+  return { key: p.slug, name: p.name, hue: p.hue, health, threshold: p.threshold, coherence: p.coherence, seeds: n, saves30, dismisses30, isDraft: p.is_draft, coherenceLabel: label, agreement, seedSimMin: band?.min ?? null, seedSimMax: band?.max ?? null, researcherId: p.researcher_id ?? null };
 }
 
 function seedBand(p: MockProfile) {
@@ -302,14 +372,32 @@ function completeDryRun(st: MockState, p: MockProfile, run: MockRun) {
 function completeImport(st: MockState, p: MockProfile, run: MockRun, ref: string, name: string) {
   p.seeds = Array.from({ length: 12 }, (_, i) => ({ id: `W9${p.id}${i}`, title: pick(TITLES, i + 3), year: 2018 + (i % 7), coh: 0.7 }));
   st.docs.push(...p.seeds.map((s, i) => ({ id: `doc-${p.slug}-${i}`, title: s.title, authors: [pick(AUTHORS, i)], venue: pick(VENUES, i), tags: [p.slug], pages: 9, chunks: 30, added: nowIso() })));
-  st.imports[run.id] = { slug: p.slug, result: { slug: ref, draft_slug: p.slug, name, drafted: 12, resolved_by: { work_id: 9, doi: 2, title: 1, none: 0 }, unresolved: [] } };
+  // The wizard's import leaves the researcher behind, like the backend.
+  const isOrcid = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/i.test(ref);
+  const r = ensureResearcher(st, run.tier_used === 'orcid_import' || isOrcid ? 'orcid' : 'prosopia', ref, name);
+  if (r.papers.length === 0) r.papers = p.seeds.map((s, i) => ({ id: `https://openalex.org/${s.id}`, title: s.title, year: s.year, venue: pick(VENUES, i), doi: `10.1234/mock.${i}`, authors: [name, pick(AUTHORS, i)], abstract: null, resolved_by: 'work_id', summary: null, pdf_url: null, added_at: nowIso() }));
+  r.imported_at = nowIso();
+  p.researcher_id = r.id;
+  st.imports[run.id] = { slug: p.slug, result: { slug: ref, draft_slug: p.slug, researcher_id: r.id, name, drafted: 12, resolved_by: { work_id: 9, doi: 2, title: 1, none: 0 }, unresolved: [] } };
 }
-function startSim(st: MockState, p: MockProfile, run: MockRun, sim: MockState['sims'][number]) {
+function completeResearcherImport(st: MockState, run: MockRun, researcherId: number, paperIds?: string[]) {
+  const r = st.researchers.find((x) => x.id === researcherId);
+  if (!r) return;
+  const fresh = mockResearcherPapers(r.key, paperIds?.length ?? 14, paperIds?.map((id) => (/^W\d/.test(id) ? `https://openalex.org/${id}` : `https://openalex.org/${id.replace(/[^A-Za-z0-9]/g, '').slice(0, 12)}`)));
+  for (const paper of fresh) if (!r.papers.some((x) => x.id === paper.id)) r.papers.push(paper);
+  r.imported_at = nowIso();
+  run.n_new = fresh.length;
+  run.n_redup = 0;
+  st.imports[run.id] = { slug: '', result: { slug: r.key, draft_slug: null, researcher_id: r.id, name: r.name, drafted: fresh.length, resolved_by: { work_id: fresh.length - 1, doi: 0, title: 0, none: 1 }, unresolved: [] } };
+}
+function startSim(st: MockState, p: MockProfile | null, run: MockRun, sim: MockState['sims'][number]) {
   st.sims[run.id] = sim;
-  const total = sim.kind === 'scan' ? Math.min(sim.limit ?? 500, 60 * (sim.days ?? 7)) : sim.kind === 'dryrun' ? 180 : 12;
-  const fail = sim.kind === 'scan' && /fail/i.test(p.name);
-  simulateRun(run, sim.kind, total, () => {
-    if (sim.kind === 'scan') completeScan(st, p, run, sim.days ?? 7);
+  const total = sim.kind === 'scan' ? Math.min(sim.limit ?? 500, 60 * (sim.days ?? 7)) : sim.kind === 'dryrun' ? 180 : sim.kind === 'rimport' ? (sim.paperIds?.length ?? 14) : 12;
+  const fail = sim.kind === 'scan' && !!p && /fail/i.test(p.name);
+  simulateRun(run, sim.kind === 'rimport' ? 'import' : sim.kind, total, () => {
+    if (sim.kind === 'rimport') completeResearcherImport(st, run, sim.researcherId ?? 0, sim.paperIds);
+    else if (!p) { /* unreachable: profile sims always carry a profile */ }
+    else if (sim.kind === 'scan') completeScan(st, p, run, sim.days ?? 7);
     else if (sim.kind === 'dryrun') completeDryRun(st, p, run);
     else completeImport(st, p, run, sim.ref ?? '', sim.name ?? p.name);
     delete st.sims[run.id];
@@ -317,6 +405,12 @@ function startSim(st: MockState, p: MockProfile, run: MockRun, sim: MockState['s
   }, fail);
 }
 function resumeSim(st: MockState, runId: number, sim: MockState['sims'][number]) {
+  if (sim.kind === 'rimport') {
+    const run = st.researcherRuns.find((r) => r.id === runId);
+    if (!run || run.finished_at) { delete st.sims[runId]; return; }
+    startSim(st, null, run, sim);
+    return;
+  }
   const p = st.profiles.find((x) => x.slug === sim.slug);
   const run = p?.runs.find((r) => r.id === runId);
   if (!p || !run || run.finished_at) {
@@ -591,9 +685,94 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
   m = path.match(/^\/api\/import\/prosopia\/(\d+)$/);
   if (m) {
     const imp = st.imports[Number(m[1])];
-    const run = st.profiles.flatMap((p) => p.runs).find((r) => r.id === Number(m![1]));
+    const run = [...st.profiles.flatMap((p) => p.runs), ...st.researcherRuns].find((r) => r.id === Number(m![1]));
     if (!imp || !run) return err(404, 'import run not found');
     return json({ run, result: imp.result });
+  }
+
+  // --- researchers ("profiles") ---
+  if (path === '/api/researchers' && method === 'GET') return json(st.researchers.map((r) => toResearcher(st, r)));
+  if (path === '/api/researchers/import' && method === 'POST') {
+    const source = String(body?.source ?? '');
+    const rawRef = String(body?.ref ?? '').trim();
+    if (source !== 'prosopia' && source !== 'orcid') return err(400, 'source must be one of prosopia, orcid');
+    if (!rawRef) return err(400, 'ref must be a non-empty slug, profile URL or ORCID');
+    if (/unknown|missing/i.test(rawRef)) return err(404, `prosopia profile '${rawRef}' not found`);
+    let key = rawRef;
+    let name = 'Nathan C. Sheffield';
+    if (source === 'orcid') {
+      key = rawRef.replace(/^https?:\/\/orcid\.org\//i, '').toUpperCase();
+      if (!/^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(key)) return err(400, 'orcid must be an ORCID iD such as 0000-0001-5643-4068');
+      name = key === '0000-0001-5643-4068' ? 'Nathan C. Sheffield' : 'Mock Researcher';
+    } else {
+      const segs = rawRef.replace(/^https?:\/\/[^/]+\//i, '').split(/[?#]/)[0].split('/').filter(Boolean);
+      const at = segs.indexOf('profiles');
+      key = at >= 0 && segs[at + 1] ? segs[at + 1] : /^https?:/i.test(rawRef) ? (segs[0] ?? rawRef) : (segs[segs.length - 1] ?? rawRef);
+    }
+    const paperIds = Array.isArray(body?.paper_ids) ? (body!.paper_ids as string[]) : undefined;
+    if (paperIds && paperIds.length === 0) return err(400, 'select at least one paper to import');
+    const r = ensureResearcher(st, source, key, name);
+    const run: MockRun = { id: st.nextId++, profile_id: 0, started_at: nowIso(), finished_at: null, since_date: null, filter_string: null, tier_used: 'researcher_import', n_fetched: null, n_new: null, n_redup: null, api_calls: null, error: null, current_step: null, n_processed: null, n_total: null, last_message: null };
+    st.researcherRuns.unshift(run);
+    r.last_run_id = run.id;
+    st.imports[run.id] = { slug: '', result: null };
+    startSim(st, null, run, { kind: 'rimport', slug: '', researcherId: r.id, paperIds });
+    return json({ researcher_id: r.id, run_id: run.id });
+  }
+  m = path.match(/^\/api\/researchers\/(\d+)(?:\/(interests|suggestions))?$/);
+  if (m) {
+    const r = st.researchers.find((x) => x.id === Number(m![1]));
+    if (!r) return err(404, `researcher ${m[1]} not found`);
+    if (m[2] === 'suggestions') {
+      const ps = r.papers;
+      if (ps.length < 8) return json({ researcher_id: r.id, embedding_model: 'specter2', n_papers: ps.length, n_embedded: ps.length, n_grouped: ps.length, note: 'Fewer than 8 papers, so the one suggestion is all of them.', suggestions: ps.length === 0 ? [] : [{ name: 'Everything', paper_ids: ps.map((p) => p.id), loose_ids: [], topics: [], coherence_median: 0.9, agreement: 60, label: 'broad', seed_titles: ps.slice(0, 3).map((p) => p.title) }] });
+      const a = ps.filter((_, i) => i % 3 !== 2);
+      const b = ps.filter((_, i) => i % 3 === 2);
+      const mk = (name: string, list: ResearcherPaper[], topics: string[], median: number, loose = 0) => ({ name, paper_ids: list.slice(0, list.length - loose).map((p) => p.id), loose_ids: list.slice(list.length - loose).map((p) => p.id), topics: topics.map((t, i) => ({ id: `T${i}`, name: t, count: list.length - i })), coherence_median: median, agreement: Math.round(100 * Math.max(0, Math.min(1, (median - 0.82) / 0.13))), label: median >= 0.9 ? 'focused' : 'broad', seed_titles: list.slice(0, 3).map((p) => p.title) });
+      return json({ researcher_id: r.id, embedding_model: 'specter2', n_papers: ps.length, n_embedded: ps.length, n_grouped: a.length + b.length - 1, note: null, suggestions: [mk('Neonatal intensive care', a, ['Neonatal intensive care', 'Physiologic monitoring'], 0.928, 1), mk('Research data management', b, ['Research data management', 'Workflow provenance'], 0.905)] });
+    }
+    if (m[2] === 'interests' && method === 'POST') {
+      const name = String(body?.name ?? '').trim();
+      if (!name) return err(400, 'interest name must be non-empty');
+      const wanted = Array.isArray(body?.openalex_ids) ? (body!.openalex_ids as string[]) : null;
+      if (wanted && wanted.length === 0) return err(400, 'select at least one paper');
+      const chosen = wanted ? r.papers.filter((p) => wanted.includes(p.id)) : r.papers;
+      if (chosen.length === 0) return err(400, 'none of the selected papers belong to this researcher');
+      let slug = slugify(name);
+      if (findProfile(slug)) slug = `${slug}-${st.nextId}`;
+      const p: MockProfile = { id: st.nextId++, slug, name, hue: (slug.length * 47) % 360, is_draft: true, researcher_id: r.id, threshold: 0, coherence: 0, seeds: chosen.map((c) => ({ id: c.id.replace('https://openalex.org/', ''), title: c.title, year: c.year ?? 0, coh: 0.7 })), topics: [], candidates: [], runs: [], feedback: [] };
+      st.profiles.push(p);
+      st.docs.push(...chosen.map((c, i) => ({ id: c.id, title: c.title, authors: c.authors, venue: c.venue ?? '—', tags: [slug], pages: 8 + (i % 5), chunks: 20, added: nowIso() })));
+      return json({ draft: { slug, name }, n_seeds: chosen.length });
+    }
+    if (method === 'DELETE') {
+      st.researchers = st.researchers.filter((x) => x !== r);
+      st.researcherRuns = st.researcherRuns.filter((x) => x.id !== r.last_run_id);
+      for (const p of st.profiles) if (p.researcher_id === r.id) p.researcher_id = null;
+      return json({ ok: true });
+    }
+    if (method === 'GET') {
+      return json({ researcher: toResearcher(st, r), expertise: r.expertise, soul: null, grants: r.grants, papers: r.papers, interests: st.profiles.filter((p) => p.researcher_id === r.id).map(toProfile) });
+    }
+  }
+  m = path.match(/^\/api\/profiles\/draft\/([^/]+)\/seeds$/);
+  if (m && method === 'POST') {
+    const slug = decodeURIComponent(m[1]);
+    const p = findProfile(slug);
+    if (!p || !p.is_draft) return err(404, `draft '${slug}' not found for current user`);
+    const ids = Array.isArray(body?.openalex_ids) ? (body!.openalex_ids as string[]) : [];
+    if (ids.length === 0) return err(400, 'select at least one paper');
+    let attached = 0;
+    const rejected: string[] = [];
+    for (const id of ids) {
+      const paper = st.researchers.flatMap((r) => r.papers).find((x) => x.id === id);
+      if (!paper) { rejected.push(id); continue; }
+      if (p.seeds.some((s) => s.id === id.replace('https://openalex.org/', ''))) continue;
+      p.seeds.push({ id: id.replace('https://openalex.org/', ''), title: paper.title, year: paper.year ?? 0, coh: 0.7 });
+      st.docs.push({ id, title: paper.title, authors: paper.authors, venue: paper.venue ?? '—', tags: [slug], pages: 9, chunks: 20, added: nowIso() });
+      attached += 1;
+    }
+    return json({ attached, rejected });
   }
 
   // --- radar ---

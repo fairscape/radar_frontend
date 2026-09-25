@@ -28,6 +28,8 @@ export interface Profile {
   /** Leave-one-out similarity band of the seeds to their centroid. */
   seedSimMin?: number | null;
   seedSimMax?: number | null;
+  /** The stored researcher ("profile") this interest was built from, if any. */
+  researcherId?: number | null;
 }
 
 export interface Card {

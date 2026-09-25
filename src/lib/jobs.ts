@@ -10,6 +10,8 @@
 import { useSyncExternalStore } from 'react';
 import { gatherNow, listProfileRuns, type GatherRunStatus } from '../api/endpoints/profiles';
 import { getProsopiaImportStatus, startOrcidImport as postOrcidImport, startProsopiaImport } from '../api/endpoints/prosopia';
+import { startResearcherImport as postResearcherImport } from '../api/endpoints/researchers';
+import type { ResearcherSource } from '../types/researchers';
 import { getDraftDryRunStatus, startDraftDryRun, type DraftDryRun } from '../api/endpoints/wizard';
 import type { ProsopiaImportResult } from '../types/prosopia';
 import { errorMessage } from './format';
@@ -23,9 +25,11 @@ export interface Job {
   id: string;
   kind: JobKind;
   runId: number;
-  /** Interest slug (draft slug for imports / dry-runs). */
+  /** Interest slug (draft slug for imports / dry-runs), or ``researcher:<id>`` for a profile import. */
   profileKey: string;
   profileName: string;
+  /** Set for an import into a stored profile rather than a draft. */
+  researcherId?: number | null;
   startedAt: number;
   finishedAt: number | null;
   status: JobStatus;
@@ -231,11 +235,12 @@ async function pollOne(job: Job) {
     const result = status.result;
     const n = typeof result?.drafted === 'number' ? result.drafted : (result?.n_seeds as number | undefined);
     finish(job, {
-      summary: n != null ? `${n} seeds imported` : 'Import finished',
+      summary: n != null ? `${n} ${job.researcherId != null ? 'papers' : 'seeds'} imported` : 'Import finished',
       result: result ?? null,
-      profileName: (result?.name as string | undefined) ?? job.profileName,
+      profileName: job.researcherId != null ? job.profileName : ((result?.name as string | undefined) ?? job.profileName),
     });
-    invalidate('profiles', 'vault');
+    invalidate('profiles', 'vault', 'researchers');
+    if (job.researcherId != null) toast.success(`Profile "${job.profileName}" imported${n != null ? `: ${n} papers` : ''}.`);
   } catch (e) {
     const n = (failures.get(job.id) ?? 0) + 1;
     failures.set(job.id, n);
@@ -309,6 +314,16 @@ export async function startImport(ref: string, name?: string, paperIds?: string[
 export async function startOrcidImport(orcid: string, openalexIds: string[], name?: string): Promise<Job> {
   const start = await postOrcidImport({ orcid, openalex_ids: openalexIds, ...(name ? { name } : {}) });
   return add(base('import', start.run_id, start.draft_slug, name || orcid));
+}
+
+/** Import (or refresh) a stored profile. Polled like any import; no draft is created. */
+export async function startResearcherImport(source: ResearcherSource, ref: string, name: string, paperIds?: string[]): Promise<Job> {
+  const start = await postResearcherImport({ source, ref, ...(paperIds ? { paper_ids: paperIds } : {}) });
+  return add({ ...base('import', start.run_id, `researcher:${start.researcher_id}`, name || ref), researcherId: start.researcher_id });
+}
+
+export function researcherJobKey(id: number): string {
+  return `researcher:${id}`;
 }
 
 export function dismissJob(id: string) {
