@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TopBar } from '../components/TopBar';
 import { getMe, updateMe, type User } from '../api/endpoints/users';
-import { clearUserEmail } from '../lib/userEmail';
+import { signOut as endSession } from '../lib/userEmail';
 
 interface Props {
   onSignOut: () => void;
@@ -48,8 +48,11 @@ export function Settings({ onSignOut }: Props) {
   }
 
   function signOut() {
-    clearUserEmail();
+    // Clearing the cached address is not signing out: the Cloudflare
+    // Access session is what carries the identity, and it would still
+    // be attached to the very next request. Hand off to Access.
     onSignOut();
+    endSession();
   }
 
   return (
