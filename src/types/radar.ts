@@ -13,6 +13,27 @@ export interface Profile {
   saves30: number;
   dismisses30: number;
   isDraft?: boolean;
+  /** Researcher Profile metadata when the topic was seeded "From Profile". */
+  rp_meta?: RpMeta | null;
+}
+
+export interface RpMeta {
+  source?: string;
+  name?: string;
+  rid?: string;
+  orcid?: string;
+  openalex_author_id?: string;
+  level?: string;
+  provenance?: string;
+  date_modified?: string;
+  affiliation?: string;
+  field?: string;
+  summary?: string;
+  expertise?: string[];
+  not_interests?: string[];
+  collaborators?: string[];
+  same_as?: string[];
+  paper_stats?: Record<string, number>;
 }
 
 export interface Card {
@@ -45,6 +66,8 @@ export interface VaultDoc {
   pages: number;
   chunks: number;
   added: string;
+  /** Seeds imported from OpenAlex have no PDF (pages 0); show the year instead. */
+  year?: number | null;
 }
 
 export interface Seed {
@@ -61,6 +84,9 @@ export interface Topic {
   count: number;
   on: boolean;
   source?: string | null;
+  /** "From Profile": which expertise / not_interests phrases switched it on / off */
+  rp_on_by?: string[] | null;
+  rp_off_by?: string[] | null;
 }
 
 export interface SweepRow {

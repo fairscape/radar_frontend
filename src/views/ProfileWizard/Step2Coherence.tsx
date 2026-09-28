@@ -139,7 +139,7 @@ export function Step2Coherence({ onPrev, onNext }: Props) {
           ← BACK
         </button>
         <button className="btn primary" onClick={onNext} disabled={!coh}>
-          NEXT · TOPICS →
+          NEXT · CONCEPTS →
         </button>
       </div>
     </div>
@@ -161,7 +161,7 @@ function bannerFor(coh: DraftCoherence): Banner {
     return {
       label: 'HEALTH · NOT APPLICABLE',
       message:
-        'A single seed has no pairwise similarity to measure. The centroid is that paper. Add more seeds and re-run coherence from the profile page.',
+        'A single seed has no pairwise similarity to measure. The centroid is that paper. Add more seeds and re-run coherence from the topic page.',
       color: 'var(--warn)',
     };
   }

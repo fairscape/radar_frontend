@@ -38,7 +38,7 @@ export function Splash({ onOpen }: Props) {
             className="splash-nav-link"
             onClick={() => onOpen('profiles', 'approachable')}
           >
-            Profiles
+            Topics
           </button>
           <button
             type="button"
@@ -115,8 +115,8 @@ export function Splash({ onOpen }: Props) {
                 <rect x="17" y="12" width="4" height="8" rx="1" />
               </svg>
             </div>
-            <h3>Profiles</h3>
-            <p>Each profile is a small set of seed papers that defines an interest. Radar uses them to decide what to surface — and shows you when a profile drifts.</p>
+            <h3>Topics</h3>
+            <p>Each topic is a small set of seed papers that defines an interest. Radar uses them to decide what to surface — and shows you when a topic drifts.</p>
             <span className="arrow">Manage your profiles {ARROW}</span>
           </button>
         </section>
@@ -125,12 +125,12 @@ export function Splash({ onOpen }: Props) {
           <div className="splash-help-eyebrow">How to use Radar</div>
           <div className="splash-help-body">
             <p>
-              Upload papers to the <b>Vault</b>, build a <b>Profile</b> by picking
+              Upload papers to the <b>Vault</b>, build a <b>Topic</b> by picking
               OpenAlex topic IDs and a score threshold — Radar does the rest.
             </p>
             <p>
               Each morning your <b>Daily Radar</b> shows the new papers that
-              cleared the threshold for any profile you watch.
+              cleared the threshold for any topic you watch.
             </p>
           </div>
         </section>

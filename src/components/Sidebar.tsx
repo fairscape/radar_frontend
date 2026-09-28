@@ -12,13 +12,15 @@ export type ViewKey =
   | 'radar'
   | 'vault'
   | 'profiles'
+  | 'researchers'
   | 'profile-wizard'
   | 'settings';
 
 const NAV: { key: ViewKey; label: string; glyph: GlyphName }[] = [
   { key: 'radar', label: 'Daily Radar', glyph: 'radar' },
   { key: 'vault', label: 'Vault', glyph: 'vault' },
-  { key: 'profiles', label: 'Profiles', glyph: 'profiles' },
+  { key: 'profiles', label: 'Topics', glyph: 'profiles' },
+  { key: 'researchers', label: 'Researchers', glyph: 'profiles' },
 ];
 
 export function Sidebar({
@@ -41,6 +43,7 @@ export function Sidebar({
     radar: radarData ? radarData.cards.length : null,
     vault: vaultStats ? vaultStats.docs : null,
     profiles: profiles.length,
+    researchers: null,
     'profile-wizard': null,
     settings: null,
   };
@@ -70,7 +73,7 @@ export function Sidebar({
             <span className="count mono">{counts[n.key] ?? '—'}</span>
           </div>
         ))}
-        <div className="sb-group-label" style={{ marginTop: 14 }}>Profiles</div>
+        <div className="sb-group-label" style={{ marginTop: 14 }}>Topics</div>
         <div className="sb-section" style={{ borderTop: 0, padding: '2px 10px 0' }}>
           <div
             className={`sb-profile ${view === 'profile-wizard' ? 'active' : ''}`}
@@ -79,7 +82,7 @@ export function Sidebar({
           >
             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontFamily: 'var(--font-mono)' }}>+</span>
-              <span>New profile</span>
+              <span>New topic</span>
             </span>
           </div>
           {profiles.map((p) => (

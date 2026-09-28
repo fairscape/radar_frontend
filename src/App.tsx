@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Sidebar, type ViewKey } from './components/Sidebar';
 import { SidebarSoft } from './components/soft/SidebarSoft';
 import { RadarView } from './views/RadarView';
@@ -8,6 +8,11 @@ import { RadarViewSoft } from './views/soft/RadarViewSoft';
 import { ProfilesViewSoft } from './views/soft/ProfilesViewSoft';
 import { VaultViewSoft } from './views/soft/VaultViewSoft';
 import { ProfileWizard } from './views/ProfileWizard';
+import { ResearchersView } from './views/ResearchersView';
+import { ResearchersViewSoft } from './views/soft/ResearchersViewSoft';
+import { LeaveDraftDialog } from './components/LeaveDraftDialog';
+import { clearDraft, parkDraft, peekDraft } from './api/hooks/useDraft';
+import { deleteDraft } from './api/endpoints/wizard';
 import { Settings } from './views/Settings';
 import { AuthGuard } from './components/AuthGuard';
 import { Splash } from './views/Splash';
@@ -46,6 +51,7 @@ function isViewKey(v: string | null): v is ViewKey {
     v === 'radar' ||
     v === 'vault' ||
     v === 'profiles' ||
+    v === 'researchers' ||
     v === 'profile-wizard' ||
     v === 'settings'
   );
@@ -54,6 +60,7 @@ function isViewKey(v: string | null): v is ViewKey {
 function viewFromPath(path: string): ViewKey | null {
   if (path === '/profiles/new') return 'profile-wizard';
   if (path === '/profiles') return 'profiles';
+  if (path === '/researchers') return 'researchers';
   if (path === '/vault') return 'vault';
   if (path === '/radar') return 'radar';
   if (path === '/settings') return 'settings';
@@ -70,6 +77,8 @@ function pathForView(view: ViewKey): string {
       return '/profiles/new';
     case 'profiles':
       return '/profiles';
+    case 'researchers':
+      return '/researchers';
     case 'vault':
       return '/vault';
     case 'radar':
@@ -101,6 +110,38 @@ export function App() {
     return { ...TWEAK_DEFAULTS, theme, mode };
   });
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  // Where the user wanted to go when the leave-draft dialog opened.
+  const [pendingView, setPendingView] = useState<ViewKey | null>(null);
+  const viewRef = useRef<ViewKey>(view);
+  viewRef.current = view;
+
+  /** Route every view change through the wizard's leave guard: an
+   *  unfinished draft gets a keep / discard / stay dialog instead of
+   *  being silently left behind (or silently resumed next time). */
+  const navigate = useCallback((target: ViewKey) => {
+    const leavingWizard = viewRef.current === 'profile-wizard' && target !== 'profile-wizard';
+    if (leavingWizard && peekDraft()) {
+      setPendingView(target);
+      return;
+    }
+    setView(target);
+  }, []);
+
+  const resolveLeave = (keep: boolean) => {
+    const target = pendingView;
+    setPendingView(null);
+    if (!target) return;
+    const draft = peekDraft();
+    if (keep) {
+      parkDraft();
+    } else if (draft?.slug) {
+      deleteDraft(draft.slug).catch(() => {
+        /* already gone or committed — nothing to clean up */
+      });
+      clearDraft();
+    }
+    setView(target);
+  };
 
   useEffect(() => {
     if (showSplash) return;
@@ -120,7 +161,14 @@ export function App() {
       }
       setShowSplash(false);
       const v = viewFromPath(path);
-      if (v) setView(v);
+      if (!v) return;
+      if (viewRef.current === 'profile-wizard' && v !== 'profile-wizard' && peekDraft()) {
+        // Put the wizard URL back and ask; resolveLeave() moves on.
+        window.history.pushState({}, '', pathForView('profile-wizard'));
+        setPendingView(v);
+        return;
+      }
+      setView(v);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -143,14 +191,14 @@ export function App() {
         if (e.key === '`') setTweaksOpen((o) => !o);
         return;
       }
-      if (e.key === 'r' || e.key === 'R') setView('radar');
-      if (e.key === 'v' || e.key === 'V') setView('vault');
-      if (e.key === 'p' || e.key === 'P') setView('profiles');
+      if (e.key === 'r' || e.key === 'R') navigate('radar');
+      if (e.key === 'v' || e.key === 'V') navigate('vault');
+      if (e.key === 'p' || e.key === 'P') navigate('profiles');
       if (e.key === '`') setTweaksOpen((o) => !o);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showSplash]);
+  }, [showSplash, navigate]);
 
   useEffect(() => {
     document.documentElement.style.setProperty('--acc-high', ACCENT_MAP[tweaks.accent]);
@@ -188,9 +236,9 @@ export function App() {
     <AuthGuard>
     <div className={isSoft ? 'soft-app' : 'app'}>
       {isSoft ? (
-        <SidebarSoft view={view} setView={setView} onHome={goHome} />
+        <SidebarSoft view={view} setView={navigate} onHome={goHome} />
       ) : (
-        <Sidebar view={view} setView={setView} onHome={goHome} />
+        <Sidebar view={view} setView={navigate} onHome={goHome} />
       )}
       <div className="main">
         {view === 'profile-wizard' ? (
@@ -199,21 +247,22 @@ export function App() {
               setSelectedProfile(slug);
               setView('profiles');
             }}
-            onCancel={() => setView('profiles')}
+            onCancel={() => navigate('profiles')}
           />
         ) : view === 'settings' ? (
-          <Settings onSignOut={() => setView('radar')} />
+          <Settings onSignOut={() => navigate('radar')} />
         ) : isSoft ? (
           <>
-            {view === 'radar' && <RadarViewSoft onNewProfile={() => setView('profile-wizard')} />}
+            {view === 'radar' && <RadarViewSoft onNewProfile={() => navigate('profile-wizard')} />}
             {view === 'profiles' && (
               <ProfilesViewSoft
                 selected={selectedProfile}
                 setSelected={setSelectedProfile}
-                onNew={() => setView('profile-wizard')}
+                onNew={() => navigate('profile-wizard')}
               />
             )}
             {view === 'vault' && <VaultViewSoft />}
+            {view === 'researchers' && <ResearchersViewSoft />}
           </>
         ) : (
           <>
@@ -222,13 +271,23 @@ export function App() {
               <ProfilesView
                 selected={selectedProfile}
                 setSelected={setSelectedProfile}
-                onNew={() => setView('profile-wizard')}
+                onNew={() => navigate('profile-wizard')}
               />
             )}
             {view === 'vault' && <VaultView />}
+            {view === 'researchers' && <ResearchersView />}
           </>
         )}
       </div>
+      {pendingView && (
+        <LeaveDraftDialog
+          name={peekDraft()?.name ?? ''}
+          step={peekDraft()?.step ?? 1}
+          onKeep={() => resolveLeave(true)}
+          onDiscard={() => resolveLeave(false)}
+          onStay={() => setPendingView(null)}
+        />
+      )}
       {tweaksOpen && (
         <div className="tweaks">
           <div className="tweaks-head">

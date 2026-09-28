@@ -114,6 +114,7 @@ export interface GatherRunStatus {
   n_processed: number | null;
   n_total: number | null;
   last_message: string | null;
+  progress_updated_at?: string | null;
 }
 
 export function gatherNow(

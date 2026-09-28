@@ -7,7 +7,7 @@ import { gatherNow, listProfileRuns } from '../api/endpoints/profiles';
 import type { Bucket } from '../types/radar';
 
 const STEP_LABEL: Record<string, string> = {
-  loading_profile: 'Loading profile',
+  loading_profile: 'Loading topic',
   fetching: 'Querying OpenAlex',
   embedding: 'Embedding candidates',
   persisting: 'Saving results',
@@ -201,7 +201,7 @@ export function RadarView() {
             <span className="date mono">{data?.date ?? '—'}</span>
           </div>
           <div className="rh-sub">
-            <b>{inbox.length}</b> cards &nbsp;/&nbsp; from <b>{profiles.length}</b> profiles &nbsp;/&nbsp;
+            <b>{inbox.length}</b> cards &nbsp;/&nbsp; from <b>{profiles.length}</b> topics &nbsp;/&nbsp;
             <b>{(data?.candidatesScored ?? 0).toLocaleString()}</b> candidates scored &nbsp;/&nbsp;
             fetched <b>{data?.fetchedAt ?? '—'}</b>&nbsp;·&nbsp;{data?.fetchMs ?? 0}s
           </div>
@@ -216,10 +216,10 @@ export function RadarView() {
           <div className="rh-stat" style={{ justifyContent: 'flex-end', alignItems: 'flex-end' }}>
             <button
               type="button"
-              className="pull-btn"
+              className="btn"
               onClick={() => setPullOpen((o) => !o)}
               disabled={profiles.length === 0}
-              title={profiles.length === 0 ? 'No profiles available' : 'Gather new papers for a profile'}
+              title={profiles.length === 0 ? 'No topics available' : 'Gather new papers for a topic'}
             >
               {pullStatus.phase === 'running' ? (
                 <>
@@ -240,7 +240,7 @@ export function RadarView() {
       {pullOpen && (
         <div className="pull-panel">
           <div className="pull-row">
-            <label className="pull-lbl">PROFILE</label>
+            <label className="pull-lbl">TOPIC</label>
             <select
               className="pull-select"
               value={pullProfile}
@@ -329,7 +329,7 @@ export function RadarView() {
 
       <div className="radar-colhead">
         <span>Score</span>
-        <span>Profile</span>
+        <span>Topic</span>
         <span>Title · Authors · Abstract</span>
         <span>Identifiers</span>
         <span>Signals</span>

@@ -328,7 +328,7 @@ export function VaultView() {
               }}
             >
               <span>
-                {scope.size} PROFILES · {scopedDocCount} DOCS IN SCOPE
+                {scope.size} TOPICS · {scopedDocCount} DOCS IN SCOPE
               </span>
               <span>NO RERANKER · COSINE TOP-K</span>
             </div>

@@ -125,7 +125,7 @@ input, textarea { font: inherit; color: inherit; }
   margin-left: auto;
   letter-spacing: 0.08em;
 }
-.sb-nav { padding: 10px 8px; flex: 1; }
+.sb-nav { padding: 10px 8px; flex: 1; min-height: 0; overflow-y: auto; }
 .sb-group-label {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -303,18 +303,6 @@ input, textarea { font: inherit; color: inherit; }
 .rh-stat .v.low { color: var(--acc-low); }
 
 /* Pull-papers trigger + panel */
-.pull-btn {
-  padding: 6px 12px;
-  border: 1px solid var(--line-strong);
-  background: var(--bg-1);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: var(--fg);
-  cursor: pointer;
-}
-.pull-btn:hover { background: var(--bg-2); border-color: var(--fg-3); }
-.pull-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .pull-panel {
   display: grid;
@@ -642,13 +630,7 @@ input, textarea { font: inherit; color: inherit; }
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
-.prof-list-head .btn-new {
-  color: var(--fg-2);
-  border: 1px solid var(--line-2);
-  padding: 3px 8px;
-  cursor: pointer;
-}
-.prof-list-head .btn-new:hover { color: var(--fg); border-color: var(--line-strong); }
+.prof-list-head .btn { padding: 3px 8px; }
 .prof-item {
   padding: 12px 18px;
   border-bottom: 1px solid var(--line);
@@ -727,6 +709,169 @@ input, textarea { font: inherit; color: inherit; }
 .pd-actions .btn.primary { color: var(--bg-0); background: var(--fg); border-color: var(--fg); }
 .pd-actions .btn.primary:hover { background: var(--fg-2); }
 .pd-actions .btn.danger:hover { color: var(--err); border-color: color-mix(in oklab, var(--err), transparent 60%); }
+
+/* Buttons — one vocabulary for the whole app.
+   .btn          neutral bordered action (BACK, CANCEL, START OVER)
+   .btn.primary  the one forward action on a screen (NEXT, SAVE)
+   .btn.ghost    borderless, for low-emphasis actions
+   Disabled buttons drop the pointer so hover never promises a click. */
+.app .btn {
+  padding: 6px 12px;
+  border: 1px solid var(--line-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-2);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.app .btn:hover { color: var(--fg); border-color: var(--line-strong); background: var(--bg-1); }
+.app .btn.primary { color: var(--bg-0); background: var(--fg); border-color: var(--fg); }
+.app .btn.primary:hover { background: var(--fg-2); }
+.app .btn.ghost { border-color: transparent; }
+.app .btn.ghost:hover { border-color: transparent; background: var(--bg-1); }
+.app .btn:disabled, .app .btn:disabled:hover {
+  opacity: 0.45; cursor: default;
+  color: var(--fg-2); background: transparent; border-color: var(--line-2);
+}
+.app .btn.primary:disabled, .app .btn.primary:disabled:hover { background: var(--fg); color: var(--bg-0); border-color: var(--fg); }
+
+/* Segmented control — a row of mutually exclusive .btn-shaped choices
+   (Step 1: UPLOAD PDFS | FROM ORCID). The pressed one reads as .btn.primary. */
+.app .seg { display: inline-flex; gap: 0; }
+.app .seg button {
+  padding: 6px 12px;
+  border: 1px solid var(--line-2);
+  margin-left: -1px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-3);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.app .seg button:first-child { margin-left: 0; }
+.app .seg button:hover { color: var(--fg); border-color: var(--line-strong); background: var(--bg-1); position: relative; }
+.app .seg button[aria-pressed='true'] {
+  color: var(--bg-0); background: var(--fg); border-color: var(--fg); position: relative;
+}
+
+/* Wizard step indicator — a read-only progress strip, not navigation.
+   The steps have their own BACK / NEXT buttons; this only shows where you are. */
+.app .steps { display: flex; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.app .steps li {
+  padding: 6px 12px;
+  border: 1px solid var(--line-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--fg-4);
+  cursor: default;
+  user-select: none;
+}
+.app .steps li.done { color: var(--fg-3); }
+.app .steps li.current { color: var(--fg); border-color: var(--fg-3); background: var(--bg-2); }
+
+/* Seed picker (ORCID / profile imports) */
+.app .work-picker { margin-top: 8px; }
+.app .wp-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.app .wp-search {
+  flex: 1; min-width: 200px; padding: 6px 8px;
+  font-family: var(--font-mono); font-size: 11px;
+  background: var(--bg-inset); color: var(--fg); border: 1px solid var(--line-strong);
+}
+.app .wp-bulk { display: flex; gap: 4px; }
+.app .wp-table { border: 1px solid var(--line-2); max-height: 420px; overflow-y: auto; }
+.app .wp-row {
+  display: grid; grid-template-columns: 28px 48px 1fr 92px 44px 52px;
+  gap: 8px; align-items: center;
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+  font-size: 12px; color: var(--fg-2); cursor: pointer;
+}
+.app .wp-row:last-child { border-bottom: 0; }
+.app .wp-row.head {
+  position: sticky; top: 0; z-index: 1; cursor: default;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em; color: var(--fg-4);
+  background: var(--bg-2);
+}
+.app .wp-row.on { color: var(--fg); background: var(--bg-1); }
+.app .wp-row.disabled { opacity: 0.45; cursor: not-allowed; }
+.app .wp-row .ttl { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.app .wp-row .ttl .sub { font-size: 10px; color: var(--fg-4); font-family: var(--font-mono); }
+.app .wp-row .num { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); text-align: right; }
+.app .wp-row .role { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; color: var(--fg-4); }
+.app .wp-row .role.lead { color: #81c784; }
+.app .wp-footer { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* Researchers library */
+.app .rs-blocks { padding: 0 28px 28px; }
+.app .rs-blocks section { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.app .rs-blocks section:last-child { border-bottom: 0; }
+.app .rs-blocks h3 {
+  margin: 0 0 10px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--fg-4);
+}
+.app .rs-blocks h3 .dim { text-transform: none; letter-spacing: 0.04em; margin-left: 8px; }
+.app .rs-blocks p { margin: 0 0 6px; font-size: 13px; line-height: 1.55; color: var(--fg-2); }
+.app .rs-blocks p.dim { color: var(--fg-3); font-size: 12px; }
+.app .rs-blocks p.warn { color: var(--warn); font-family: var(--font-mono); font-size: 11px; }
+.app .rs-blocks a { color: var(--fg); }
+.app .rs-dl { display: grid; grid-template-columns: 200px 1fr; gap: 4px 12px; margin: 0; font-size: 12px; }
+.app .rs-dl dt { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--fg-4); text-transform: uppercase; padding-top: 2px; }
+.app .rs-dl dd { margin: 0; color: var(--fg-2); }
+.app .rs-dl dd.num, .app .rs-table td.num { font-family: var(--font-mono); }
+.app .rs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.app .rs-table th { text-align: left; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em; color: var(--fg-4); padding: 4px 8px; border-bottom: 1px solid var(--line-2); }
+.app .rs-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--fg-2); vertical-align: top; }
+.app .rs-raw summary { cursor: pointer; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--fg-4); display: flex; align-items: center; gap: 10px; }
+.app .rs-raw pre { margin: 10px 0 0; padding: 12px; background: var(--bg-inset); border: 1px solid var(--line-2); font-size: 11px; max-height: 480px; overflow: auto; color: var(--fg-2); }
+.app .rs-import textarea {
+  width: 100%; min-height: 160px; resize: vertical; box-sizing: border-box; padding: 8px;
+  font-family: var(--font-mono); font-size: 11px; background: var(--bg-inset); color: var(--fg); border: 1px solid var(--line-strong);
+}
+.app .rs-import .dim { color: var(--fg-3); font-size: 12px; margin: 0 0 10px; }
+.app .rs-import .warn { color: var(--err); font-family: var(--font-mono); font-size: 11px; margin-top: 8px; }
+.app .rs-import-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.app .rs-import-row .status { font-size: 11px; color: var(--fg-3); }
+.app .pd-actions .btn.danger { color: var(--fg-3); }
+
+/* Modal — a blocking choice (leave the wizard with an unfinished draft). */
+.app .modal-backdrop {
+  position: fixed; inset: 0;
+  background: color-mix(in oklab, var(--bg-0), transparent 35%);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+}
+.app .modal {
+  width: min(440px, calc(100vw - 32px));
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.app .modal-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 10px; letter-spacing: 0.18em; color: var(--fg-4);
+}
+.app .modal-body { padding: 14px; color: var(--fg-2); line-height: 1.5; }
+.app .modal-body p { margin: 0 0 8px; }
+.app .modal-body p:last-child { margin-bottom: 0; }
+.app .modal-body .dim { color: var(--fg-3); }
+.app .modal-actions {
+  display: flex; justify-content: flex-end; gap: 6px;
+  padding: 10px 14px; border-top: 1px solid var(--line-2);
+}
+
+/* Resume prompt — the wizard found a draft the user walked away from. */
+.app .resume-draft { display: flex; flex-direction: column; gap: 12px; max-width: 520px; }
+.app .resume-draft p { margin: 0; color: var(--fg-2); font-size: 13px; line-height: 1.5; }
+.app .resume-draft .meta { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+.app .resume-draft .actions { display: flex; gap: 6px; }
+.app .resume-draft .draft-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--line-2);
+}
+.app .resume-draft .draft-name { font-size: 13px; color: var(--fg); margin-bottom: 4px; }
 
 /* Section */
 .section { border-bottom: 1px solid var(--line); padding: 22px 28px; }
@@ -872,6 +1017,16 @@ input, textarea { font: inherit; color: inherit; }
 .topic-src { font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
 .topic-src.umls  { background: #2a1f4e; color: #b39ddb; border: 1px solid #4a3b7a; }
 .topic-src.oalex { background: #1a3a2a; color: #81c784; border: 1px solid #2e6b4a; }
+.topic-src.rp    { background: #3a2a1a; color: #ffcc80; border: 1px solid #6b4a2e; }
+.topic-src.rp-off { background: #3a1f1f; color: #ef9a9a; border: 1px solid #6b2e2e; }
+
+/* Researcher Profile block on the topic detail page */
+.rp-meta { display: flex; flex-direction: column; gap: 10px; font-size: 12px; color: var(--fg-2); }
+.rp-meta p { margin: 0; line-height: 1.5; }
+.rp-meta .k { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; color: var(--fg-4); margin-bottom: 4px; }
+.rp-meta .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.rp-meta .chip { padding: 2px 8px; border: 1px solid var(--line-2); font-family: var(--font-mono); font-size: 10px; color: var(--fg-2); }
+.rp-meta .chip.off { color: var(--fg-3); text-decoration: line-through; }
 /* A switched-off topic differed from an active one only by three small
    colour steps, which in the dark theme is not a difference anyone
    notices — a profile with ten of fourteen topics off looked like a

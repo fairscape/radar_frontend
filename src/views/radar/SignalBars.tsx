@@ -4,7 +4,7 @@ export function SignalBars({ card }: { card: Card }) {
   const short = card.bucket === 'medium' ? 'med' : card.bucket;
   const rows = [
     { lbl: 'centroid', v: card.centroidCos, tone: short },
-    { lbl: 'topic', v: card.topicMatch, tone: 'med' },
+    { lbl: 'concept', v: card.topicMatch, tone: 'med' },
     { lbl: 'novelty', v: card.noveltyDelta, tone: 'low' },
   ];
   return (

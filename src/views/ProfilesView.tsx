@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TopBar } from '../components/TopBar';
+import { RpMetaBlock } from '../components/RpMetaBlock';
 import { ThresholdHistogram } from '../components/ThresholdHistogram';
 import { RerankerBumpChart } from '../components/RerankerBumpChart';
 import {
@@ -129,14 +130,14 @@ export function ProfilesView({
 
   return (
     <div className="view">
-      <TopBar crumbs={['Profiles', active?.name ?? '…']} />
+      <TopBar crumbs={['Topics', active?.name ?? '…']} />
       <div className="prof-grid">
         <div className="prof-list">
           <div className="prof-list-head">
-            <span>Profiles · {profiles.length}</span>
+            <span>Topics · {profiles.length}</span>
             <button
               type="button"
-              className="btn-new"
+              className="btn"
               onClick={onNew}
             >
               + NEW
@@ -147,7 +148,7 @@ export function ProfilesView({
               className="empty mono"
               style={{ padding: '24px 16px', fontSize: 11, color: 'var(--err)', letterSpacing: '0.06em' }}
             >
-              FAILED TO LOAD PROFILES
+              FAILED TO LOAD TOPICS
               <button
                 type="button"
                 onClick={refreshList}
@@ -219,9 +220,9 @@ export function ProfilesView({
 
         <div className="prof-detail">
           {profiles.length === 0 && !loading && (
-            <div className="empty">NO PROFILE SELECTED — CREATE ONE TO SEE DETAILS</div>
+            <div className="empty">NO TOPIC SELECTED — CREATE ONE TO SEE DETAILS</div>
           )}
-          {loading && !detail && profiles.length > 0 && <div className="empty">LOADING PROFILE DETAIL…</div>}
+          {loading && !detail && profiles.length > 0 && <div className="empty">LOADING TOPIC DETAIL…</div>}
           {active && detail && (
             <>
               <div className="pd-head">
@@ -244,7 +245,7 @@ export function ProfilesView({
                     className="btn"
                     onClick={onRecompute}
                     disabled={recomputing}
-                    title="Re-aggregate topics and recompute coherence from current seeds"
+                    title="Re-aggregate concepts and recompute coherence from current seeds"
                   >
                     {recomputing ? 'RECOMPUTING…' : 'RECOMPUTE'}
                   </button>
@@ -492,14 +493,32 @@ export function ProfilesView({
                 </div>
               </div>
 
+              {detail.profile.rp_meta && (
+                <div className="section">
+                  <h3>
+                    Researcher Profile <span className="hr" />
+                    <span
+                      className="mono"
+                      style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.08em' }}
+                    >
+                      {[detail.profile.rp_meta.level, detail.profile.rp_meta.provenance]
+                        .filter(Boolean)
+                        .join(' · ')
+                        .toUpperCase()}
+                    </span>
+                  </h3>
+                  <RpMetaBlock meta={detail.profile.rp_meta} />
+                </div>
+              )}
+
               <div className="section">
                 <h3>
                   {/* Not "OpenAlex Topic Filter": some of these come from
                       UMLS concept mapping, and the count is of the ones
                       that gather, not of the list. Both were misleading
-                      enough that a profile with ten topics switched off
+                      enough that a topic with ten topics switched off
                       read as a profile with fourteen active ones. */}
-                  Topic Filter <span className="hr" />
+                  Concept Filter <span className="hr" />
                   <span
                     className="mono"
                     style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.08em' }}
@@ -510,7 +529,7 @@ export function ProfilesView({
                 </h3>
                 {detail.topics.length === 0 ? (
                   <div className="empty mono" style={{ fontSize: 11, color: 'var(--fg-3)' }}>
-                    No topics aggregated yet. Upload seeds (whose OpenAlex enrichment
+                    No concepts aggregated yet. Upload seeds (whose OpenAlex enrichment
                     succeeds), then click RECOMPUTE.
                   </div>
                 ) : (
@@ -525,7 +544,15 @@ export function ProfilesView({
                         {t.source === 'umls' && (
                           <span className="topic-src umls">UMLS</span>
                         )}
+                        {t.source === 'rp_expertise' && (
+                          <span className="topic-src rp">PROFILE</span>
+                        )}
                         {!t.source && <span className="topic-src oalex">OpenAlex</span>}
+                        {t.rp_off_by && t.rp_off_by.length > 0 && (
+                          <span className="topic-src rp-off" title={`not_interests: ${t.rp_off_by.join(', ')}`}>
+                            NOT-INTEREST
+                          </span>
+                        )}
                         {!t.on && <span className="topic-off">OFF</span>}
                       </span>
                     ))}

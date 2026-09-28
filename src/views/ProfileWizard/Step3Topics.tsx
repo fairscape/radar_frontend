@@ -23,10 +23,11 @@ export function Step3Topics({ onPrev, onNext }: Props) {
       .then((t) => {
         if (cancelled) return;
         setTopics(t);
-        // Default selection: every topic the aggregator surfaced. The
-        // user can prune from there.
+        // Default selection: every topic the aggregator surfaced with
+        // on=true. UMLS-derived topics on an ORCID-seeded draft arrive
+        // off; the user opts into them from here.
         if (state.selectedTopicIds.length === 0) {
-          setSelectedTopics(t.map((x) => x.id));
+          setSelectedTopics(t.filter((x) => x.on).map((x) => x.id));
         }
       })
       .catch((e) => {
@@ -46,7 +47,7 @@ export function Step3Topics({ onPrev, onNext }: Props) {
   return (
     <div className="section">
       <h3>
-        Step 3 — Topics <span className="hr" />
+        Step 3 — Concepts <span className="hr" />
         <span
           className="mono"
           style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.08em' }}
@@ -55,11 +56,11 @@ export function Step3Topics({ onPrev, onNext }: Props) {
         </span>
       </h3>
       <div className="mono" style={{ color: 'var(--fg-3)', marginBottom: 8 }}>
-        Toggle the topics the gatherer should query OpenAlex for. Default: all
-        aggregated topics on.
+        Toggle the concepts (OpenAlex topics) the gatherer should query for.
+        Default: all aggregated concepts on.
       </div>
 
-      {loading && <div className="empty">LOADING TOPICS…</div>}
+      {loading && <div className="empty">LOADING CONCEPTS…</div>}
       {error && (
         <div
           className="mono"
@@ -87,7 +88,18 @@ export function Step3Topics({ onPrev, onNext }: Props) {
             {t.name}
             <span className="tct">n={t.count}</span>
             {t.source === 'umls' && <span className="topic-src umls">UMLS</span>}
+            {t.source === 'rp_expertise' && <span className="topic-src rp">PROFILE</span>}
             {!t.source && <span className="topic-src oalex">OpenAlex</span>}
+            {t.rp_off_by && t.rp_off_by.length > 0 && (
+              <span className="topic-src rp-off" title={`not_interests: ${t.rp_off_by.join(', ')}`}>
+                NOT-INTEREST
+              </span>
+            )}
+            {t.rp_on_by && t.rp_on_by.length > 0 && t.source !== 'rp_expertise' && (
+              <span className="topic-src rp" title={`expertise: ${t.rp_on_by.join(', ')}`}>
+                EXPERTISE
+              </span>
+            )}
           </span>
         ))}
       </div>

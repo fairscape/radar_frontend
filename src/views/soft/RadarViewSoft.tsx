@@ -5,7 +5,7 @@ import { gatherNow, listProfileRuns } from '../../api/endpoints/profiles';
 import type { Card, CardState, Profile } from '../../types/radar';
 
 const STEP_LABEL: Record<string, string> = {
-  loading_profile: 'Loading profile',
+  loading_profile: 'Loading topic',
   fetching: 'Querying OpenAlex',
   embedding: 'Embedding candidates',
   persisting: 'Saving results',
@@ -252,7 +252,7 @@ export function RadarViewSoft({ onNewProfile }: { onNewProfile?: () => void } = 
             type="button"
             onClick={onNewProfile}
           >
-            <IconSoft name="plus" size={14} /> New profile
+            <IconSoft name="plus" size={14} /> New topic
           </button>
         </div>
       </div>
@@ -260,7 +260,7 @@ export function RadarViewSoft({ onNewProfile }: { onNewProfile?: () => void } = 
       {pullOpen && (
         <div className="pull-panel">
           <div className="pull-row">
-            <label className="pull-lbl">PROFILE</label>
+            <label className="pull-lbl">TOPIC</label>
             <select
               className="pull-select"
               value={pullProfile}

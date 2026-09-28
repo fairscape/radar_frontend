@@ -1,4 +1,5 @@
 import { IconSoft } from '../../components/soft/IconSoft';
+import { RpMetaBlock } from '../../components/RpMetaBlock';
 import { swatchFor, useProfiles, useProfileDetail } from '../../lib/apiSwitch';
 
 export function ProfilesViewSoft({
@@ -19,19 +20,19 @@ export function ProfilesViewSoft({
       <div className="view">
         <div className="page-head">
           <div>
-            <h1>Profiles</h1>
-            <div className="sub">Each profile tells Radar what kind of papers to surface for you.</div>
+            <h1>Topics</h1>
+            <div className="sub">Each topic tells Radar what kind of papers to surface for you.</div>
           </div>
           <div className="actions">
             <button className="btn primary" type="button" onClick={onNew}>
-              <IconSoft name="plus" size={14} /> New profile
+              <IconSoft name="plus" size={14} /> New topic
             </button>
           </div>
         </div>
         <div className="empty">
           {profilesError ? (
             <>
-              Couldn’t load profiles.{' '}
+              Couldn’t load topics.{' '}
               <button
                 type="button"
                 className="btn ghost"
@@ -42,9 +43,9 @@ export function ProfilesViewSoft({
               </button>
             </>
           ) : profilesLoading ? (
-            'Loading profiles…'
+            'Loading topics…'
           ) : (
-            'No profiles yet — click New profile to create one.'
+            'No topics yet — click New topic to create one.'
           )}
         </div>
       </div>
@@ -58,7 +59,7 @@ export function ProfilesViewSoft({
   const healthWord = isUnhealthy ? 'Off-target' : 'Healthy';
   const healthDesc = isUnhealthy
     ? 'Very low coherence. Consider re-selecting seed papers or splitting.'
-    : 'This profile is focused and matching well.';
+    : 'This topic is focused and matching well.';
 
   const totalSD = active.saves30 + active.dismisses30;
   const saveRate = totalSD > 0 ? Math.round((active.saves30 / totalSD) * 100) : 0;
@@ -67,12 +68,12 @@ export function ProfilesViewSoft({
     <div className="view">
       <div className="page-head">
         <div>
-          <h1>Profiles</h1>
-          <div className="sub">Each profile tells Radar what kind of papers to surface for you.</div>
+          <h1>Topics</h1>
+          <div className="sub">Each topic tells Radar what kind of papers to surface for you.</div>
         </div>
         <div className="actions">
           <button className="btn primary" type="button" onClick={onNew}>
-            <IconSoft name="plus" size={14} /> New profile
+            <IconSoft name="plus" size={14} /> New topic
           </button>
         </div>
       </div>
@@ -174,10 +175,22 @@ export function ProfilesViewSoft({
                 </div>
               </div>
 
+              {detail.profile.rp_meta && (
+                <div className="pa-section">
+                  <h3>
+                    Researcher profile
+                    <span style={{ color: 'var(--fg-4)', fontWeight: 400, fontSize: 12, marginLeft: 6 }}>
+                      — {[detail.profile.rp_meta.level, detail.profile.rp_meta.provenance].filter(Boolean).join(' · ')}
+                    </span>
+                  </h3>
+                  <RpMetaBlock meta={detail.profile.rp_meta} />
+                </div>
+              )}
+
               <div className="pa-section">
-                <h3>Topic filter</h3>
+                <h3>Concept filter</h3>
                 <div className="hint">
-                  Radar narrows down daily candidates to these topics before scoring
+                  Radar narrows down daily candidates to these concepts (OpenAlex topics) before scoring
                   — the {detail.topics.filter((t) => t.on).length} switched on, out of{' '}
                   {detail.topics.length}. Ones marked UMLS were inferred from the
                   medical concepts in your seeds rather than assigned by OpenAlex.
@@ -187,6 +200,10 @@ export function ProfilesViewSoft({
                     <span key={t.id} className={`pa-topic ${t.on ? 'on' : ''}`}>
                       {t.name} <span className="tn">{t.id}</span>
                       {t.source === 'umls' && <span className="topic-src umls">UMLS</span>}
+                      {t.source === 'rp_expertise' && <span className="topic-src rp">PROFILE</span>}
+                      {t.rp_off_by && t.rp_off_by.length > 0 && (
+                        <span className="topic-src rp-off" title={`not_interests: ${t.rp_off_by.join(', ')}`}>NOT-INTEREST</span>
+                      )}
                       {!t.on && <span className="topic-off">OFF</span>}
                     </span>
                   ))}
@@ -213,7 +230,7 @@ export function ProfilesViewSoft({
             </>
           )}
 
-          {loading && !detail && <div className="empty">Loading profile…</div>}
+          {loading && !detail && <div className="empty">Loading topic…</div>}
         </div>
       </div>
     </div>

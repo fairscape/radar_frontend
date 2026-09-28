@@ -353,7 +353,7 @@ export function Step4Calibrate({ onPrev, onDone }: Props) {
               <span className="run-spinner" />SAVING…
             </>
           ) : (
-            'SAVE PROFILE'
+            'SAVE TOPIC'
           )}
         </button>
       </div>

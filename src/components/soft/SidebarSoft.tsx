@@ -13,7 +13,8 @@ import type { ViewKey } from '../Sidebar';
 const NAV: { key: ViewKey; label: string; icon: IconName }[] = [
   { key: 'radar', label: 'Daily Radar', icon: 'radar' },
   { key: 'vault', label: 'Vault', icon: 'vault' },
-  { key: 'profiles', label: 'Profiles', icon: 'profiles' },
+  { key: 'profiles', label: 'Topics', icon: 'profiles' },
+  { key: 'researchers', label: 'Researchers', icon: 'profiles' },
 ];
 
 export function SidebarSoft({
@@ -42,6 +43,7 @@ export function SidebarSoft({
     radar: radarData ? radarData.cards.length : null,
     vault: vaultStats ? vaultStats.docs : null,
     profiles: profiles.length,
+    researchers: null,
     'profile-wizard': null,
     settings: null,
   };
@@ -71,7 +73,7 @@ export function SidebarSoft({
         ))}
       </nav>
       <div className="sb-section">
-        <div className="sb-section-label">Your profiles</div>
+        <div className="sb-section-label">Your topics</div>
         {profiles.map((p) => (
           <div key={p.key} className="sb-prof">
             <span className="dot" style={{ background: swatchFor(p.hue) }} />

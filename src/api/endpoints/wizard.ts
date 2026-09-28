@@ -42,6 +42,87 @@ export interface DraftDryRunStatus {
   result: DraftDryRun | null;
 }
 
+export interface OrcidDraftStart {
+  slug: string;
+  name: string;
+  run_id: number;
+}
+
+export interface OrcidAuthor {
+  orcid: string;
+  openalex_author_id: string | null;
+  display_name: string;
+  institution: string | null;
+}
+
+export interface OrcidImportResult {
+  /** "fetch": works fetched and offered; "seed": the chosen works are seeded */
+  phase: 'fetch' | 'seed';
+  n_fetched: number;
+  n_kept: number;
+  n_works: number;
+  n_default_seeds: number;
+  n_seeds: number;
+  n_embedded: number;
+  author: OrcidAuthor;
+  rp_profile_dir: string | null;
+  warnings: string[];
+  report: Record<string, number>;
+  /** "From Profile" imports: what the expertise / not_interests did to the concept list */
+  rp?: RpImportSummary | null;
+}
+
+export interface RpSignalEntry {
+  id: string;
+  display_name: string | null;
+  by: string;
+  similarity: number;
+}
+
+export interface RpImportSummary {
+  level: string | null;
+  provenance: string | null;
+  n_expertise: number;
+  n_not_interests: number;
+  switched_off: RpSignalEntry[];
+  switched_on: RpSignalEntry[];
+  added: RpSignalEntry[];
+  overruled?: RpSignalEntry[];
+}
+
+export interface CreateDraftFromProfileBody {
+  /** the text of a Researcher Profile profile.jsonld */
+  profile_json: string;
+  name?: string;
+  mailto?: string;
+}
+
+export interface RpDraftStart {
+  slug: string;
+  name: string;
+  /** "orcid": the OpenAlex import was dispatched (poll run_id); "pdf": no ORCID, upload PDFs */
+  mode: 'orcid' | 'pdf';
+  run_id: number | null;
+  orcid: string | null;
+  warnings: string[];
+}
+
+/**
+ * Create a draft from a Researcher Profile document. 422 when the text is
+ * not a usable profile, 404 when its ORCID is unknown to OpenAlex, 409 when
+ * an import of that ORCID is already running.
+ */
+export function createDraftFromProfile(
+  body: CreateDraftFromProfileBody,
+): Promise<RpDraftStart> {
+  return api.post<RpDraftStart>('/api/profiles/draft/from-profile', body);
+}
+
+export interface OrcidImportStatus {
+  run: GatherRunStatus;
+  result: OrcidImportResult | null;
+}
+
 export interface CommitDraftRequest {
   slug: string;
   threshold: number;
@@ -60,6 +141,31 @@ export interface WizardOption {
 export interface WizardOptions {
   embedders: WizardOption[];
   selectors: WizardOption[];
+}
+
+export interface DraftSummary {
+  slug: string;
+  name: string;
+  created_at: string | null;
+  updated_at: string | null;
+  n_seeds: number;
+  orcid: string | null;
+  researcher_name: string | null;
+  /** an ORCID import job is still running for this draft */
+  importing: boolean;
+  /** latest ORCID import run, so the wizard can resume polling / show its result */
+  import_run_id: number | null;
+  /** seeded from a Researcher Profile document */
+  rp: boolean;
+  /** fetched works waiting in the seed picker */
+  n_works: number;
+  /** ORCID / profile drafts: fetching | selecting | seeding | seeded; null for PDF drafts */
+  phase: 'fetching' | 'selecting' | 'seeding' | 'seeded' | null;
+}
+
+/** The current user's unfinished drafts on the server, newest first. */
+export function listDrafts(): Promise<DraftSummary[]> {
+  return api.get<DraftSummary[]>('/api/profiles/drafts');
 }
 
 export function getWizardOptions(): Promise<WizardOptions> {
@@ -89,6 +195,76 @@ export async function uploadSeed(
   const res = await api.postForm<VaultDoc>('/api/vault/upload', form);
   dataBus.emit('vault:changed');
   return res;
+}
+
+export interface CreateDraftFromOrcidBody {
+  orcid: string;
+  name?: string;
+  mailto?: string;
+}
+
+/**
+ * Create a draft seeded from a researcher's OpenAlex works. The backend
+ * resolves the author synchronously (404 for an unknown ORCID, 409 when an
+ * import of the same ORCID is already running), then fetches + embeds in
+ * the background; poll ``getOrcidImportStatus``.
+ */
+export function createDraftFromOrcid(
+  body: CreateDraftFromOrcidBody,
+): Promise<OrcidDraftStart> {
+  return api.post<OrcidDraftStart>('/api/profiles/draft/from-orcid', body);
+}
+
+export function getOrcidImportStatus(
+  slug: string,
+  runId: number,
+): Promise<OrcidImportStatus> {
+  return api.get<OrcidImportStatus>(
+    `/api/profiles/draft/${encodeURIComponent(slug)}/import/${runId}`,
+  );
+}
+
+/** One fetched work of an ORCID / profile draft, as the seed picker shows it. */
+export interface OrcidWork {
+  openalex_id: string;
+  title: string;
+  year: number | null;
+  venue: string | null;
+  doi: string | null;
+  first_author: string | null;
+  position: string | null;
+  is_corresponding: boolean;
+  author_index: number | null;
+  total_authors: number | null;
+  work_type: string | null;
+  cited_by_count: number;
+  claimed: boolean | null;
+  seed_eligible: boolean;
+  dup_of: string | null;
+  has_abstract: boolean;
+  default_selected: boolean;
+  selected: boolean | null;
+  is_seed: boolean;
+}
+
+/** The works the fetch phase offered for seeding. */
+export function listDraftWorks(slug: string): Promise<OrcidWork[]> {
+  return api.get<OrcidWork[]>(`/api/profiles/draft/${encodeURIComponent(slug)}/works`);
+}
+
+/** Phase B: confirm which works become seeds; poll the returned run_id. */
+export function selectDraftSeeds(slug: string, openalexIds: string[]): Promise<OrcidDraftStart> {
+  return api.post<OrcidDraftStart>(
+    `/api/profiles/draft/${encodeURIComponent(slug)}/seeds/select`,
+    { openalex_ids: openalexIds },
+  );
+}
+
+/** Seeds attached to a draft, whoever uploaded them (ORCID imports have no vault doc). */
+export function listDraftSeeds(slug: string): Promise<VaultDoc[]> {
+  return api.get<VaultDoc[]>(
+    `/api/profiles/draft/${encodeURIComponent(slug)}/seeds`,
+  );
 }
 
 export function listSeedDocs(profileSlug: string): Promise<VaultDoc[]> {

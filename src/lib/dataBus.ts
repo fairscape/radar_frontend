@@ -13,7 +13,8 @@
 export type DataEvent =
   | 'profiles:changed'
   | 'vault:changed'
-  | 'radar:changed';
+  | 'radar:changed'
+  | 'researchers:changed';
 
 type Listener = () => void;
 
@@ -21,6 +22,7 @@ const listeners: Record<DataEvent, Set<Listener>> = {
   'profiles:changed': new Set(),
   'vault:changed': new Set(),
   'radar:changed': new Set(),
+  'researchers:changed': new Set(),
 };
 
 export function subscribe(event: DataEvent, fn: Listener): () => void {
