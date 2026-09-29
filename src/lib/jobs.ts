@@ -30,6 +30,13 @@ export interface Job {
   profileName: string;
   /** Set for an import into a stored profile rather than a draft. */
   researcherId?: number | null;
+  /**
+   * True when the server did not start anything: an import of this person
+   * was already in flight, so this job tracks *that* run and the selection
+   * just submitted was discarded. Without carrying it here the UI would
+   * report progress for works the server never saw.
+   */
+  joinedExisting?: boolean;
   startedAt: number;
   finishedAt: number | null;
   status: JobStatus;
@@ -308,12 +315,18 @@ export async function startDryRun(slug: string, name: string, days = 30): Promis
 
 export async function startImport(ref: string, name?: string, paperIds?: string[]): Promise<Job> {
   const start = await startProsopiaImport({ ref, ...(name ? { name } : {}), ...(paperIds ? { paper_ids: paperIds } : {}) });
-  return add(base('import', start.run_id, start.draft_slug, name || ref));
+  return add({
+    ...base('import', start.run_id, start.draft_slug, name || ref),
+    joinedExisting: start.already_running === true,
+  });
 }
 
 export async function startOrcidImport(orcid: string, openalexIds: string[], name?: string): Promise<Job> {
   const start = await postOrcidImport({ orcid, openalex_ids: openalexIds, ...(name ? { name } : {}) });
-  return add(base('import', start.run_id, start.draft_slug, name || orcid));
+  return add({
+    ...base('import', start.run_id, start.draft_slug, name || orcid),
+    joinedExisting: start.already_running === true,
+  });
 }
 
 /** Import (or refresh) a stored profile. Polled like any import; no draft is created. */

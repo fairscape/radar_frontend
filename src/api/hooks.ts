@@ -2,13 +2,14 @@
 import { useQuery } from '../lib/query';
 import type { DailyRadarFilters } from '../types/radar';
 import { getChatHistory, getBackendHealth, getChatProviders } from './endpoints/chat';
-import { getProfileDetail, listProfileFeedback, listProfileRuns, listProfiles } from './endpoints/profiles';
+import { getProfileDetail, listDrafts, listProfileFeedback, listProfileRuns, listProfiles } from './endpoints/profiles';
 import { getDailyRadar } from './endpoints/radar';
 import { getResearcher, getResearcherSuggestions, listResearchers } from './endpoints/researchers';
 import { getTagCounts, getVaultMeta, getVaultStats, listVaultDocs } from './endpoints/vault';
 
 export const keys = {
   profiles: 'profiles',
+  drafts: 'profiles/drafts',
   profileDetail: (key: string) => `profiles/${key}/detail`,
   profileRuns: (key: string) => `profiles/${key}/runs`,
   profileFeedback: (key: string) => `profiles/${key}/feedback`,
@@ -27,6 +28,19 @@ export const keys = {
 
 export function useProfiles() {
   return useQuery(keys.profiles, listProfiles);
+}
+
+/**
+ * The server's unfinished drafts.
+ *
+ * Separate from ``useProfiles`` even though both describe drafts: the
+ * profile list says a draft exists, this says what it is waiting for
+ * (an import still running, one that failed, seeds attached, nothing yet),
+ * which is what decides where resuming lands and whether an error needs
+ * showing at all.
+ */
+export function useDrafts() {
+  return useQuery(keys.drafts, listDrafts);
 }
 
 export function useProfileDetail(key: string | null) {

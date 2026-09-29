@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react';
 import { useBackendHealth } from '../api/hooks';
 import { getMe, updateMe, type User } from '../api/endpoints/users';
 import { errorMessage } from '../lib/format';
-import { navigate, paths } from '../lib/router';
 import { setThemePref, useTheme, type ThemePref } from '../lib/theme';
 import { toast } from '../lib/toast';
-import { clearUserEmail, EMAIL_RE } from '../lib/userEmail';
+import { EMAIL_RE, signOut as endSession } from '../lib/userEmail';
 import { Badge, Button, ErrorBox, Field, Input, LoadingRows, Panel, Segmented, useAction } from '../ui';
 
 export function SettingsPage() {
@@ -34,8 +33,11 @@ export function SettingsPage() {
   });
 
   function signOut() {
-    clearUserEmail();
-    navigate(paths.feed, { replace: true });
+    // Clearing the cached address is not signing out: Cloudflare Access
+    // holds the session, and it would still be attached to the very next
+    // request -- the user would appear to sign out and then find
+    // themselves signed in as the same person. Hand off to Access.
+    endSession();
   }
 
   const dirty = !!user && mailto.trim() !== (user.mailto ?? user.email);
@@ -87,7 +89,7 @@ export function SettingsPage() {
       </Panel>
 
       <Panel title="Session">
-        <p className="small muted" style={{ marginBottom: 10 }}>Signing out only forgets the email in this browser. Your interests and vault stay on the server.</p>
+        <p className="small muted" style={{ marginBottom: 10 }}>Signing out ends your Cloudflare Access session for this site. Your interests and vault stay on the server.</p>
         <Button onClick={signOut}>Sign out</Button>
       </Panel>
     </div>

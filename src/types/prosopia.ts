@@ -34,6 +34,26 @@ export interface OrcidWork {
   authors: string[];
   n_authors: number | null;
   author_position: string | null;
+  /**
+   * Does the author's own ORCID record list this work?
+   *
+   * Tri-state, and the third state matters: `null` means the registry could
+   * not be read, or had nothing comparable for this work -- it is NOT a
+   * "no". Test `claimed === false`, never `!claimed`: in JSON both null and
+   * false are falsy, and treating "we never asked" as "not yours" unticks a
+   * researcher's whole corpus.
+   *
+   * OpenAlex over-merges author entities, so `author.orcid:` returns papers
+   * the person never wrote; this is how those are told apart.
+   */
+  claimed: boolean | null;
+  /**
+   * The openalex_id of the copy kept when several rows are one paper -- a
+   * preprint and its version of record. Null on the kept copy. The
+   * redundant one stays in the list, unticked, rather than being hidden:
+   * the rule is a heuristic and the user is right there looking.
+   */
+  duplicate_of: string | null;
 }
 
 export interface OrcidWorksResponse {
@@ -75,6 +95,14 @@ export interface ProsopiaWorksResponse {
 export interface ProsopiaImportStart {
   draft_slug: string;
   run_id: number;
+  /**
+   * True when nothing was started: an import of this person was already in
+   * flight, so `run_id` points at that one and `draft_slug` at the draft it
+   * is filling. **This request's selection was not applied.** Without
+   * saying so we would report progress for a selection the server never
+   * saw -- "importing your 40 works" while someone else's 80 are running.
+   */
+  already_running?: boolean;
 }
 
 export interface ProsopiaImportResult {

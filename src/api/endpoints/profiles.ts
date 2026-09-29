@@ -63,6 +63,41 @@ export interface DryRunResult {
 
 const enc = encodeURIComponent;
 
+/** One unfinished draft, as the resume prompt shows it. */
+export interface DraftSummary {
+  slug: string;
+  name: string;
+  created_at: string | null;
+  updated_at: string | null;
+  n_seeds: number;
+  orcid: string | null;
+  researcher_name: string | null;
+  researcher_source: string | null;
+  /**
+   * What the draft is waiting for, and so where resuming should land.
+   * `importing` means a run is still filling it -- show progress, not an
+   * empty seed list. `failed` means the last import errored and attached
+   * nothing, which without its own state is indistinguishable from a draft
+   * nobody ever imported into.
+   */
+  phase: 'importing' | 'failed' | 'seeded' | 'empty';
+  /** The open import's run id, for polling. Null unless phase is importing. */
+  import_run_id: number | null;
+  /** Why the last import failed. Set only when phase is failed. */
+  import_error: string | null;
+}
+
+/**
+ * The server's list of unfinished drafts.
+ *
+ * Asked on entry rather than trusting sessionStorage: a draft left in
+ * another browser, or after site data was cleared, is otherwise invisible
+ * and accumulates.
+ */
+export function listDrafts(): Promise<DraftSummary[]> {
+  return apiGet<DraftSummary[]>('/api/profiles/drafts');
+}
+
 export function listProfiles(): Promise<Profile[]> {
   return apiGet<Profile[]>('/api/profiles');
 }

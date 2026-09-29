@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useProfiles } from '../api/hooks';
+import type { DraftSummary } from '../api/endpoints/profiles';
+import { useDrafts, useProfiles } from '../api/hooks';
 import { deleteDraft } from '../api/endpoints/wizard';
 import { getDraft, resetDraft } from '../lib/draft';
 import { errorMessage } from '../lib/format';
@@ -8,13 +9,18 @@ import { paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { Profile } from '../types/radar';
-import { Button, EmptyState, ErrorBox, Icon, LoadingRows, Panel, Spinner, Swatch, confirmDialog } from '../ui';
+import { Badge, Button, EmptyState, ErrorBox, Icon, LoadingRows, Panel, Spinner, Swatch, confirmDialog } from '../ui';
 import { Link } from '../ui/Link';
 import { HealthBadge } from '../ui/domain';
 import { AddInterestCards } from './HomePage';
 
 export function InterestsPage() {
   const { data: profiles, loading, error, refresh } = useProfiles();
+  // The profile list says which drafts exist; this says what each is
+  // waiting for. Kept separate so a slow or failed drafts call never stops
+  // the page rendering -- the rows still work, just without the badge.
+  const { data: draftInfo } = useDrafts();
+  const draftPhase = new Map((draftInfo ?? []).map((d) => [d.slug, d]));
   const jobs = useJobs();
   const live = (profiles ?? []).filter((p) => !p.isDraft);
   const drafts = (profiles ?? []).filter((p) => p.isDraft);
@@ -71,14 +77,14 @@ export function InterestsPage() {
 
       {drafts.length > 0 && (
         <Panel title="Drafts" description={`Unfinished ${TERMS.interests}. Resume to pick up where you left off, or delete to discard the draft and its uploaded seeds.`} className="panel-flush" id="drafts">
-          {drafts.map((d) => <DraftRow key={d.key} draft={d} />)}
+          {drafts.map((d) => <DraftRow key={d.key} draft={d} info={draftPhase.get(d.key)} />)}
         </Panel>
       )}
     </div>
   );
 }
 
-function DraftRow({ draft }: { draft: Profile }) {
+function DraftRow({ draft, info }: { draft: Profile; info?: DraftSummary }) {
   const [deleting, setDeleting] = useState(false);
   async function remove() {
     const ok = await confirmDialog({
@@ -101,10 +107,31 @@ function DraftRow({ draft }: { draft: Profile }) {
   }
   return (
     <div className="row spread" style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)' }}>
-      <div className="row" style={{ minWidth: 0 }}>
-        <Swatch hue={draft.hue} />
-        <span className="truncate" style={{ fontWeight: 500 }}>{draft.name}</span>
-        <span className="small muted">{draft.seeds} seed{draft.seeds === 1 ? '' : 's'}</span>
+      <div className="col" style={{ minWidth: 0, gap: 2 }}>
+        <div className="row" style={{ minWidth: 0 }}>
+          <Swatch hue={draft.hue} />
+          <span className="truncate" style={{ fontWeight: 500 }}>{draft.name}</span>
+          {info?.phase === 'importing' ? (
+            // Mid-import the seeds are not attached yet, so the count would
+            // read "0 seeds" for a job busy fetching eighty papers.
+            <Badge tone="info" dot title="Radar is still fetching and embedding this researcher's papers.">importing</Badge>
+          ) : info?.phase === 'failed' ? (
+            <Badge tone="err" title={info.import_error ?? undefined}>import failed</Badge>
+          ) : (
+            <span className="small muted">{draft.seeds} seed{draft.seeds === 1 ? '' : 's'}</span>
+          )}
+          {info?.researcher_name && (
+            <span className="small muted truncate" title={info.orcid ?? undefined}>
+              {info.researcher_name}
+            </span>
+          )}
+        </div>
+        {info?.phase === 'failed' && info.import_error && (
+          // Surfaced rather than only logged: the draft looks empty either
+          // way, and without this the user is invited to start adding seeds
+          // by hand with no idea the import died.
+          <span className="small mono" style={{ color: 'var(--err)' }}>{info.import_error}</span>
+        )}
       </div>
       <div className="row">
         <Link href={paths.wizard(draft.key)} className="btn btn-sm btn-primary">Resume</Link>
