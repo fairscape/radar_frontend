@@ -62,20 +62,16 @@ export function defaultPicks(works: PickWork[]): PickWork[] {
  * Every note a row carries, not just the first.
  *
  * Composed rather than short-circuited: a row can be both loosely matched
- * and a duplicate, and showing only one leaves the count above describing
- * a reason the user cannot find on any row.
+ * and unclaimed, and showing only one leaves the count above describing a
+ * reason the user cannot find on any row.
+ *
+ * No `duplicate` chip: a redundant copy is not rendered at all (see
+ * PaperPickList), so a chip for it could never appear on screen.
  */
 function noteParts(w: PickWork): { chip: string; title: string }[] {
   const out: { chip: string; title: string }[] = [];
   if (w.note) {
     out.push({ chip: w.note, title: 'How this paper was matched to OpenAlex' });
-  }
-  if (w.duplicate_of) {
-    out.push({
-      chip: 'duplicate',
-      title: 'Another row in this list is the same paper (a preprint and its '
-        + 'published version). Ticking both would count it twice.',
-    });
   }
   if (w.claimed === false) {
     out.push({
@@ -154,46 +150,98 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
   /** Text before the count, e.g. the researcher's name. */
   head?: string | null;
 }) {
-  const nonPapers = works.length - papersOf(works).length;
+  // A redundant copy is collapsed out of the main list rather than shown
+  // in it unticked. Shown-but-unticked was the original design, on the
+  // grounds that the rule is a heuristic and hiding a row the user might
+  // want is worse than showing one they do not. In use it read as a broken
+  // list: the same title appearing twice is what the eye catches, and a
+  // chip explaining it does not undo that.
+  //
+  // Collapsed, not dropped, because the heuristic is title-only: two
+  // genuinely different papers sharing a title would collapse into one,
+  // and a paper that silently disappears is unrecoverable. The disclosure
+  // below is the way back, and rows inside it tick like any other.
+  const shown = works.filter((w) => !w.duplicate_of);
+  const hidden = works.filter((w) => w.duplicate_of);
+  const [showHidden, setShowHidden] = useState(false);
+  const nHiddenTicked = hidden.filter((w) => picked.has(w.id)).length;
   // Each reason gets its own sentence. One combined "N start unticked"
-  // leaves the user guessing which rows and why, and the three causes call
-  // for different judgements: a dataset is probably right to leave out, a
-  // duplicate definitely is, and an unclaimed work needs their eye.
-  // Counted over papersOf, not over works: a dataset row is already
-  // excluded by type, and counting it again under "duplicate" or "not on
-  // ORCID" would describe two rows where there is one -- and the totals
-  // could exceed the number actually unticked.
-  const papers = papersOf(works);
-  const nDup = papers.filter((w) => w.duplicate_of).length;
-  const nUnclaimed = papers.filter((w) => !w.duplicate_of && w.claimed === false).length;
+  // leaves the user guessing which rows and why, and the two causes call
+  // for different judgements: a dataset is probably right to leave out, an
+  // unclaimed work needs their eye. Counted over the rows on screen, so
+  // the totals can never exceed what is actually listed there.
+  const nonPapers = shown.length - papersOf(shown).length;
+  const nUnclaimed = papersOf(shown).filter((w) => w.claimed === false).length;
   function toggle(id: string) {
     const n = new Set(picked);
     if (n.has(id)) n.delete(id); else n.add(id);
     onChange(n);
+  }
+  function row(w: PickWork) {
+    return (
+      <label className={`pick-row ${picked.has(w.id) ? 'on' : ''}`} key={w.id}>
+        <input type="checkbox" checked={picked.has(w.id)} disabled={disabled} onChange={() => toggle(w.id)} />
+        <span>
+          <div className="truncate" title={w.title}>{w.title}</div>
+          <div className="v">{[w.year, w.venue, w.n_authors && w.n_authors > 3 ? `${w.authors.slice(0, 2).join(', ')} +${w.n_authors - 2}` : w.authors.join(', ')].filter(Boolean).join(' · ')}</div>
+        </span>
+        <span className="row" style={{ gap: 8 }}>
+          {w.type && !PAPER_TYPES.has(w.type) && <span className="pick-type">{w.type}</span>}
+          {pickNote(w) && (
+            <span className="pick-type" title={noteTitle(w)}>{pickNote(w)}</span>
+          )}
+          <span className="muted small mono">{w.cited_by_count != null ? `${w.cited_by_count} cit.` : ''}</span>
+        </span>
+      </label>
+    );
   }
   return (
     <div className="stack" style={{ gap: 8 }}>
       <div className="pick-head">
         <span className="field-label">{head ? `${head} · ` : ''}{picked.size} of {works.length} papers selected</span>
         <span className="row" style={{ gap: 6 }}>
-          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set(works.map((w) => w.id)))}>All</Button>
+          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set([
+            ...shown.map((w) => w.id),
+            // Not just `shown`: a hidden copy the user went and ticked on
+            // purpose is a deliberate choice, and "All" must not be the
+            // button that quietly takes it away.
+            ...hidden.filter((w) => picked.has(w.id)).map((w) => w.id),
+          ]))}>All</Button>
           {defaultPicks(works).length !== works.length && (
-            // Shown whenever anything starts unticked, not only for
-            // software/dataset rows: with three duplicate copies and no
+            // Shown whenever the default leaves anything out -- a
+            // dataset, an unclaimed work, a collapsed copy -- not only for
+            // software/dataset rows: with every row unclaimed and no
             // datasets there was no way back to the default after All.
+            // Gated on what the default excludes rather than on the current
+            // selection, so unticking one row and ticking another (equal
+            // size, different set) does not make the way back vanish.
             <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set(defaultPicks(works).map((w) => w.id)))}>Reset</Button>
           )}
           <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set())}>None</Button>
         </span>
       </div>
-      {(nonPapers > 0 || nDup > 0 || nUnclaimed > 0) && (
+      {(nonPapers > 0 || nUnclaimed > 0) && (
         <p className="small muted" style={{ margin: 0 }}>
           {[
             nonPapers > 0 ? `${plural(nonPapers, 'software or dataset record')}` : null,
-            nDup > 0 ? `${plural(nDup, 'duplicate copy', 'duplicate copies')} of a paper already listed` : null,
             nUnclaimed > 0 ? `${plural(nUnclaimed, 'work')} not on the author’s ORCID record` : null,
           ].filter(Boolean).join('; ')}
-          {' — these start unticked. Nothing is hidden; tick any that should count.'}
+          {' — these start unticked, but are listed; tick any that should count.'}
+        </p>
+      )}
+      {hidden.length > 0 && (
+        // Stated rather than left silent: these rows are the one thing the
+        // main list does not show, and a count that does not add up is its
+        // own bug report.
+        <p className="small muted" style={{ margin: 0 }}>
+          {plural(hidden.length, 'further copy', 'further copies')} of {hidden.length === 1 ? 'a paper' : 'papers'}
+          {' already listed '}{hidden.length === 1 ? 'is' : 'are'} not shown: a preprint and its
+          published version are one paper, and seeding both would count it twice.
+          {nHiddenTicked > 0 && ` ${nHiddenTicked} of them ${nHiddenTicked === 1 ? 'is' : 'are'} ticked.`}
+          {' '}
+          <button type="button" className="linklike" onClick={() => setShowHidden((v) => !v)}>
+            {showHidden ? 'Hide them' : `Show ${hidden.length === 1 ? 'it' : 'them'}`}
+          </button>
         </p>
       )}
       {nUnclaimed > 0 && (
@@ -203,23 +251,25 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
         </p>
       )}
       <div className="pick-list" role="group" aria-label={ariaLabel}>
-        {works.map((w) => (
-          <label className={`pick-row ${picked.has(w.id) ? 'on' : ''}`} key={w.id}>
-            <input type="checkbox" checked={picked.has(w.id)} disabled={disabled} onChange={() => toggle(w.id)} />
-            <span>
-              <div className="truncate" title={w.title}>{w.title}</div>
-              <div className="v">{[w.year, w.venue, w.n_authors && w.n_authors > 3 ? `${w.authors.slice(0, 2).join(', ')} +${w.n_authors - 2}` : w.authors.join(', ')].filter(Boolean).join(' · ')}</div>
-            </span>
-            <span className="row" style={{ gap: 8 }}>
-              {w.type && !PAPER_TYPES.has(w.type) && <span className="pick-type">{w.type}</span>}
-              {pickNote(w) && (
-                <span className="pick-type" title={noteTitle(w)}>{pickNote(w)}</span>
-              )}
-              <span className="muted small mono">{w.cited_by_count != null ? `${w.cited_by_count} cit.` : ''}</span>
-            </span>
-          </label>
-        ))}
+        {shown.map(row)}
       </div>
+      {showHidden && hidden.length > 0 && (
+        <div className="stack" style={{ gap: 6 }}>
+          <span className="field-label">
+            {hidden.length === 1
+              ? 'A second copy of a paper already above'
+              : `${hidden.length} further copies of papers already above`}
+          </span>
+          <p className="small muted" style={{ margin: 0 }}>
+            Matched by title alone, so if one of these is a different paper
+            that happens to share a title, tick it — it will be imported
+            like any other.
+          </p>
+          <div className="pick-list" role="group" aria-label="Duplicate copies, collapsed by default">
+            {hidden.map(row)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -254,7 +304,15 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
   });
   const go = useAction(async () => {
     if (!listing || picked.size === 0) return;
-    const j = await start(listing.key, Array.from(picked), listing.name);
+    // Intersected with the listing, not filtered by duplicate_of: a
+    // collapsed copy the user expanded and ticked on purpose has to be
+    // importable, or the disclosure that offers it is a lie. What this
+    // still refuses is an id that is not in the listing at all, which is
+    // what a stale selection would produce.
+    const inListing = new Set(listing.works.map((w) => w.id));
+    const ids = Array.from(picked).filter((id) => inListing.has(id));
+    if (ids.length === 0) return;
+    const j = await start(listing.key, ids, listing.name);
     if (j.joinedExisting) {
       // The server answered with a run that was already going, so this
       // selection was not applied. Saying "imported" here would be a lie
