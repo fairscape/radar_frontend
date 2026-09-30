@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
-import { createInterestFromResearcher } from '../api/endpoints/researchers';
+import { addDraftSeeds, createInterestFromResearcher } from '../api/endpoints/researchers';
 import {
   commitDraft,
   createDraft,
@@ -372,6 +372,69 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
   const importing = importJob?.status === 'running';
   const removal = useRemoveSeed(slug);
   const haveSeeds = seeds.length > 0;
+  // Coherence, the dry run, the threshold and the topic picks were all
+  // computed from the seed set; adding seeds makes them stale just as
+  // removing one does (useRemoveSeed clears the same three). Without this a
+  // user who went back from step 3 to add papers resumed on the old
+  // dry run and could commit its threshold.
+  // The cached coherence and topics queries (draft/<slug>/...) go too: they
+  // stay fresh for 15 s, and the upload route does not touch them, so
+  // back-upload-forward inside that window showed the old seeds' coherence
+  // and step 3 re-picked topics from the old seeds' list.
+  const invalidateDownstream = () => {
+    update({ selectedTopicIds: null, dryRunJobId: null, threshold: null });
+    invalidate(`draft/${slug}/`);
+  };
+  // Papers already in the vault. The upload below attaches a file to the
+  // draft as it lands, so a paper that arrived earlier -- a PDF uploaded
+  // from the Vault page, or the papers of an imported researcher -- had no
+  // way in here. POST /draft/{slug}/seeds exists for exactly this, and
+  // addDraftSeeds was written for it and never called.
+  //
+  // Every vault row is offered, not just the ones with a PDF. The first
+  // version kept only rows with pages, to avoid offering feed-saved papers
+  // that route refuses; measured on a real vault that hid 92 of 96 papers,
+  // every one of them acceptable -- a researcher's imported papers are
+  // recorded under the user who imported them, and they have no PDF. A row
+  // the server does refuse is named in the error instead.
+  // Fetched only once the user opens it: listing the whole vault counts
+  // Chroma chunks per paper (200-700 ms for ~100 papers, measured), and
+  // most people on this step are uploading, not picking.
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const vault = useVaultDocs('all', vaultOpen);
+  const seedIds = new Set(seeds.map((d) => d.id));
+  const inVault = (vault.data ?? []).filter((d) => !seedIds.has(d.id));
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [vaultQuery, setVaultQuery] = useState('');
+  const q = vaultQuery.trim().toLowerCase();
+  const vaultShown = q
+    ? inVault.filter((d) => [d.title, d.venue, ...d.authors].some((f) => (f ?? '').toLowerCase().includes(q)))
+    : inVault;
+  const attach = useAction(async () => {
+    // Filtered against what is still on offer: a row ticked, then made a
+    // seed some other way, would otherwise be sent twice. Not against
+    // what the filter shows -- a tick is kept while the user searches for
+    // the next paper.
+    const ids = inVault.filter((d) => chosen.has(d.id)).map((d) => d.id);
+    if (ids.length === 0) return;
+    const res = await addDraftSeeds(slug, ids);
+    setChosen(new Set());
+    // Same bookkeeping as an upload: the local seed list (step 2's spinner
+    // reads its length, and it survives a reload in sessionStorage) and the
+    // results computed from the old seed set.
+    const rejected = new Set(res.rejected);
+    const added = inVault.filter((d) => ids.includes(d.id) && !rejected.has(d.id));
+    added.forEach(addSeed);
+    if (added.length > 0) invalidateDownstream();
+    if (res.rejected.length > 0) {
+      const byId = new Map(inVault.map((d) => [d.id, d.title || d.id]));
+      const names = res.rejected.slice(0, 3).map((id) => `"${byId.get(id) ?? id}"`).join(', ');
+      const more = res.rejected.length > 3 ? ` and ${res.rejected.length - 3} more` : '';
+      toast.error(`Added ${plural(res.attached, 'paper')}. ${names}${more} could not be added: the server does not count ${res.rejected.length === 1 ? 'it' : 'them'} as yours (a paper saved from the feed is not).`);
+    } else {
+      toast.success(`Added ${plural(ids.length, 'paper')} from your Vault.`);
+    }
+  });
   // Back to the source picker. The draft on the server is thrown away
   // (an import creates one per attempt) and the wizard keeps the name.
   const startOver = useAction(async () => {
@@ -394,16 +457,19 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
     if (!files || files.length === 0) return;
     const list = Array.from(files);
     setFailures([]);
+    let added = 0;
     for (let i = 0; i < list.length; i++) {
       setProgress({ done: i, total: list.length, current: list[i].name });
       try {
         const doc = await uploadPdf(list[i], slug);
         addSeed(doc);
+        added += 1;
       } catch (e) {
         setFailures((f) => [...f, `${list[i].name}: ${errorMessage(e)}`]);
       }
     }
     setProgress(null);
+    if (added > 0) invalidateDownstream();
     invalidate(`vault/docs?tag=${slug}`);
   }
 
@@ -435,6 +501,62 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
       </div>
       {failures.length > 0 && <div style={{ marginTop: 10 }}><ErrorBox compact title="Some files were not added" message={failures.map((f) => <div key={f}>{f}</div>)} /></div>}
 
+      {!vaultOpen && (
+        <p className="small" style={{ margin: '12px 0 0' }}>
+          <button type="button" className="linklike" onClick={() => setVaultOpen(true)}>Or use papers already in your Vault</button>
+        </p>
+      )}
+      {vaultOpen && !vault.data && vault.loading && <div style={{ marginTop: 16 }}><LoadingRows rows={2} /></div>}
+      {vaultOpen && !vault.data && vault.error && <div style={{ marginTop: 16 }}><ErrorBox compact message={errorMessage(vault.error)} onRetry={vault.refresh} /></div>}
+      {vaultOpen && vault.data && inVault.length === 0 && (
+        <p className="muted small" style={{ margin: '12px 0 0' }}>
+          {vault.data.length === 0 ? 'Your Vault is empty.' : 'Everything in your Vault is already a seed of this draft.'}
+        </p>
+      )}
+      {vaultOpen && inVault.length > 0 && (
+        <div className="stack" style={{ gap: 6, marginTop: 16 }}>
+          <span className="field-label">Or use papers already in your Vault · {inVault.length}</span>
+          {inVault.length > 8 && (
+            <div className="row" style={{ gap: 6 }}>
+              <Input value={vaultQuery} onChange={(e) => setVaultQuery(e.target.value)} placeholder="Filter by title, author or venue" aria-label="Filter the papers in your Vault" />
+              <Button size="sm" variant="ghost" disabled={vaultShown.length === 0 || importing || !!progress || attach.busy}
+                onClick={() => setChosen((c) => new Set([...c, ...vaultShown.map((d) => d.id)]))}>
+                Tick {q ? 'all shown' : 'all'}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={chosen.size === 0 || attach.busy} onClick={() => setChosen(new Set())}>Clear</Button>
+            </div>
+          )}
+          {vaultShown.length === 0 && <p className="muted small" style={{ margin: 0 }}>Nothing in your Vault matches “{vaultQuery.trim()}”.</p>}
+          <div className="pick-list" role="group" aria-label="Papers already in your Vault">
+            {vaultShown.map((d) => (
+              <label className={`pick-row ${chosen.has(d.id) ? 'on' : ''}`} key={d.id}>
+                <input
+                  type="checkbox"
+                  checked={chosen.has(d.id)}
+                  disabled={importing || !!progress || attach.busy}
+                  onChange={() => setChosen((c) => {
+                    const n = new Set(c);
+                    if (n.has(d.id)) n.delete(d.id); else n.add(d.id);
+                    return n;
+                  })}
+                />
+                <span>
+                  <div className="truncate" title={d.title}>{d.title || d.id}</div>
+                  <div className="v">{[d.pages > 0 ? `${d.pages} pages` : null, d.venue, d.authors.slice(0, 2).join(', ')].filter(Boolean).join(' · ')}</div>
+                </span>
+                <span />
+              </label>
+            ))}
+          </div>
+          <div className="row">
+            <Button size="sm" icon="plus" disabled={chosen.size === 0 || importing || !!progress} loading={attach.busy} onClick={() => void attach.run()}>
+              {chosen.size > 0 ? `Add ${plural(chosen.size, 'paper')} as seeds` : 'Tick papers to add them'}
+            </Button>
+            {attach.error && <span className="field-error">{attach.error}</span>}
+          </div>
+        </div>
+      )}
+
       <div style={{ marginTop: 16 }}>
         <div className="row spread" style={{ marginBottom: 6 }}>
           <span className="field-label">Seeds · {seeds.length}</span>
@@ -457,7 +579,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
         <span className="note">
           {seeds.length === 0 ? 'Add at least one seed to continue.' : seeds.length === 1 ? 'One seed works, but coherence cannot be measured; the centroid is that paper.' : seeds.length < 5 ? 'A few more seeds would make the interest sharper.' : 'Good seed count.'}
         </span>
-        <Button variant="primary" iconRight="arrow-right" disabled={!haveSeeds || importing || !!progress} onClick={() => update({ step: 2 })}>
+        <Button variant="primary" iconRight="arrow-right" disabled={!haveSeeds || importing || !!progress || attach.busy} onClick={() => update({ step: 2 })}>
           Next: check coherence
         </Button>
       </div>

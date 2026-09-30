@@ -59,8 +59,9 @@ export function useDailyRadar(filters: DailyRadarFilters) {
   return useQuery(keys.radar(filters), () => getDailyRadar(filters));
 }
 
-export function useVaultDocs(tag: string) {
-  return useQuery(keys.vaultDocs(tag), () => listVaultDocs(tag));
+/** `enabled: false` skips the request -- the whole vault is not cheap to list. */
+export function useVaultDocs(tag: string, enabled = true) {
+  return useQuery(enabled ? keys.vaultDocs(tag) : null, () => listVaultDocs(tag));
 }
 
 export function useVaultStats() {
