@@ -235,8 +235,9 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
         // own bug report.
         <p className="small muted" style={{ margin: 0 }}>
           {plural(hidden.length, 'further copy', 'further copies')} of {hidden.length === 1 ? 'a paper' : 'papers'}
-          {' already listed '}{hidden.length === 1 ? 'is' : 'are'} not shown: a preprint and its
-          published version are one paper, and seeding both would count it twice.
+          {' already listed '}{hidden.length === 1 ? 'is' : 'are'} not shown: versions of one work
+          (a preprint and its published version, two releases of one dataset) are one paper,
+          and seeding both would count it twice.
           {nHiddenTicked > 0 && ` ${nHiddenTicked} of them ${nHiddenTicked === 1 ? 'is' : 'are'} ticked.`}
           {' '}
           <button type="button" className="linklike" onClick={() => setShowHidden((v) => !v)}>
@@ -261,9 +262,10 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
               : `${hidden.length} further copies of papers already above`}
           </span>
           <p className="small muted" style={{ margin: 0 }}>
-            Matched by title alone, so if one of these is a different paper
-            that happens to share a title, tick it — it will be imported
-            like any other.
+            Matched by title — and a short title only together with the
+            same year and authors, and only for datasets, software and
+            preprints. If one of these is a different work after all, tick
+            it: it will be imported like any other.
           </p>
           <div className="pick-list" role="group" aria-label="Duplicate copies, collapsed by default">
             {hidden.map(row)}
