@@ -41,14 +41,40 @@ export function FeedPage() {
   const jobs = useJobs();
   const scanning = jobs.filter((j) => j.kind === 'scan' && j.status === 'running');
 
-  const cards = data?.cards ?? [];
+  // One card per paper. /daily returns a card per (interest, paper) pair,
+  // but everything else addresses a card by the paper alone: its id is the
+  // OpenAlex id, save/dismiss resolve that id to a single interest on the
+  // server, and `states` is keyed by it. So in "All interests" a paper two
+  // interests both gathered appeared twice under one id -- 17 of 166 cards
+  // on 2026-09-29 -- and saving either copy marked both, j/k focus could
+  // only ever reach the first, and React saw a duplicate key.
+  // The copy kept is the one from the interest it fits best (highest
+  // similarity, then rank); the others are named on the card. Server order
+  // is preserved. A single interest's view has no repeats, so this only
+  // ever changes "All interests".
+  const { cards, alsoIn } = useMemo(() => {
+    const all = data?.cards ?? [];
+    const fit = (c: Card) => [c.similarity ?? c.centroidCos ?? -Infinity, c.score] as const;
+    const best = new Map<string, Card>();
+    for (const c of all) {
+      const prev = best.get(c.id);
+      if (!prev) { best.set(c.id, c); continue; }
+      const [a, b] = [fit(c), fit(prev)];
+      if (a[0] > b[0] || (a[0] === b[0] && a[1] > b[1])) best.set(c.id, c);
+    }
+    const others = new Map<string, string[]>();
+    for (const c of all) {
+      if (best.get(c.id) !== c) others.set(c.id, [...(others.get(c.id) ?? []), c.profile]);
+    }
+    return { cards: all.filter((c) => best.get(c.id) === c), alsoIn: others };
+  }, [data]);
   const stateOf = (c: Card): CardState => (c.id in overrides ? overrides[c.id] : data?.states[c.id] ?? null);
   const visible = showTriaged ? cards : cards.filter((c) => stateOf(c) === null);
   const triagedCount = cards.length - cards.filter((c) => stateOf(c) === null).length;
   const bucketCounts = useMemo(() => {
-    const all = data?.cards ?? [];
+    const all = cards;
     return { all: all.length, high: all.filter((c) => c.bucket === 'high').length, medium: all.filter((c) => c.bucket === 'medium').length, low: all.filter((c) => c.bucket === 'low').length };
-  }, [data]);
+  }, [cards]);
 
   async function act(card: Card, target: 'saved' | 'dismissed') {
     if (busy.has(card.id)) return;
@@ -200,7 +226,9 @@ export function FeedPage() {
             )
           )}
 
-          <div className="paper-list" ref={listRef}>
+          {/* Only with rows: the list now draws the panel border itself, so
+              an empty one was a bordered strip under the empty state. */}
+          {visible.length > 0 && <div className="paper-list" ref={listRef}>
             {visible.map((c) => {
               const p = byKey[c.profile];
               return (
@@ -208,6 +236,7 @@ export function FeedPage() {
                   key={c.id}
                   card={c}
                   profile={p}
+                  alsoIn={(alsoIn.get(c.id) ?? []).map((k) => byKey[k]?.name ?? k)}
                   state={stateOf(c)}
                   expanded={expanded.has(c.id)}
                   focused={focused === c.id}
@@ -219,7 +248,7 @@ export function FeedPage() {
                 />
               );
             })}
-          </div>
+          </div>}
 
           {visible.length > 0 && (
             <div className="feed-keys">
@@ -297,9 +326,12 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
 }
 
 function PaperCard({
-  card, profile, state, expanded, focused, busy, onFocus, onToggle, onSave, onDismiss,
+  card, profile, alsoIn, state, expanded, focused, busy, onFocus, onToggle, onSave, onDismiss,
 }: {
-  card: Card; profile: Profile | undefined; state: CardState; expanded: boolean; focused: boolean; busy: boolean;
+  card: Card; profile: Profile | undefined;
+  /** Names of the other interests that gathered this same paper. */
+  alsoIn: string[];
+  state: CardState; expanded: boolean; focused: boolean; busy: boolean;
   onFocus: () => void; onToggle: () => void; onSave: () => void; onDismiss: () => void;
 }) {
   const href = card.doi ? `https://doi.org/${card.doi}` : card.openalex;
@@ -315,10 +347,12 @@ function PaperCard({
     >
       <div className="paper-score" title={similarity != null ? `Similarity to the seed papers: ${similarity.toFixed(3)}. Rank: top ${Math.max(1, Math.round(100 - card.score * 100))}% of this interest's pool.` : `Rank percentile ${card.score.toFixed(2)}`}>
         <ScoreValue score={similarity ?? card.score} />
-        <BucketBadge bucket={card.bucket} />
         {delta != null && (
-          <span className="small muted mono" title={`Similarity minus this ${TERMS.interest}'s threshold (${profile!.threshold.toFixed(3)})`}>
-            {delta >= 0 ? '+' : ''}{delta.toFixed(3)} vs bar
+          // The number alone: " vs bar" made it ~90px of unbreakable mono,
+          // wider than the compact 60px score column. The words are in the
+          // tooltip.
+          <span className="small muted mono" title={`Similarity minus this ${TERMS.interest}'s threshold (${profile!.threshold.toFixed(3)}): above the bar when positive`}>
+            {delta >= 0 ? '+' : ''}{delta.toFixed(3)}
           </span>
         )}
       </div>
@@ -330,21 +364,29 @@ function PaperCard({
           </a>
         </h3>
         <div className="paper-meta">
+          {/* Here rather than under the score: its labels ("Like your seeds")
+              are ~100px of unbreakable text, which overflowed even the old
+              88px score column and would cover the title in the compact one. */}
+          <BucketBadge bucket={card.bucket} />
           {profile && <InterestName profile={profile} />}
+          {alsoIn.length > 0 && (
+            <span className="small muted" title={`Also gathered by: ${alsoIn.join(', ')}`}>
+              +{alsoIn.length === 1 ? ` also in ${alsoIn[0]}` : ` ${alsoIn.length} more ${TERMS.interests}`}
+            </span>
+          )}
           {profile && <span className="sep">·</span>}
           <span className="truncate" style={{ maxWidth: 420 }} title={card.authors.join(', ')}>{card.authors.join(', ') || 'Unknown authors'}</span>
           <span className="sep">·</span>
           <span>{card.venue || 'Unknown venue'}</span>
           <span className="sep">·</span>
           <span>{card.date}</span>
-          <span className="sep">·</span>
-          <span>{card.mins} min read</span>
           {state && <Badge tone={state === 'saved' ? 'ok' : 'neutral'}>{state === 'saved' ? 'Saved' : 'Dismissed'}</Badge>}
         </div>
         <div className="paper-abstract-toggle">
-          <Button size="sm" variant="ghost" icon={expanded ? 'chevron-up' : 'chevron-down'} onClick={onToggle} aria-expanded={expanded}>
+          <button type="button" className="paper-toggle" onClick={onToggle} aria-expanded={expanded}>
+            <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={12} />
             {expanded ? 'Hide details' : 'Abstract & details'}
-          </Button>
+          </button>
           {card.matched.length > 0 && !expanded && (
             <span className="small muted">Matches: {card.matched.slice(0, 3).join(', ')}</span>
           )}
@@ -384,10 +426,10 @@ function PaperCard({
         )}
       </div>
       <div className="paper-actions">
-        <Button icon={state === 'saved' ? 'check' : 'bookmark'} className={state === 'saved' ? 'on-saved' : ''} onClick={onSave} loading={busy} aria-pressed={state === 'saved'} title={state === 'saved' ? 'Click to un-save' : 'Keep this paper (S)'}>
+        <Button size="sm" icon={state === 'saved' ? 'check' : 'bookmark'} className={state === 'saved' ? 'on-saved' : ''} onClick={onSave} loading={busy} aria-pressed={state === 'saved'} title={state === 'saved' ? 'Click to un-save' : 'Keep this paper (S)'}>
           {state === 'saved' ? 'Saved' : 'Save'}
         </Button>
-        <Button icon="x" className={state === 'dismissed' ? 'on-dismissed' : ''} onClick={onDismiss} loading={busy} aria-pressed={state === 'dismissed'} title={state === 'dismissed' ? 'Click to restore' : 'Not useful (X)'}>
+        <Button size="sm" icon="x" className={state === 'dismissed' ? 'on-dismissed' : ''} onClick={onDismiss} loading={busy} aria-pressed={state === 'dismissed'} title={state === 'dismissed' ? 'Click to restore' : 'Not useful (X)'}>
           {state === 'dismissed' ? 'Dismissed' : 'Dismiss'}
         </Button>
       </div>
