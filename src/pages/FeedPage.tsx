@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDailyRadar, useProfiles } from '../api/hooks';
 import { dismissCard, saveCard } from '../api/endpoints/radar';
-import { errorMessage, fmtRelative } from '../lib/format';
+import { addSeeds } from '../api/endpoints/profiles';
+import { errorMessage, fmtRelative, plural } from '../lib/format';
 import { invalidate } from '../lib/query';
 import { startScan, useJobs } from '../lib/jobs';
 import { navigate, paths, usePath } from '../lib/router';
@@ -25,6 +26,7 @@ export function FeedPage() {
   const [focused, setFocused] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, CardState>>({});
   const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [seeding, setSeeding] = useState<Set<string>>(new Set());
   const [scanOpen, setScanOpen] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -48,19 +50,24 @@ export function FeedPage() {
   // interests both gathered appeared twice under one id -- 17 of 166 cards
   // on 2026-09-29 -- and saving either copy marked both, j/k focus could
   // only ever reach the first, and React saw a duplicate key.
-  // The copy kept is the one from the interest it fits best (highest
-  // similarity, then rank); the others are named on the card. Server order
-  // is preserved. A single interest's view has no repeats, so this only
-  // ever changes "All interests".
+  // The copy kept is the one the user has already saved or dismissed, if
+  // any -- so what they did shows here, and acting again lands on the same
+  // interest -- and otherwise the one from the interest it fits best
+  // (highest similarity, then rank). The others are named on the card.
+  // Server order is preserved. A single interest's view has no repeats,
+  // so this only ever changes "All interests".
   const { cards, alsoIn } = useMemo(() => {
     const all = data?.cards ?? [];
-    const fit = (c: Card) => [c.similarity ?? c.centroidCos ?? -Infinity, c.score] as const;
+    const fit = (c: Card) => [c.state ? 1 : 0, c.similarity ?? c.centroidCos ?? -Infinity, c.score] as const;
+    const better = (a: readonly number[], b: readonly number[]) => {
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i];
+      return false;
+    };
     const best = new Map<string, Card>();
     for (const c of all) {
       const prev = best.get(c.id);
       if (!prev) { best.set(c.id, c); continue; }
-      const [a, b] = [fit(c), fit(prev)];
-      if (a[0] > b[0] || (a[0] === b[0] && a[1] > b[1])) best.set(c.id, c);
+      if (better(fit(c), fit(prev))) best.set(c.id, c);
     }
     const others = new Map<string, string[]>();
     for (const c of all) {
@@ -68,7 +75,17 @@ export function FeedPage() {
     }
     return { cards: all.filter((c) => best.get(c.id) === c), alsoIn: others };
   }, [data]);
-  const stateOf = (c: Card): CardState => (c.id in overrides ? overrides[c.id] : data?.states[c.id] ?? null);
+  // A card is a paper in an interest, so local overrides and busy flags are
+  // keyed by both: keyed by paper alone, saving a paper under one interest
+  // marked its copy under another when the view switched. The server's
+  // per-card `state` replaces `states[id]`, which held whichever interest
+  // was iterated last; `states` is only the fallback for an older backend.
+  const keyOf = (c: Card) => `${c.profile}\u0000${c.id}`;
+  const stateOf = (c: Card): CardState => {
+    const k = keyOf(c);
+    if (k in overrides) return overrides[k];
+    return c.state !== undefined ? c.state ?? null : data?.states[c.id] ?? null;
+  };
   const visible = showTriaged ? cards : cards.filter((c) => stateOf(c) === null);
   const triagedCount = cards.length - cards.filter((c) => stateOf(c) === null).length;
   const bucketCounts = useMemo(() => {
@@ -76,23 +93,51 @@ export function FeedPage() {
     return { all: all.length, high: all.filter((c) => c.bucket === 'high').length, medium: all.filter((c) => c.bucket === 'medium').length, low: all.filter((c) => c.bucket === 'low').length };
   }, [cards]);
 
+  // A paper from the feed becomes a seed of the interest it was shown
+  // under. The server embeds it (feed papers are scored without their
+  // vectors being kept) and re-fits the interest, so the next scan scores
+  // against it. This is the "adjust the seed corpus from the article list"
+  // that was missing: before, seeds could only come from uploads and
+  // imports.
+  async function seed(card: Card) {
+    const k = keyOf(card);
+    if (seeding.has(k)) return;
+    setSeeding((s) => new Set(s).add(k));
+    const name = byKey[card.profile]?.name ?? card.profile;
+    try {
+      const res = await addSeeds(card.profile, [card.id]);
+      if (res.attached > 0) toast.success(`Added to the seeds of ${name}.${res.rescored ? ` Re-scored the ${plural(res.rescored, 'paper')} it had found; the feed is updated.` : ''}`, { label: 'View seeds', onClick: () => navigate(paths.interest(card.profile, 'seeds')) });
+      else if (res.rejected.length > 0) toast.error(`Couldn't add "${card.title.slice(0, 60)}" as a seed.`);
+      else toast.info(`Already a seed of ${name}.`);
+    } catch (e) {
+      toast.error(`Couldn't add "${card.title.slice(0, 60)}" as a seed: ${errorMessage(e)}`);
+    } finally {
+      setSeeding((s) => {
+        const n = new Set(s);
+        n.delete(k);
+        return n;
+      });
+    }
+  }
+
   async function act(card: Card, target: 'saved' | 'dismissed') {
-    if (busy.has(card.id)) return;
+    const k = keyOf(card);
+    if (busy.has(k)) return;
     const prev = stateOf(card);
     const next: CardState = prev === target ? null : target;
-    setOverrides((o) => ({ ...o, [card.id]: next }));
-    setBusy((b) => new Set(b).add(card.id));
+    setOverrides((o) => ({ ...o, [k]: next }));
+    setBusy((b) => new Set(b).add(k));
     try {
-      const res = await (target === 'saved' ? saveCard(card.id) : dismissCard(card.id));
-      setOverrides((o) => ({ ...o, [card.id]: res.state }));
+      const res = await (target === 'saved' ? saveCard(card.id, card.profile) : dismissCard(card.id, card.profile));
+      setOverrides((o) => ({ ...o, [k]: res.state }));
       invalidate('profiles');
     } catch (e) {
-      setOverrides((o) => ({ ...o, [card.id]: prev }));
+      setOverrides((o) => ({ ...o, [k]: prev }));
       toast.error(`Couldn't ${target === 'saved' ? 'save' : 'dismiss'} "${card.title.slice(0, 60)}": ${errorMessage(e)}`);
     } finally {
       setBusy((b) => {
         const n = new Set(b);
-        n.delete(card.id);
+        n.delete(k);
         return n;
       });
     }
@@ -240,7 +285,9 @@ export function FeedPage() {
                   state={stateOf(c)}
                   expanded={expanded.has(c.id)}
                   focused={focused === c.id}
-                  busy={busy.has(c.id)}
+                  busy={busy.has(keyOf(c))}
+                  seeding={seeding.has(keyOf(c))}
+                  onSeed={() => void seed(c)}
                   onFocus={() => setFocused(c.id)}
                   onToggle={() => toggleExpand(c.id)}
                   onSave={() => act(c, 'saved')}
@@ -326,12 +373,13 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
 }
 
 function PaperCard({
-  card, profile, alsoIn, state, expanded, focused, busy, onFocus, onToggle, onSave, onDismiss,
+  card, profile, alsoIn, state, expanded, focused, busy, seeding, onFocus, onToggle, onSave, onDismiss, onSeed,
 }: {
   card: Card; profile: Profile | undefined;
   /** Names of the other interests that gathered this same paper. */
   alsoIn: string[];
-  state: CardState; expanded: boolean; focused: boolean; busy: boolean;
+  state: CardState; expanded: boolean; focused: boolean; busy: boolean; seeding: boolean;
+  onSeed: () => void;
   onFocus: () => void; onToggle: () => void; onSave: () => void; onDismiss: () => void;
 }) {
   const href = card.doi ? `https://doi.org/${card.doi}` : card.openalex;
@@ -428,6 +476,9 @@ function PaperCard({
       <div className="paper-actions">
         <Button size="sm" icon={state === 'saved' ? 'check' : 'bookmark'} className={state === 'saved' ? 'on-saved' : ''} onClick={onSave} loading={busy} aria-pressed={state === 'saved'} title={state === 'saved' ? 'Click to un-save' : 'Keep this paper (S)'}>
           {state === 'saved' ? 'Saved' : 'Save'}
+        </Button>
+        <Button size="sm" icon="plus" variant="ghost" onClick={onSeed} loading={seeding} title={`Add this paper to the seeds of ${profile?.name ?? card.profile}`}>
+          Seed
         </Button>
         <Button size="sm" icon="x" className={state === 'dismissed' ? 'on-dismissed' : ''} onClick={onDismiss} loading={busy} aria-pressed={state === 'dismissed'} title={state === 'dismissed' ? 'Click to restore' : 'Not useful (X)'}>
           {state === 'dismissed' ? 'Dismissed' : 'Dismiss'}

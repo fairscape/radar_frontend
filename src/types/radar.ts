@@ -55,6 +55,8 @@ export interface Card {
   centroidCos: number;
   noveltyDelta: number;
   mins: number;
+  /** This card's own state, in the interest named by `profile`. */
+  state?: CardState | null;
 }
 
 export interface VaultDoc {
@@ -82,6 +84,8 @@ export interface Topic {
   count: number;
   on: boolean;
   source?: string | null;
+  /** Topic preview only: found by the seeds since the topics were last saved. */
+  new?: boolean | null;
 }
 
 export interface SweepRow {

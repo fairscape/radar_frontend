@@ -5,6 +5,7 @@ import { TERMS } from '../lib/terms';
 import type { Profile } from '../types/radar';
 import { ErrorBox, Icon, Swatch, type IconName } from '../ui';
 import { Link } from '../ui/Link';
+import { CHAT_ENABLED } from '../lib/features';
 
 /**
  * "What you can do here", reachable from the Radar mark in the sidebar
@@ -51,8 +52,17 @@ export function HomePage() {
         <li className="home-step">
           <span className="home-step-n">3</span>
           <div>
-            <h2>Ask your papers</h2>
-            <p>Every PDF you upload lands in the {TERMS.vault}. Ask it a question and get an answer grounded in those papers.</p>
+            {CHAT_ENABLED ? (
+              <>
+                <h2>Ask your papers</h2>
+                <p>Every PDF you upload lands in the {TERMS.vault}. Ask it a question and get an answer grounded in those papers.</p>
+              </>
+            ) : (
+              <>
+                <h2>Keep your papers</h2>
+                <p>Every paper you upload or import lands in the {TERMS.vault}. Browse them there, and reuse any of them as seeds of a new {TERMS.interest}.</p>
+              </>
+            )}
             <Link href={paths.vault} className="home-link">Open the {TERMS.vault} <Icon name="arrow-right" size={13} /></Link>
           </div>
         </li>

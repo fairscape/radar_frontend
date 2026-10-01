@@ -240,7 +240,7 @@ async function pollOne(job: Job) {
     }
     if (status.run.error) return fail(job, status.run.error);
     const result = status.result;
-    const n = typeof result?.drafted === 'number' ? result.drafted : (result?.n_seeds as number | undefined);
+    const n = typeof result?.drafted === 'number' ? result.drafted : undefined;
     finish(job, {
       summary: n != null ? `${n} ${job.researcherId != null ? 'papers' : 'seeds'} imported` : 'Import finished',
       result: result ?? null,
@@ -315,16 +315,32 @@ export async function startDryRun(slug: string, name: string, days = 30): Promis
 
 export async function startImport(ref: string, name?: string, paperIds?: string[]): Promise<Job> {
   const start = await startProsopiaImport({ ref, ...(name ? { name } : {}), ...(paperIds ? { paper_ids: paperIds } : {}) });
+  const slug = requireDraft(start);
   return add({
-    ...base('import', start.run_id, start.draft_slug, name || ref),
+    ...base('import', start.run_id, slug, name || ref),
     joinedExisting: start.already_running === true,
   });
 }
 
+/**
+ * Thrown when the server joined an import that builds no draft. The wizard
+ * would otherwise carry on with a null slug and sit on step 1 for good.
+ */
+export class JoinedResearcherImport extends Error {}
+
+function requireDraft(start: { draft_slug: string | null; already_running?: boolean }): string {
+  if (start.draft_slug) return start.draft_slug;
+  throw new JoinedResearcherImport(
+    'This person is already being imported from the Profiles page, and that import does not make a draft. '
+    + 'When it finishes, start this interest from the saved profile instead.',
+  );
+}
+
 export async function startOrcidImport(orcid: string, openalexIds: string[], name?: string): Promise<Job> {
   const start = await postOrcidImport({ orcid, openalex_ids: openalexIds, ...(name ? { name } : {}) });
+  const slug = requireDraft(start);
   return add({
-    ...base('import', start.run_id, start.draft_slug, name || orcid),
+    ...base('import', start.run_id, slug, name || orcid),
     joinedExisting: start.already_running === true,
   });
 }

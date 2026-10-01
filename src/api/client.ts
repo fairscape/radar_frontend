@@ -107,6 +107,13 @@ export function apiPatch<T>(path: string, body?: unknown, signal?: AbortSignal):
   }, signal);
 }
 
+export function apiPut<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, {
+    method: 'PUT',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }, signal);
+}
+
 export function apiDelete<T>(path: string, signal?: AbortSignal): Promise<T> {
   return request<T>(path, { method: 'DELETE' }, signal);
 }

@@ -11,9 +11,12 @@ import { useState } from 'react';
 import { fetchOrcidWorks, fetchProsopiaWorks } from '../api/endpoints/prosopia';
 import { toast } from '../lib/toast';
 import { plural } from '../lib/format';
+import { getUserEmail } from '../lib/userEmail';
 import type { Job } from '../lib/jobs';
 import { Button, EmptyState, ErrorBox, Field, Input, useAction } from './index';
 import { JobProgress } from './domain';
+import { paperHref, PaperLink } from './paperLink';
+export { paperHref, PaperLink };
 
 /** A paper offered for import, whichever service listed it. */
 export interface PickWork {
@@ -31,6 +34,9 @@ export interface PickWork {
   claimed?: boolean | null;
   /** See OrcidWork.duplicate_of. Set on the redundant copy only. */
   duplicate_of?: string | null;
+  /** For the title link: the DOI, else the OpenAlex id when `id` is not one. */
+  doi?: string | null;
+  openalex?: string | null;
 }
 
 /** OpenAlex work types that read as papers; software and dataset records start unticked. */
@@ -111,17 +117,25 @@ export interface Lookup {
   find: (key: string) => Promise<{ key: string; name: string | null; works: PickWork[] }>;
   emptyTitle: string;
   emptyBody: string;
+  /** localStorage key for the last key this browser looked up, if remembered. */
+  rememberAs?: string;
 }
 
 export const ORCID_LOOKUP: Lookup = {
   label: 'ORCID iD',
   hint: 'Radar lists every paper OpenAlex attributes to this ORCID; untick the ones that should not count.',
-  placeholder: '0000-0001-5643-4068 or https://orcid.org/…',
+  // ORCID's own documented example iD (Josiah Carberry, a fictional
+  // researcher). The placeholder used to be Nathan Sheffield's real iD,
+  // which read as a pre-filled value: users asked why someone else's ORCID
+  // was in the box.
+  placeholder: 'e.g. 0000-0002-1825-0097 or https://orcid.org/…',
+  // People mostly look up their own iD, again and again.
+  rememberAs: 'radar.lastOrcid',
   parse: parseOrcid,
   parseError: 'That does not look like an ORCID (0000-0000-0000-0000).',
   find: async (orcid) => {
     const r = await fetchOrcidWorks(orcid);
-    return { key: r.orcid, name: r.name, works: r.works.map((w) => ({ id: w.openalex_id, title: w.title, year: w.year, venue: w.venue, type: w.type, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors, claimed: w.claimed, duplicate_of: w.duplicate_of })) };
+    return { key: r.orcid, name: r.name, works: r.works.map((w) => ({ id: w.openalex_id, title: w.title, year: w.year, venue: w.venue, type: w.type, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors, claimed: w.claimed, duplicate_of: w.duplicate_of, doi: w.doi })) };
   },
   emptyTitle: 'No papers on OpenAlex for this ORCID',
   emptyBody: 'OpenAlex has no works with this ORCID on an authorship. Check the iD, or upload PDFs instead.',
@@ -135,11 +149,29 @@ export const PROSOPIA_LOOKUP: Lookup = {
   parseError: '',
   find: async (ref) => {
     const r = await fetchProsopiaWorks(ref);
-    return { key: r.slug, name: r.name, works: r.works.map((w) => ({ id: w.id, title: w.title, year: w.year, venue: w.venue, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors })) };
+    return { key: r.slug, name: r.name, works: r.works.map((w) => ({ id: w.id, title: w.title, year: w.year, venue: w.venue, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors, doi: w.doi, openalex: w.openalex_id })) };
   },
   emptyTitle: 'This profile lists no papers',
   emptyBody: 'The profile exists but has no papers to import. Upload PDFs instead.',
 };
+
+/**
+ * A paper title that opens the paper in a new tab. Lists of papers to pick
+ * from showed titles only, with no way to read an abstract or the paper
+ * before deciding -- the feed was the one place a title was a link.
+ */
+export function PaperTitle({ title, id, doi }: { title: string; id?: string | null; doi?: string | null }) {
+  const href = paperHref(id, doi);
+  return (
+    <div className="truncate" title={title}>
+      {href ? (
+        // stopPropagation: these sit inside a <label>; the click opens the
+        // paper, it does not tick the row.
+        <a className="paper-link" href={href} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>{title}</a>
+      ) : title}
+    </div>
+  );
+}
 
 export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = 'Papers', head }: {
   works: PickWork[];
@@ -182,7 +214,7 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
       <label className={`pick-row ${picked.has(w.id) ? 'on' : ''}`} key={w.id}>
         <input type="checkbox" checked={picked.has(w.id)} disabled={disabled} onChange={() => toggle(w.id)} />
         <span>
-          <div className="truncate" title={w.title}>{w.title}</div>
+          <PaperTitle title={w.title} id={w.openalex ?? w.id} doi={w.doi} />
           <div className="v">{[w.year, w.venue, w.n_authors && w.n_authors > 3 ? `${w.authors.slice(0, 2).join(', ')} +${w.n_authors - 2}` : w.authors.join(', ')].filter(Boolean).join(' · ')}</div>
         </span>
         <span className="row" style={{ gap: 8 }}>
@@ -282,6 +314,38 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
  * does not fire a request per keystroke, and papers start ticked
  * because pruning a few is the common case.
  */
+/**
+ * Per-browser, per-person convenience only. Keyed by the signed-in address:
+ * localStorage outlives a session, and keyed by browser alone the next
+ * person to sign in here would find the previous one's ORCID in the box --
+ * the same leak the identity fix closed. Storage may be unavailable; then
+ * nothing is remembered, which is fine.
+ */
+function storageKey(key: string | undefined): string | null {
+  const who = getUserEmail();
+  return key && who ? `${key}:${who.toLowerCase()}` : null;
+}
+
+function recall(key: string | undefined): string {
+  const k = storageKey(key);
+  if (!k) return '';
+  try {
+    return window.localStorage.getItem(k) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function remember(key: string | undefined, value: string): void {
+  const k = storageKey(key);
+  if (!k || !value) return;
+  try {
+    window.localStorage.setItem(k, value);
+  } catch {
+    /* private window, blocked storage: just don't remember */
+  }
+}
+
 export function LookupPicker({ lookup, start, startLabel = 'Import', job, initialRaw = '', onStarted }: {
   lookup: Lookup;
   /** Starts the job for the kept papers; ``name`` is the researcher's name from the lookup. */
@@ -292,7 +356,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
   initialRaw?: string;
   onStarted?: (job: Job, listing: { key: string; name: string | null; works: PickWork[] }) => void;
 }) {
-  const [raw, setRaw] = useState(initialRaw);
+  const [raw, setRaw] = useState(() => initialRaw || recall(lookup.rememberAs));
   const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[] } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const key = lookup.parse(raw);
@@ -301,6 +365,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
   const find = useAction(async () => {
     if (!key) return;
     const res = await lookup.find(key);
+    remember(lookup.rememberAs, raw.trim());
     setListing({ forRaw: raw.trim(), ...res });
     setPicked(new Set(defaultPicks(res.works).map((w) => w.id)));
   });
@@ -329,7 +394,11 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
     <div className="stack">
       <Field label={lookup.label} hint={lookup.hint} error={raw.trim() && !key ? lookup.parseError : null}>
         <div className="pick-find">
-          <Input value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={lookup.placeholder} disabled={running} onKeyDown={(e) => { if (e.key === 'Enter') void find.run(); }} />
+          {/* autoComplete off and a non-identity name: a lone text box on a
+              signed-in page is what browsers fill with the user's email,
+              and that is what people found in the ORCID box. */}
+          <Input value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={lookup.placeholder} disabled={running} onKeyDown={(e) => { if (e.key === 'Enter') void find.run(); }}
+            name={lookup.rememberAs ?? 'lookup'} autoComplete="off" spellCheck={false} data-1p-ignore data-lpignore="true" />
           <Button icon="search" onClick={() => find.run()} loading={find.busy} disabled={!key || running}>Find papers</Button>
         </div>
       </Field>

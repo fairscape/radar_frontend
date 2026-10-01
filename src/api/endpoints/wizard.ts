@@ -39,6 +39,17 @@ export interface DraftDryRun {
   seed_similarity?: SeedSimilarity | null;
   /** [lo, hi] the slider should span. */
   score_range?: [number, number] | number[] | null;
+  /** Every scored paper, best first; absent from older backends. */
+  papers?: DryRunPaper[];
+}
+
+export interface DryRunPaper {
+  id: string;
+  title: string;
+  venue: string;
+  year: number | null;
+  /** Same value as ``scores`` -- what the threshold compares against. */
+  score: number;
 }
 
 export interface DraftDryRunStatus {
@@ -85,13 +96,6 @@ export function getDraftDryRunStatus(slug: string, runId: number): Promise<Draft
 export async function commitDraft(body: CommitDraftRequest): Promise<Profile> {
   const res = await apiPost<Profile>('/api/profiles', body);
   invalidate('profiles', 'vault', 'radar');
-  return res;
-}
-
-/** Take one paper out of a draft's seeds. The paper stays in the vault. */
-export async function removeDraftSeed(slug: string, openalexId: string): Promise<{ ok: boolean }> {
-  const res = await apiDelete<{ ok: boolean }>(`/api/profiles/draft/${enc(slug)}/seeds/${enc(openalexId)}`);
-  invalidate('profiles', 'vault', `draft/${slug}/`);
   return res;
 }
 

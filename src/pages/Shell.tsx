@@ -11,18 +11,20 @@ import { HomePage } from './HomePage';
 import { FeedPage } from './FeedPage';
 import { InterestsPage } from './InterestsPage';
 import { InterestDetailPage } from './InterestDetailPage';
+import { EditInterestPage } from './EditInterestPage';
 import { WizardPage } from './WizardPage';
 import { VaultPage } from './VaultPage';
 import { ProfilesPage } from './ProfilesPage';
 import { ProfileDetailPage } from './ProfileDetailPage';
 import { SettingsPage } from './SettingsPage';
 import { NotFoundPage } from './NotFoundPage';
+import { CHAT_ENABLED } from '../lib/features';
 
 const NAV: { name: Route['name']; href: string; label: string; icon: IconName; hint: string }[] = [
   { name: 'feed', href: paths.feed, label: TERMS.feed, icon: 'radar', hint: `New papers, scored against your ${TERMS.interests}` },
   { name: 'interests', href: paths.interests, label: TERMS.Interests, icon: 'interests', hint: `The topics Radar scans for, each defined by a set of papers` },
   { name: 'profiles', href: paths.profiles, label: TERMS.Profiles, icon: 'user', hint: `Researchers you imported, with their papers; build ${TERMS.interests} from them` },
-  { name: 'vault', href: paths.vault, label: TERMS.vault, icon: 'vault', hint: 'Your uploaded PDFs; ask questions about them' },
+  { name: 'vault', href: paths.vault, label: TERMS.vault, icon: 'vault', hint: CHAT_ENABLED ? 'Your uploaded PDFs; ask questions about them' : 'Every paper you have uploaded or imported' },
 ];
 
 export function Shell({ route, email }: { route: Route; email: string }) {
@@ -44,8 +46,9 @@ export function Shell({ route, email }: { route: Route; email: string }) {
         {route.name === 'home' && <HomePage />}
         {route.name === 'feed' && <FeedPage />}
         {route.name === 'interests' && <InterestsPage />}
-        {route.name === 'interest' && <InterestDetailPage profileKey={route.key} />}
-        {route.name === 'wizard' && <WizardPage draftSlug={route.draft} source={route.source} researcher={route.researcher} />}
+        {route.name === 'interest' && <InterestDetailPage profileKey={route.key} urlTab={route.tab} />}
+        {route.name === 'interestEdit' && <EditInterestPage profileKey={route.key} urlStep={route.step} />}
+        {route.name === 'wizard' && <WizardPage draftSlug={route.draft} source={route.source} researcher={route.researcher} urlStep={route.step} />}
         {route.name === 'profiles' && <ProfilesPage />}
         {route.name === 'profile' && <ProfileDetailPage id={route.id} />}
         {route.name === 'vault' && <VaultPage />}
@@ -69,7 +72,7 @@ function Sidebar({ route, email }: { route: Route; email: string }) {
     profiles: researchers?.length,
     vault: vaultStats?.docs,
   };
-  const activeKey = route.name === 'interest' ? route.key : route.name === 'wizard' ? route.draft : null;
+  const activeKey = route.name === 'interest' || route.name === 'interestEdit' ? route.key : route.name === 'wizard' ? route.draft : null;
   const navActive = (name: Route['name']) => route.name === name || (name === 'profiles' && route.name === 'profile');
 
   return (

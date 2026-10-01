@@ -44,9 +44,3 @@ export async function createInterestFromResearcher(id: number, body: ResearcherI
   return res;
 }
 
-/** Attach papers the user already has (uploaded or imported with a profile) to a draft. */
-export async function addDraftSeeds(slug: string, openalexIds: string[]): Promise<{ attached: number; rejected: string[] }> {
-  const res = await apiPost<{ attached: number; rejected: string[] }>(`/api/profiles/draft/${encodeURIComponent(slug)}/seeds`, { openalex_ids: openalexIds });
-  invalidate('profiles', 'vault', `draft/${slug}/`);
-  return res;
-}

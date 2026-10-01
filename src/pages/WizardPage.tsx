@@ -1,29 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
+import { useDrafts, useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
-import { addDraftSeeds, createInterestFromResearcher } from '../api/endpoints/researchers';
+import { createInterestFromResearcher } from '../api/endpoints/researchers';
+import { removeSeed as removeSeedOnServer } from '../api/endpoints/profiles';
+import { VaultSeedPicker } from '../ui/VaultSeedPicker';
+import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import {
   commitDraft,
   createDraft,
   deleteDraft,
   getDraftCoherence,
   getDraftTopics,
-  removeDraftSeed,
   type DraftCoherence,
   type DraftDryRun,
 } from '../api/endpoints/wizard';
 import { getDraft, isSeedSource, resetDraft, useDraft, type DraftState, type SeedSource } from '../lib/draft';
-import { errorMessage, plural } from '../lib/format';
+import { errorMessage, fmtRelative, plural } from '../lib/format';
 import { findJob, startDryRun, startImport, startOrcidImport, startScan, useJob, type Job } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { notifyEmptyDrop } from '../lib/dropHint';
 import type { ProsopiaImportResult } from '../types/prosopia';
 import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Select, confirmDialog, useAction } from '../ui';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, JobProgress, ThresholdHistogram, agreementTone, axisFor } from '../ui/domain';
-import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP, PaperPickList, papersOf, type Lookup, type PickWork } from '../ui/pickers';
+import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP, PaperLink, PaperPickList, PaperTitle, papersOf, type Lookup, type PickWork } from '../ui/pickers';
 
 const STEPS = [
   { n: 1, label: 'Seeds', hint: 'name it, add papers' },
@@ -42,7 +45,7 @@ const SOURCES: { source: SeedSource; icon: import('../ui').IconName; title: stri
   { source: 'profile', icon: 'user', title: `A saved ${TERMS.profile}`, body: `Papers from a ${TERMS.profile} you already imported. No waiting: they are ready to use.` },
 ];
 
-export function WizardPage({ draftSlug, source, researcher }: { draftSlug: string | null; source: string | null; researcher?: number | null }) {
+export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { draftSlug: string | null; source: string | null; researcher?: number | null; urlStep?: number | null }) {
   const { state, update, reset } = useDraft();
 
   // ``?source=`` preselects where the seeds come from (from the home
@@ -59,6 +62,25 @@ export function WizardPage({ draftSlug, source, researcher }: { draftSlug: strin
     if (getDraft().slug) resetDraft();
     if (source !== getDraft().source) update({ source });
   }, [draftSlug, source, state.slug, state.source, update]);
+  // Bare /wizard -- the sidebar's "+" and the Interests page's "New
+  // interest", no ?draft= and no ?source= -- is a request for a new
+  // interest too. It used to resume whatever draft this tab remembered, so
+  // with one open the only ways out were finishing it or "choose a
+  // different way to add seeds", which deletes it: a second interest could
+  // not be started. The remembered draft is set aside, not deleted: it stays
+  // on the server, offered by the prompt on step 1 and under Interests ->
+  // Drafts. A reload mid-wizard is unaffected, because once a draft exists
+  // the URL carries ?draft= and that path resumes it.
+  // Runs on arriving at the bare URL -- first mount, or coming from a
+  // ?draft= URL -- and not when this page itself drops the param.
+  const lastDraftParam = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const prev = lastDraftParam.current;
+    lastDraftParam.current = draftSlug;
+    const arrived = prev === undefined || prev !== null;
+    if (draftSlug || isSeedSource(source) || !arrived) return;
+    if (getDraft().slug) resetDraft();
+  }, [draftSlug, source]);
   const { data: profiles } = useProfiles();
   const [resuming, setResuming] = useState(false);
   const staleCheck = useRef<unknown[] | 'done' | null>(null);
@@ -115,6 +137,38 @@ export function WizardPage({ draftSlug, source, researcher }: { draftSlug: strin
   useEffect(() => {
     if (resuming && state.slug === draftSlug) setResuming(false);
   }, [resuming, state.slug, draftSlug]);
+
+  // The step is mirrored into the URL (``&step=``) so the browser's Back
+  // and Forward buttons move between steps. It used to live only in this
+  // tab's store: Back from step 3 left the wizard altogether, which read
+  // as "there is no way to go back". The store stays the source of truth
+  // -- every step component moves with ``update({ step })`` -- and this
+  // effect carries changes each way: a step change pushes a history entry;
+  // a URL change (Back/Forward, a pasted link) moves the store, but never
+  // past the furthest step reached here, whose state (topics, trial scan)
+  // may not exist yet.
+  const prevUrlStep = useRef<number | null | undefined>(undefined);
+  const prevStoreStep = useRef<number | undefined>(undefined);
+  const maxReached = useRef({ slug: null as string | null, step: 1 });
+  if (maxReached.current.slug !== state.slug) maxReached.current = { slug: state.slug, step: 1 };
+  maxReached.current.step = Math.max(maxReached.current.step, state.step);
+  useEffect(() => {
+    const urlChanged = urlStep !== prevUrlStep.current;
+    const storeChanged = state.step !== prevStoreStep.current;
+    prevUrlStep.current = urlStep;
+    prevStoreStep.current = state.step;
+    if (!state.slug || draftSlug !== state.slug) return;   // no draft yet, or the resume above is still running
+    if (urlChanged && urlStep != null && urlStep !== state.step && urlStep <= maxReached.current.step) {
+      prevStoreStep.current = urlStep;
+      update({ step: urlStep });
+      return;
+    }
+    if (urlStep !== state.step) {
+      // A step change of our own pushes; filling in a URL that had no step
+      // (or one we can't go to) replaces.
+      navigate(paths.wizard(state.slug, state.step), { replace: !storeChanged || urlStep == null || urlStep > maxReached.current.step });
+    }
+  }, [urlStep, state.step, state.slug, draftSlug, update]);
 
   const step = state.step;
   const canGo = (n: number) => n < step || (n === 2 && !!state.slug) || (n === 3 && !!state.slug && step >= 3) || n === step;
@@ -177,6 +231,7 @@ export function WizardPage({ draftSlug, source, researcher }: { draftSlug: strin
         <div>
           {resuming ? <LoadingRows rows={3} /> : (
             <>
+              {step === 1 && !state.slug && <UnfinishedDrafts />}
               {step === 1 && <StepSeeds state={state} preselectResearcher={researcher ?? null} />}
               {step === 2 && <StepCheck state={state} />}
               {step === 3 && <StepTopics state={state} />}
@@ -190,6 +245,52 @@ export function WizardPage({ draftSlug, source, researcher }: { draftSlug: strin
 }
 
 // --- Step 1 ------------------------------------------------------------------
+
+/**
+ * "You have unfinished interests" -- shown on step 1 before a new draft
+ * exists. Drafts are saved on the server from step 1 on, but the only way
+ * back to one was the Drafts panel on the Interests page: opening New
+ * interest again started a fresh draft without a word, which read as the
+ * old one being lost (and invited a duplicate). The pre-merge wizard asked
+ * on entry; this asks the same, from GET /profiles/drafts.
+ */
+function UnfinishedDrafts() {
+  const { data } = useDrafts();
+  const [dismissed, setDismissed] = useState(false);
+  const drafts = data ?? [];
+  if (dismissed || drafts.length === 0) return null;
+  const shown = drafts.slice(0, 3);
+  const status = (d: (typeof drafts)[number]) =>
+    d.phase === 'importing' ? 'still importing'
+      : d.phase === 'failed' ? 'import failed'
+        : d.phase === 'empty' ? 'no seeds yet'
+          : plural(d.n_seeds, 'seed');
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <Callout tone="info" title={drafts.length === 1 ? `You have an unfinished ${TERMS.interest}` : `You have ${drafts.length} unfinished ${TERMS.interests}`}>
+        <div className="stack" style={{ gap: 6, marginTop: 4 }}>
+          {shown.map((d) => (
+            <div className="row spread" key={d.slug} style={{ gap: 10 }}>
+              <span className="truncate">
+                <b>{d.name || d.slug}</b>
+                <span className="muted small"> · {status(d)}{d.updated_at ? ` · ${fmtRelative(d.updated_at)}` : ''}</span>
+              </span>
+              <Link href={paths.wizard(d.slug)} className="btn btn-sm btn-primary">Resume</Link>
+            </div>
+          ))}
+          {drafts.length > shown.length && (
+            <span className="small muted">
+              and {drafts.length - shown.length} more under <Link href={`${paths.interests}#drafts`}>Drafts</Link>
+            </span>
+          )}
+          <div>
+            <button type="button" className="linklike small" onClick={() => setDismissed(true)}>Start a new one instead</button>
+          </div>
+        </div>
+      </Callout>
+    </div>
+  );
+}
 
 function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselectResearcher: number | null }) {
   const { update, addSeed } = useDraft();
@@ -205,7 +306,7 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
     if (!importJob || importJob.status !== 'done') return;
     const r = importJob.result as ProsopiaImportResult | null;
     update({
-      slug: (r?.draft_slug as string | undefined) ?? importJob.profileKey,
+      slug: r?.draft_slug ?? importJob.profileKey,
       name: (r?.name as string | undefined) ?? importJob.profileName,
       prosopia: { ref: state.prosopia?.ref ?? '', nSeeds: typeof r?.drafted === 'number' ? r.drafted : null },
     });
@@ -344,7 +445,7 @@ function useRemoveSeed(slug: string) {
     if (!ok) return false;
     setBusyId(id);
     try {
-      await removeDraftSeed(slug, id);
+      await removeSeedOnServer(slug, id);
       removeSeed(id);
       update({ selectedTopicIds: null, dryRunJobId: null, threshold: null });
       toast.success('Seed removed.');
@@ -385,56 +486,6 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
     update({ selectedTopicIds: null, dryRunJobId: null, threshold: null });
     invalidate(`draft/${slug}/`);
   };
-  // Papers already in the vault. The upload below attaches a file to the
-  // draft as it lands, so a paper that arrived earlier -- a PDF uploaded
-  // from the Vault page, or the papers of an imported researcher -- had no
-  // way in here. POST /draft/{slug}/seeds exists for exactly this, and
-  // addDraftSeeds was written for it and never called.
-  //
-  // Every vault row is offered, not just the ones with a PDF. The first
-  // version kept only rows with pages, to avoid offering feed-saved papers
-  // that route refuses; measured on a real vault that hid 92 of 96 papers,
-  // every one of them acceptable -- a researcher's imported papers are
-  // recorded under the user who imported them, and they have no PDF. A row
-  // the server does refuse is named in the error instead.
-  // Fetched only once the user opens it: listing the whole vault counts
-  // Chroma chunks per paper (200-700 ms for ~100 papers, measured), and
-  // most people on this step are uploading, not picking.
-  const [vaultOpen, setVaultOpen] = useState(false);
-  const vault = useVaultDocs('all', vaultOpen);
-  const seedIds = new Set(seeds.map((d) => d.id));
-  const inVault = (vault.data ?? []).filter((d) => !seedIds.has(d.id));
-  const [chosen, setChosen] = useState<Set<string>>(new Set());
-  const [vaultQuery, setVaultQuery] = useState('');
-  const q = vaultQuery.trim().toLowerCase();
-  const vaultShown = q
-    ? inVault.filter((d) => [d.title, d.venue, ...d.authors].some((f) => (f ?? '').toLowerCase().includes(q)))
-    : inVault;
-  const attach = useAction(async () => {
-    // Filtered against what is still on offer: a row ticked, then made a
-    // seed some other way, would otherwise be sent twice. Not against
-    // what the filter shows -- a tick is kept while the user searches for
-    // the next paper.
-    const ids = inVault.filter((d) => chosen.has(d.id)).map((d) => d.id);
-    if (ids.length === 0) return;
-    const res = await addDraftSeeds(slug, ids);
-    setChosen(new Set());
-    // Same bookkeeping as an upload: the local seed list (step 2's spinner
-    // reads its length, and it survives a reload in sessionStorage) and the
-    // results computed from the old seed set.
-    const rejected = new Set(res.rejected);
-    const added = inVault.filter((d) => ids.includes(d.id) && !rejected.has(d.id));
-    added.forEach(addSeed);
-    if (added.length > 0) invalidateDownstream();
-    if (res.rejected.length > 0) {
-      const byId = new Map(inVault.map((d) => [d.id, d.title || d.id]));
-      const names = res.rejected.slice(0, 3).map((id) => `"${byId.get(id) ?? id}"`).join(', ');
-      const more = res.rejected.length > 3 ? ` and ${res.rejected.length - 3} more` : '';
-      toast.error(`Added ${plural(res.attached, 'paper')}. ${names}${more} could not be added: the server does not count ${res.rejected.length === 1 ? 'it' : 'them'} as yours (a paper saved from the feed is not).`);
-    } else {
-      toast.success(`Added ${plural(ids.length, 'paper')} from your Vault.`);
-    }
-  });
   // Back to the source picker. The draft on the server is thrown away
   // (an import creates one per attempt) and the wizard keeps the name.
   const startOver = useAction(async () => {
@@ -486,7 +537,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
         onClick={() => !progress && inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setOver(true); }}
         onDragLeave={() => setOver(false)}
-        onDrop={(e) => { e.preventDefault(); setOver(false); void upload(e.dataTransfer.files); }}
+        onDrop={(e) => { e.preventDefault(); setOver(false); if (!e.dataTransfer.files?.length) { notifyEmptyDrop(); return; } void upload(e.dataTransfer.files); }}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click(); }}
@@ -501,61 +552,15 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
       </div>
       {failures.length > 0 && <div style={{ marginTop: 10 }}><ErrorBox compact title="Some files were not added" message={failures.map((f) => <div key={f}>{f}</div>)} /></div>}
 
-      {!vaultOpen && (
-        <p className="small" style={{ margin: '12px 0 0' }}>
-          <button type="button" className="linklike" onClick={() => setVaultOpen(true)}>Or use papers already in your Vault</button>
-        </p>
-      )}
-      {vaultOpen && !vault.data && vault.loading && <div style={{ marginTop: 16 }}><LoadingRows rows={2} /></div>}
-      {vaultOpen && !vault.data && vault.error && <div style={{ marginTop: 16 }}><ErrorBox compact message={errorMessage(vault.error)} onRetry={vault.refresh} /></div>}
-      {vaultOpen && vault.data && inVault.length === 0 && (
-        <p className="muted small" style={{ margin: '12px 0 0' }}>
-          {vault.data.length === 0 ? 'Your Vault is empty.' : 'Everything in your Vault is already a seed of this draft.'}
-        </p>
-      )}
-      {vaultOpen && inVault.length > 0 && (
-        <div className="stack" style={{ gap: 6, marginTop: 16 }}>
-          <span className="field-label">Or use papers already in your Vault · {inVault.length}</span>
-          {inVault.length > 8 && (
-            <div className="row" style={{ gap: 6 }}>
-              <Input value={vaultQuery} onChange={(e) => setVaultQuery(e.target.value)} placeholder="Filter by title, author or venue" aria-label="Filter the papers in your Vault" />
-              <Button size="sm" variant="ghost" disabled={vaultShown.length === 0 || importing || !!progress || attach.busy}
-                onClick={() => setChosen((c) => new Set([...c, ...vaultShown.map((d) => d.id)]))}>
-                Tick {q ? 'all shown' : 'all'}
-              </Button>
-              <Button size="sm" variant="ghost" disabled={chosen.size === 0 || attach.busy} onClick={() => setChosen(new Set())}>Clear</Button>
-            </div>
-          )}
-          {vaultShown.length === 0 && <p className="muted small" style={{ margin: 0 }}>Nothing in your Vault matches “{vaultQuery.trim()}”.</p>}
-          <div className="pick-list" role="group" aria-label="Papers already in your Vault">
-            {vaultShown.map((d) => (
-              <label className={`pick-row ${chosen.has(d.id) ? 'on' : ''}`} key={d.id}>
-                <input
-                  type="checkbox"
-                  checked={chosen.has(d.id)}
-                  disabled={importing || !!progress || attach.busy}
-                  onChange={() => setChosen((c) => {
-                    const n = new Set(c);
-                    if (n.has(d.id)) n.delete(d.id); else n.add(d.id);
-                    return n;
-                  })}
-                />
-                <span>
-                  <div className="truncate" title={d.title}>{d.title || d.id}</div>
-                  <div className="v">{[d.pages > 0 ? `${d.pages} pages` : null, d.venue, d.authors.slice(0, 2).join(', ')].filter(Boolean).join(' · ')}</div>
-                </span>
-                <span />
-              </label>
-            ))}
-          </div>
-          <div className="row">
-            <Button size="sm" icon="plus" disabled={chosen.size === 0 || importing || !!progress} loading={attach.busy} onClick={() => void attach.run()}>
-              {chosen.size > 0 ? `Add ${plural(chosen.size, 'paper')} as seeds` : 'Tick papers to add them'}
-            </Button>
-            {attach.error && <span className="field-error">{attach.error}</span>}
-          </div>
-        </div>
-      )}
+      <VaultSeedPicker
+        profileKey={slug}
+        seedIds={new Set(seeds.map((d) => d.id))}
+        disabled={importing || !!progress}
+        // Same bookkeeping as an upload: the local seed list (step 2's
+        // spinner reads its length, and it survives a reload) and the
+        // results computed from the old seed set.
+        onAdded={(docs) => { docs.forEach(addSeed); invalidateDownstream(); }}
+      />
 
       <div style={{ marginTop: 16 }}>
         <div className="row spread" style={{ marginBottom: 6 }}>
@@ -567,7 +572,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
         {seeds.map((d, i) => (
           <div className="seed-row removable" key={d.id}>
             <span className="idx">{String(i + 1).padStart(2, '0')}</span>
-            <span className="truncate" title={d.title}>{d.title || d.id}</span>
+            <span className="truncate"><PaperTitle title={d.title || d.id} id={d.id} /></span>
             <span className="muted small">{d.pages ? `${d.pages} pages` : ''}</span>
             <span className="muted small">{d.authors.slice(0, 2).join(', ')}</span>
             <IconButton icon="trash" size="sm" label={`Remove "${d.title || d.id}" from the seeds`} disabled={importing || !!progress || removal.busyId !== null} onClick={() => void removal.remove(d.id, d.title)} />
@@ -579,7 +584,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
         <span className="note">
           {seeds.length === 0 ? 'Add at least one seed to continue.' : seeds.length === 1 ? 'One seed works, but coherence cannot be measured; the centroid is that paper.' : seeds.length < 5 ? 'A few more seeds would make the interest sharper.' : 'Good seed count.'}
         </span>
-        <Button variant="primary" iconRight="arrow-right" disabled={!haveSeeds || importing || !!progress || attach.busy} onClick={() => update({ step: 2 })}>
+        <Button variant="primary" iconRight="arrow-right" disabled={!haveSeeds || importing || !!progress} onClick={() => update({ step: 2 })}>
           Next: check coherence
         </Button>
       </div>
@@ -623,7 +628,7 @@ function StepCheck({ state }: { state: DraftState }) {
                     { id: c.least_similar.b_id, title: c.least_similar.b_title },
                   ].map((p) => (
                     <div className="seed-row pair-row" key={p.id}>
-                      <span className="truncate" title={p.title}>{p.title || p.id}</span>
+                      <span className="truncate" title={p.title}><PaperLink title={p.title || p.id} id={p.id} /></span>
                       <Button size="sm" variant="ghost" icon="trash" loading={removal.busyId === p.id} disabled={removal.busyId !== null || coh.fetching} onClick={() => void removeAndRecheck(p.id, p.title)}>Remove</Button>
                     </div>
                   ))}
@@ -655,7 +660,7 @@ function StepCheck({ state }: { state: DraftState }) {
   );
 }
 
-function verdictFor(c: DraftCoherence): { tone: 'ok' | 'warn' | 'err' | 'info'; title: string; body: string } {
+export function verdictFor(c: DraftCoherence): { tone: 'ok' | 'warn' | 'err' | 'info'; title: string; body: string } {
   // Prefer the backend's calibrated reading; fall back to the same bands locally.
   const label = c.label ?? (c.n < 2 ? 'single' : c.median >= 0.9 ? 'focused' : c.median >= 0.86 ? 'broad' : 'mixed');
   const body = c.summary || '';
@@ -665,7 +670,7 @@ function verdictFor(c: DraftCoherence): { tone: 'ok' | 'warn' | 'err' | 'info'; 
   return { tone: 'err', title: "Your seeds don't share a topic", body: body || 'They are about as similar as random papers from the same field. Split them into separate interests or remove the ones that do not belong.' };
 }
 
-function AgreementMeter({ agreement, n }: { agreement: number | null; n: number }) {
+export function AgreementMeter({ agreement, n }: { agreement: number | null; n: number }) {
   if (agreement == null) return null;
   const tone = agreementTone(agreement);
   return (
@@ -798,14 +803,16 @@ function StepThreshold({ state }: { state: DraftState }) {
             )}
           </Callout>
           <ThresholdHistogram scores={scores} value={value} min={axisLo} max={axisHi} seedBand={band} suggested={suggested} periodLabel="would pass · last 30 days" onChange={(v) => update({ threshold: Number(v.toFixed(3)) })} />
-          {result.preview.length > 0 && (
+          {result.papers && result.papers.length > 0 ? (
+            <ThresholdPaperList papers={result.papers} value={value} label="Papers from the trial scan" />
+          ) : result.preview.length > 0 && (
             <div>
               <div className="field-label" style={{ marginBottom: 6 }}>Top matches from the trial scan</div>
               {result.preview.slice(0, 8).map((c, i) => (
                 <div className="preview-row" key={c.id || i} style={{ opacity: (c.similarity ?? c.score) >= value ? 1 : 0.5 }}>
                   <span className="sc">{(c.similarity ?? c.score).toFixed(3)}</span>
                   <span>
-                    <div>{c.title}</div>
+                    <div><PaperLink title={c.title} id={c.openalex} doi={c.doi} /></div>
                     <div className="v">{c.venue || '—'}{(c.similarity ?? c.score) < value ? ' · below threshold' : ''}</div>
                   </span>
                 </div>

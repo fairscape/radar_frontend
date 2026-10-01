@@ -4,7 +4,7 @@
  * Mutations invalidate the query cache for the data they change so
  * every mounted view refreshes.
  */
-import { apiGet, apiPatch, apiPost } from '../client';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../client';
 import { invalidate } from '../../lib/query';
 import type {
   FeedbackEvent,
@@ -16,7 +16,7 @@ import type {
   Topic,
   TopicYieldResponse,
 } from '../../types/radar';
-import type { DraftCoherence } from './wizard';
+import type { DraftCoherence, DryRunPaper } from './wizard';
 
 export type { DraftCoherence } from './wizard';
 
@@ -59,6 +59,8 @@ export interface DryRunResult {
   suggested_threshold?: number | null;
   seed_similarity?: SeedSimilarity | null;
   score_range?: [number, number] | number[] | null;
+  /** Every stored candidate, best first, above and below the threshold. */
+  papers?: DryRunPaper[];
 }
 
 const enc = encodeURIComponent;
@@ -124,9 +126,46 @@ export async function recomputeTopics(key: string): Promise<Topic[]> {
   return res;
 }
 
+/** A saved interest's topics re-aggregated from its seeds; writes nothing. New ones come back off. */
+export function previewTopics(key: string): Promise<Topic[]> {
+  return apiGet<Topic[]>(`/api/profiles/${enc(key)}/topics/preview`);
+}
+
+/** Switch a saved interest's topics: exactly ``selectedIds`` on (409 if none). */
+export async function saveTopics(key: string, selectedIds: string[]): Promise<Topic[]> {
+  const res = await apiPut<Topic[]>(`/api/profiles/${enc(key)}/topics`, { selected_topic_ids: selectedIds });
+  invalidate('profiles');
+  return res;
+}
+
 export async function refitProfile(key: string): Promise<{ ok: true; key: string; cost: string }> {
   const res = await apiPost<{ ok: true; key: string; cost: string }>(`/api/profiles/${enc(key)}/refit`);
   invalidate('profiles', 'radar');
+  return res;
+}
+
+/**
+ * Attach papers the user already has -- uploads, a researcher's papers, or
+ * papers from the feed -- as seeds of a draft or a live interest. Papers
+ * without a vector are embedded, and a live interest is re-fitted and the
+ * papers it already found re-scored against the new seeds (``rescored``;
+ * null for a draft).
+ */
+export async function addSeeds(key: string, openalexIds: string[]): Promise<{ attached: number; rejected: string[]; rescored?: number | null }> {
+  const res = await apiPost<{ attached: number; rejected: string[]; rescored?: number | null }>(`/api/profiles/${enc(key)}/seeds`, { openalex_ids: openalexIds });
+  invalidate('profiles', 'vault', 'radar', `draft/${key}/`);
+  return res;
+}
+
+/**
+ * Remove one seed from a draft or a live interest (re-fitted at once).
+ * The id goes in the query string: it is usually https://openalex.org/W…,
+ * and in the path its encoded slashes were decoded before routing, so the
+ * old route answered 404 for almost every seed.
+ */
+export async function removeSeed(key: string, openalexId: string): Promise<{ ok: boolean }> {
+  const res = await apiDelete<{ ok: boolean }>(`/api/profiles/${enc(key)}/seeds?openalex_id=${enc(openalexId)}`);
+  invalidate('profiles', 'vault', 'radar', `draft/${key}/`);
   return res;
 }
 

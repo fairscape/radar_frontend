@@ -5,6 +5,7 @@ import { Badge, Button, Icon, ProgressBar, Swatch, type Tone } from './index';
 import { kindLabel, stepLabel, type Job, jobEstimate, fmtSeconds } from '../lib/jobs';
 import { paths } from '../lib/router';
 import { Link } from './Link';
+import { PaperLink } from './paperLink';
 import { fmtDuration } from '../lib/format';
 
 /**
@@ -274,7 +275,7 @@ export function RerankerBumpChart({ candidates, n }: { candidates: RerankerCandi
   const Row = ({ c, rank, score }: { c: RerankerCandidate; rank: number; score: number }) => (
     <div className={`rr-row ${hovered === c.openalex_id ? 'hl' : ''}`} onMouseEnter={() => setHovered(c.openalex_id)} onMouseLeave={() => setHovered(null)}>
       <span className="rank">{rank}</span>
-      <span className="ttl" title={c.title}>{c.title}</span>
+      <span className="ttl" title={c.title}><PaperLink title={c.title} id={c.openalex_id} /></span>
       <span className="sc">{score.toFixed(3)}</span>
       <span className={`rr-delta ${cls(delta(c))}`}>{fmt(delta(c))}</span>
     </div>

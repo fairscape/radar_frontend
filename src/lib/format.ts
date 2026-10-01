@@ -25,9 +25,33 @@ export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/**
+ * Parse a time the server sent. Two zone-less shapes are read the way they
+ * are meant, not the way `new Date` guesses:
+ *
+ * - "YYYY-MM-DD HH:MM:SS" is SQLite's datetime('now'), which is UTC.
+ *   `new Date` takes it as local time, so on the east coast every "x ago"
+ *   was 4-5 hours off and a draft edited a minute ago read as in the future.
+ * - "YYYY-MM-DD" is a calendar date (a publication date). `new Date` takes
+ *   it as UTC midnight, which is the previous evening east of Greenwich,
+ *   so the day shown was one early.
+ *
+ * Anything with a zone ("…Z", "+00:00") is left to `new Date`.
+ */
+export function parseServerTime(iso: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(iso)) {
+    return new Date(`${iso.replace(' ', 'T')}Z`);
+  }
+  return new Date(iso);
+}
+
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const d = new Date(iso);
+  const d = parseServerTime(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString(undefined, {
     month: 'short',
@@ -39,14 +63,14 @@ export function fmtDateTime(iso: string | null | undefined): string {
 
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const d = new Date(iso);
+  const d = parseServerTime(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 export function fmtRelative(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const d = new Date(iso);
+  const d = parseServerTime(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const s = Math.round((Date.now() - d.getTime()) / 1000);
   if (s < 60) return 'just now';
@@ -58,8 +82,8 @@ export function fmtRelative(iso: string | null | undefined): string {
 }
 
 export function fmtDuration(startIso: string, endIso: string | null): string {
-  const a = new Date(startIso).getTime();
-  const b = endIso ? new Date(endIso).getTime() : Date.now();
+  const a = parseServerTime(startIso).getTime();
+  const b = endIso ? parseServerTime(endIso).getTime() : Date.now();
   if (Number.isNaN(a) || Number.isNaN(b)) return '—';
   const s = Math.max(0, Math.round((b - a) / 1000));
   if (s < 60) return `${s}s`;

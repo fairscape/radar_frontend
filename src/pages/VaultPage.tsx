@@ -6,9 +6,12 @@ import { errorMessage, fmtDate, fmtRelative, plural } from '../lib/format';
 import { invalidate, setQueryData } from '../lib/query';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { CHAT_ENABLED } from '../lib/features';
+import { notifyEmptyDrop } from '../lib/dropHint';
 import type { ChatSource, ChatTurn, LLMProvider, VaultDoc } from '../types/radar';
 import { Badge, Button, EmptyState, ErrorBox, Icon, IconButton, Input, LoadingRows, Select, Spinner, Swatch, Textarea, confirmDialog } from '../ui';
 import { keys } from '../api/hooks';
+import { PaperLink } from '../ui/pickers';
 
 export function VaultPage() {
   const [tag, setTag] = useState('all');
@@ -50,12 +53,44 @@ export function VaultPage() {
     for (const f of fails) toast.error(f);
   }
 
+  // The whole page takes dropped PDFs. Uploading here was a button that
+  // opened the file browser and nothing else, so dragging a PDF onto the
+  // Vault did nothing -- while the wizard's seed step took drops. The
+  // counter is because dragenter/dragleave fire for every child element
+  // crossed; a boolean would flicker off over each one.
+  const [dragDepth, setDragDepth] = useState(0);
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
+  // A link dragged in (Zotero, a download bar) is accepted too, only so the
+  // drop event fires and can explain why nothing uploaded; without
+  // preventDefault on dragover the browser never delivers the drop.
+  const droppable = (e: React.DragEvent) => hasFiles(e) || Array.from(e.dataTransfer.types).includes('text/uri-list');
+
   return (
-    <div className="page">
+    <div
+      className={`page vault-drop ${dragDepth > 0 ? 'over' : ''}`}
+      onDragEnter={(e) => { if (droppable(e)) { e.preventDefault(); setDragDepth((d) => d + 1); } }}
+      onDragOver={(e) => { if (droppable(e)) e.preventDefault(); }}
+      onDragLeave={(e) => { if (droppable(e)) setDragDepth((d) => Math.max(0, d - 1)); }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) { if (e.dataTransfer.types.includes('text/uri-list')) { e.preventDefault(); setDragDepth(0); notifyEmptyDrop(); } return; }
+        e.preventDefault();
+        setDragDepth(0);
+        if (!e.dataTransfer.files?.length) { notifyEmptyDrop(); return; }
+        if (!uploading) void upload(e.dataTransfer.files);
+      }}
+    >
+      {dragDepth > 0 && (
+        <div className="vault-drop-hint" aria-hidden="true">
+          <Icon name="upload" size={22} />
+          <span>Drop PDFs to upload{tag !== 'all' ? ` to ${byKey[tag]?.name ?? tag}` : ''}</span>
+        </div>
+      )}
       <header className="page-head">
         <div>
           <h1 className="page-title">{TERMS.vault}</h1>
-          <p className="page-sub">Your PDFs, indexed for search. Seeds land here automatically; upload anything else you want to ask questions about.</p>
+          <p className="page-sub">{CHAT_ENABLED
+            ? 'Your PDFs, indexed for search. Seeds land here automatically; upload anything else you want to ask questions about.'
+            : 'Every paper you have uploaded or imported. Seeds land here automatically, and anything here can become a seed of an interest.'}</p>
         </div>
         <div className="page-actions">
           <Button variant="primary" icon="upload" onClick={() => inputRef.current?.click()} loading={!!uploading} title={tag !== 'all' ? `Uploads will be tagged "${byKey[tag]?.name ?? tag}"` : 'Upload PDFs'}>
@@ -65,7 +100,7 @@ export function VaultPage() {
         </div>
       </header>
 
-      <div className="vault-layout">
+      <div className={`vault-layout ${CHAT_ENABLED ? '' : 'no-chat'}`}>
         <div className="vault-col">
           <div className="vault-col-head"><span>Collections</span><span className="small muted">{stats.data?.docs ?? '—'} docs</span></div>
           <div className="vault-col-body">
@@ -102,8 +137,16 @@ export function VaultPage() {
               : <EmptyState compact icon="file" title={tag === 'all' ? 'The vault is empty' : 'Nothing tagged here yet'} body={tag === 'all' ? 'Upload PDFs, or create an interest: its seeds are stored here.' : 'Upload PDFs while this collection is selected to tag them.'} action={<Button size="sm" icon="upload" onClick={() => inputRef.current?.click()}>Upload PDFs</Button>} />
             )}
             {filtered.map((d) => (
-              <button key={d.id} type="button" className={`doc-row ${active?.id === d.id ? 'active' : ''}`} onClick={() => setActiveDoc(active?.id === d.id ? null : d.id)} aria-expanded={active?.id === d.id}>
-                <div className="doc-title">{d.title}</div>
+              // A div, not a <button>: the title is a link, and a link inside a
+              // button is invalid HTML -- Firefox gives the click to the button.
+              <div
+                key={d.id} role="button" tabIndex={0}
+                className={`doc-row ${active?.id === d.id ? 'active' : ''}`}
+                onClick={() => setActiveDoc(active?.id === d.id ? null : d.id)}
+                onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setActiveDoc(active?.id === d.id ? null : d.id); } }}
+                aria-expanded={active?.id === d.id}
+              >
+                <div className="doc-title"><PaperLink title={d.title} id={d.id} /></div>
                 <div className="doc-meta">
                   <span className="truncate" style={{ maxWidth: 260 }}>{d.authors.join(', ') || 'Unknown authors'}</span>
                   <span>{d.venue || '—'}</span>
@@ -112,13 +155,13 @@ export function VaultPage() {
                     <span key={t} className="row" style={{ gap: 4 }}><Swatch hue={byKey[t]?.hue ?? 200} size={7} />{byKey[t]?.name ?? t}</span>
                   ))}
                 </div>
-              </button>
+              </div>
             ))}
           </div>
           {active && <DocDetail doc={active} tagName={(t) => byKey[t]?.name ?? t} />}
         </div>
 
-        <ChatPanel profiles={(profiles ?? []).filter((p) => !p.isDraft)} defaultScope={tag !== 'all' ? [tag] : []} />
+        {CHAT_ENABLED && <ChatPanel profiles={(profiles ?? []).filter((p) => !p.isDraft)} defaultScope={tag !== 'all' ? [tag] : []} />}
       </div>
     </div>
   );
@@ -127,7 +170,7 @@ export function VaultPage() {
 function DocDetail({ doc, tagName }: { doc: VaultDoc; tagName: (t: string) => string }) {
   return (
     <dl className="doc-detail">
-      <div><dt>Title</dt><dd>{doc.title}</dd></div>
+      <div><dt>Title</dt><dd><PaperLink title={doc.title} id={doc.id} /></dd></div>
       <div><dt>Authors</dt><dd>{doc.authors.join(', ') || '—'}</dd></div>
       <div className="row" style={{ gap: 24 }}>
         <div><dt>Venue</dt><dd>{doc.venue || '—'}</dd></div>
@@ -243,6 +286,15 @@ function ChatPanel({ profiles, defaultScope }: { profiles: import('../types/rada
           ) : activeProvider ? `Model: ${activeProvider.model}${activeProvider.configured ? '' : ' (not configured)'}` : ''}</span>
           <span>Enter to send · Shift+Enter for a new line</span>
         </div>
+        {/* True of the backend (services/chat.py answers one turn; history is
+            stored for display only). The old UI said it as "SINGLE-SHOT · EACH
+            QUESTION IS ITS OWN PROMPT · NO MEMORY OF PRIOR TURNS", which
+            people asked about; the new one said nothing, which reads as if
+            it does remember. */}
+        <p className="small muted" style={{ margin: '6px 0 0' }}>
+          Each question is answered on its own: earlier questions and answers
+          aren&rsquo;t sent with it, so ask in full rather than &ldquo;and what about…&rdquo;.
+        </p>
       </div>
     </div>
   );

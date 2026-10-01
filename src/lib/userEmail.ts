@@ -62,6 +62,9 @@ export function clearUserEmail(): void {
  * would offer to resume their half-built draft.
  */
 const SESSION_KEYS = ['radar.jobs.v1', 'radar.wizard.v2'];
+// Per-person localStorage keys (``<prefix>:<email>``). They are already
+// scoped to whoever is signed in; signing out removes this person's too.
+const PERSON_LOCAL_PREFIXES = ['radar.lastOrcid'];
 
 /**
  * Sign out for real.
@@ -72,9 +75,12 @@ const SESSION_KEYS = ['radar.jobs.v1', 'radar.wizard.v2'];
  * Hand off to Access and let it drop the session.
  */
 export function signOut(): void {
+  // Read before clearUserEmail(): afterwards there is no one to clear for.
+  const who = getUserEmail();
   clearUserEmail();
   try {
     for (const k of SESSION_KEYS) window.sessionStorage.removeItem(k);
+    if (who) for (const p of PERSON_LOCAL_PREFIXES) window.localStorage.removeItem(`${p}:${who.toLowerCase()}`);
   } catch {
     // Storage blocked. Nothing was written either, so nothing leaks.
   }

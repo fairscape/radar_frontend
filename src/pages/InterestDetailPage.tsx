@@ -5,7 +5,7 @@ import {
   getRerankerComparison,
   getTopicYield,
   recomputeCoherence,
-  recomputeTopics,
+  removeSeed,
   updateProfileThreshold,
   type GatherRunStatus,
 } from '../api/endpoints/profiles';
@@ -16,18 +16,31 @@ import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { notifyEmptyDrop } from '../lib/dropHint';
 import type { Profile } from '../types/radar';
-import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, Stat, Tabs, useAction } from '../ui';
+import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Stat, Tabs, confirmDialog, useAction } from '../ui';
+import { PaperTitle } from '../ui/pickers';
+import { VaultSeedPicker } from '../ui/VaultSeedPicker';
+import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, HealthBadge, JobProgress, RerankerBumpChart, SectionNote, ThresholdHistogram, agreementTone, axisFor, healthOf } from '../ui/domain';
 import { goToFeedFor } from './FeedPage';
 
-type Tab = 'overview' | 'seeds' | 'topics' | 'threshold' | 'scans' | 'diagnostics';
+type Tab = 'overview' | 'seeds' | 'topics' | 'threshold' | 'scans' | 'refinement';
 
-export function InterestDetailPage({ profileKey }: { profileKey: string }) {
+const TABS: Tab[] = ['overview', 'seeds', 'topics', 'threshold', 'scans', 'refinement'];
+
+export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: string; urlTab?: string | null }) {
   const { data: profiles, loading: listLoading } = useProfiles();
   const { data: detail, loading, error, refresh } = useProfileDetail(profileKey);
-  const [tab, setTab] = useState<Tab>('overview');
+  // The tab is in the URL (?tab=) so Back moves between tabs and other
+  // pages can link straight to one ("View seeds" after seeding from the feed).
+  const tab: Tab = TABS.includes(urlTab as Tab) ? (urlTab as Tab) : 'overview';
+  const setTab = (t: Tab) => navigate(paths.interest(profileKey, t === 'overview' ? null : t));
+  // "Add papers" in the header: open the Seeds tab with the Vault picker
+  // unfolded. Adding seeds to a saved interest was possible but hard to
+  // find -- the picker sat folded behind a link at the bottom of a tab.
+  const [addPapers, setAddPapers] = useState(0);
   const [scanOpen, setScanOpen] = useState(false);
   const running = useRunningJob('scan', profileKey);
   const listed = profiles?.find((p) => p.key === profileKey);
@@ -68,6 +81,8 @@ export function InterestDetailPage({ profileKey }: { profileKey: string }) {
           <p className="page-sub">{health.hint}{profile.researcherId != null && <BuiltFrom id={profile.researcherId} />}</p>
         </div>
         <div className="page-actions">
+          <Button icon="plus" onClick={() => { setTab('seeds'); setAddPapers((n) => n + 1); }} title="Add seed papers to this interest">Add papers</Button>
+          <Button icon="sliders" onClick={() => navigate(paths.interestEdit(profile.key))} title="Go through the steps again: seeds, check, topics, threshold">Edit interest</Button>
           <Button icon="radar" onClick={() => goToFeedFor(profile.key)}>View in feed</Button>
           <Button variant="primary" icon="play" onClick={() => setScanOpen(true)} disabled={!!running} title={running ? 'A scan is already running' : 'Look for new papers now'}>
             {running ? 'Scanning…' : 'Scan now'}
@@ -97,25 +112,25 @@ export function InterestDetailPage({ profileKey }: { profileKey: string }) {
           { id: 'topics', label: 'Topics', count: detail ? detail.topics.filter((t) => t.on).length : null },
           { id: 'threshold', label: 'Threshold' },
           { id: 'scans', label: 'Scans' },
-          { id: 'diagnostics', label: 'Diagnostics' },
+          { id: 'refinement', label: 'Rank refinement' },
         ]}
       />
 
       {error && !detail && <ErrorBox message={errorMessage(error)} onRetry={refresh} />}
       {loading && !detail && <LoadingRows rows={4} />}
       {detail && tab === 'overview' && <OverviewTab profile={profile} detail={detail} onScan={() => setScanOpen(true)} />}
-      {detail && tab === 'seeds' && <SeedsTab profile={profile} detail={detail} />}
+      {detail && tab === 'seeds' && <SeedsTab profile={profile} detail={detail} openPicker={addPapers} />}
       {detail && tab === 'topics' && <TopicsTab profile={profile} detail={detail} />}
       {detail && tab === 'threshold' && <ThresholdTab profile={profile} onScan={() => setScanOpen(true)} />}
       {tab === 'scans' && <ScansTab profile={profile} onScan={() => setScanOpen(true)} />}
-      {detail && tab === 'diagnostics' && <DiagnosticsTab profile={profile} />}
+      {detail && tab === 'refinement' && <RankRefinementTab profile={profile} />}
 
       <ScanDialog profile={profile} open={scanOpen} onClose={() => setScanOpen(false)} />
     </div>
   );
 }
 
-type Detail = NonNullable<ReturnType<typeof useProfileDetail>['data']>;
+export type Detail = NonNullable<ReturnType<typeof useProfileDetail>['data']>;
 
 function OverviewTab({ profile, detail, onScan }: { profile: Profile; detail: Detail; onScan: () => void }) {
   const { data: runs } = useProfileRuns(profile.key, 5);
@@ -156,15 +171,22 @@ function OverviewTab({ profile, detail, onScan }: { profile: Profile; detail: De
   );
 }
 
-function SeedsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
+export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile; detail: Detail; openPicker?: number }) {
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (openPicker > 0) pickerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [openPicker]);
   const health = healthOf(profile);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
   const [failures, setFailures] = useState<string[]>([]);
+  // Coherence only. It used to run recompute-topics too, which switches
+  // every topic the new seeds bring in *on* -- widening the next scan
+  // unseen. Topics are chosen in Edit interest -> Topics now.
   const recompute = useAction(async () => {
-    await Promise.all([recomputeCoherence(profile.key), recomputeTopics(profile.key)]);
-    toast.success('Coherence and topics recomputed.');
+    await recomputeCoherence(profile.key);
+    toast.success('Coherence recomputed.');
   });
 
   async function upload(files: FileList | null) {
@@ -182,21 +204,48 @@ function SeedsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
       }
     }
     setProgress(null);
-    if (ok > 0) toast.success(`${plural(ok, 'seed')} added. Recompute to update coherence and topics.`);
+    // Each upload re-fits the interest on the server; the coherence and
+    // topic views are what still need a Recompute.
+    if (ok > 0) toast.success(`${plural(ok, 'seed')} added. The papers already found were re-scored against the new seeds, so the feed is updated.`);
+  }
+
+  // Seeds of a live interest could be added (by PDF) but never removed:
+  // there was no route for it, and the draft route 404'd on the usual
+  // https://openalex.org/W… id. The server re-fits the interest on the
+  // seeds that remain, and refuses to remove the last one.
+  const [removing, setRemoving] = useState<string | null>(null);
+  async function remove(id: string, title: string) {
+    const ok = await confirmDialog({
+      title: 'Remove this seed?',
+      body: <p>"{title || id}" will no longer count towards this {TERMS.interest}. The interest is re-fitted on the seeds that remain; the paper stays in your Vault.</p>,
+      confirmLabel: 'Remove seed',
+      danger: true,
+    });
+    if (!ok) return;
+    setRemoving(id);
+    try {
+      await removeSeed(profile.key, id);
+      toast.success('Seed removed. The papers already found were re-scored against the seeds that remain.');
+    } catch (e) {
+      toast.error(`Couldn't remove the seed: ${errorMessage(e)}`);
+    } finally {
+      setRemoving(null);
+    }
   }
 
   return (
     <div className="two-col">
-      <Panel title="Seed papers" description="What this interest is made of." actions={<Button size="sm" icon="refresh" onClick={() => recompute.run()} loading={recompute.busy} title="Recompute coherence and topics from the current seeds">Recompute</Button>}>
+      <Panel title="Seed papers" description="What this interest is made of." actions={<Button size="sm" icon="refresh" onClick={() => recompute.run()} loading={recompute.busy} title="Recompute coherence from the current seeds">Recompute</Button>}>
         {recompute.error && <ErrorBox compact message={recompute.error} />}
         {detail.seeds.length === 0 ? <p className="muted small">No seeds recorded.</p> : detail.seeds.map((s) => (
-          <div className="seed-row" key={s.id}>
+          <div className="seed-row removable" key={s.id}>
             <span className="idx">{String(s.idx).padStart(2, '0')}</span>
-            <span className="truncate" title={s.title}>{s.title}</span>
+            <span className="truncate"><PaperTitle title={s.title} id={s.id} /></span>
             <span className="muted mono small">{s.year || ''}</span>
             <span className="mono small" title="How similar this seed is to the other seeds (leave-one-out). The lowest values are the least typical papers." style={{ color: s.coh > 0 && profile.seedSimMin != null && s.coh <= profile.seedSimMin + 1e-6 && profile.seedSimMax != null && profile.seedSimMax - profile.seedSimMin > 0.02 ? 'var(--warn)' : 'var(--fg-3)' }}>
               {s.coh > 0 ? s.coh.toFixed(3) : '—'}
             </span>
+            <IconButton icon="trash" size="sm" label={`Remove "${s.title || s.id}" from the seeds`} disabled={removing !== null || !!progress || detail.seeds.length <= 1} onClick={() => void remove(s.id, s.title)} />
           </div>
         ))}
         <div
@@ -205,7 +254,7 @@ function SeedsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
           onClick={() => !progress && inputRef.current?.click()}
           onDragOver={(e) => { e.preventDefault(); setOver(true); }}
           onDragLeave={() => setOver(false)}
-          onDrop={(e) => { e.preventDefault(); setOver(false); void upload(e.dataTransfer.files); }}
+          onDrop={(e) => { e.preventDefault(); setOver(false); if (!e.dataTransfer.files?.length) { notifyEmptyDrop(); return; } void upload(e.dataTransfer.files); }}
           role="button"
           tabIndex={0}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click(); }}
@@ -215,6 +264,9 @@ function SeedsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
           <input ref={inputRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ''; }} />
         </div>
         {failures.length > 0 && <ErrorBox compact title="Some files failed" message={failures.map((f) => <div key={f}>{f}</div>)} />}
+        <div ref={pickerRef}>
+          <VaultSeedPicker profileKey={profile.key} seedIds={new Set(detail.seeds.map((s) => s.id))} disabled={!!progress || removing !== null} openSignal={openPicker} />
+        </div>
       </Panel>
       <Panel title="Do the seeds agree?" description="Whether the seed papers are about the same thing. The similarity column on the left shows how typical each seed is; the lowest ones are the odd ones out.">
         {detail.seeds.length < 2 ? (
@@ -246,7 +298,10 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
   const yieldBy = Object.fromEntries((yieldQ.data?.topics ?? []).map((t) => [t.topic_id, t]));
   return (
     <Panel title="Topics" description="What Radar asks OpenAlex for. Aggregated from the seeds; chosen when the interest was created.">
-      <SectionNote>Topic selection is fixed after setup. To change it, recompute topics after adding seeds, or create a new {TERMS.interest}.</SectionNote>
+      <SectionNote>
+        To switch topics on or off, or pick up topics that new seeds brought in, use{' '}
+        <Link href={paths.interestEdit(profile.key, 3)}>Edit interest → Topics</Link>. Changes apply from the next scan.
+      </SectionNote>
       {detail.topics.length === 0 ? (
         <p className="muted small">No topics. Add seeds whose OpenAlex records resolve, then Recompute on the Seeds tab.</p>
       ) : (
@@ -277,7 +332,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
   );
 }
 
-function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => void }) {
+export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => void }) {
   const scoresQ = useQuery(`profiles/${profile.key}/scores`, () => candidateScores(profile.key));
   const [value, setValue] = useState<number>(profile.threshold);
   useEffect(() => setValue(profile.threshold), [profile.threshold, profile.key]);
@@ -292,7 +347,7 @@ function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => voi
   return (
     <Panel
       title="Threshold"
-      description="The similarity a paper needs to reach your feed. The shaded band is where your own seed papers score; the suggested value sits just below it. Move the bar to see how many already-gathered papers would clear it."
+      description="The similarity a paper needs to reach your feed. Scans keep every paper they find; the threshold decides which ones you see, and saving applies at once. The shaded band is where your own seed papers score; the suggested value sits just below it."
       actions={
         <>
           <Button size="sm" variant="ghost" onClick={() => setValue(profile.threshold)} disabled={!dirty}>Reset</Button>
@@ -315,6 +370,19 @@ function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => voi
             </div>
           )}
           <ThresholdHistogram scores={scoresQ.data.scores} value={value} min={axisLo} max={axisHi} onChange={setValue} reference={profile.threshold} seedBand={band} suggested={suggested} periodLabel="of gathered papers would pass" />
+          {/* Scans before 2026-10-01 dropped every paper below the threshold
+              of the day, so an older interest has nothing below it to show. */}
+          {scoresQ.data.papers && scoresQ.data.papers.length > 0 && !scoresQ.data.papers.some((p) => p.score < profile.threshold) && (
+            <Callout tone="info">
+              Nothing below <b className="mono">{profile.threshold.toFixed(3)}</b> is stored yet: earlier scans kept only the papers above the threshold. Scans now keep everything, so after the next one a lower threshold shows what it adds.{' '}
+              <Button size="sm" variant="ghost" icon="play" onClick={onScan}>Scan now</Button>
+            </Callout>
+          )}
+          {scoresQ.data.papers && scoresQ.data.papers.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <ThresholdPaperList papers={scoresQ.data.papers} value={value} label={dirty ? 'Papers gathered so far (not saved yet)' : 'Papers gathered so far'} />
+            </div>
+          )}
         </>
       )}
       <div className="row" style={{ marginTop: 12 }}>
@@ -361,7 +429,13 @@ function RunRow({ run }: { run: GatherRunStatus }) {
   );
 }
 
-function DiagnosticsTab({ profile }: { profile: Profile }) {
+// A reranker query is a seed's whole "TITLE: ... ABSTRACT: ..." text; list it by title.
+function queryTitle(q: string): string {
+  const m = /^TITLE:\s*(.*?)\s*(?:ABSTRACT:|$)/s.exec(q);
+  return (m?.[1] || q).trim();
+}
+
+function RankRefinementTab({ profile }: { profile: Profile }) {
   const rr = useQuery(`profiles/${profile.key}/reranker`, () => getRerankerComparison(profile.key));
   return (
     <Panel title="Reranker comparison" description="How the second-stage reranker reordered the selector's ranking. Empty unless a reranker is enabled on the backend.">
@@ -377,10 +451,19 @@ function DiagnosticsTab({ profile }: { profile: Profile }) {
             <Stat label="Largest demotion" value={`-${rr.data.max_rank_down}`} tone="err" />
           </div>
           {rr.data.queries_used.length > 0 && (
-            <div className="row-wrap small muted" style={{ marginBottom: 10 }}>
-              <span>Queries:</span>
-              {rr.data.queries_used.map((q) => <Badge key={q}>{q}</Badge>)}
-            </div>
+            <details className="rr-queries small" style={{ marginBottom: 10 }}>
+              <summary className="muted">Queries the reranker scored against ({rr.data.queries_used.length}, one per seed)</summary>
+              <ol>
+                {rr.data.queries_used.map((q) => (
+                  <li key={q}>
+                    <details>
+                      <summary title={queryTitle(q)}>{queryTitle(q)}</summary>
+                      <p className="muted">{q}</p>
+                    </details>
+                  </li>
+                ))}
+              </ol>
+            </details>
           )}
           <RerankerBumpChart candidates={rr.data.candidates} n={rr.data.n} />
         </>
@@ -389,7 +472,7 @@ function DiagnosticsTab({ profile }: { profile: Profile }) {
   );
 }
 
-function ScanDialog({ profile, open, onClose }: { profile: Profile; open: boolean; onClose: () => void }) {
+export function ScanDialog({ profile, open, onClose }: { profile: Profile; open: boolean; onClose: () => void }) {
   const [days, setDays] = useState(7);
   const [limit, setLimit] = useState(500);
   const go = useAction(async () => {

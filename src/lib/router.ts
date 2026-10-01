@@ -38,8 +38,9 @@ export type Route =
   | { name: 'home' }
   | { name: 'feed' }
   | { name: 'interests' }
-  | { name: 'interest'; key: string }
-  | { name: 'wizard'; draft: string | null; source: string | null; researcher: number | null }
+  | { name: 'interest'; key: string; tab: string | null }
+  | { name: 'interestEdit'; key: string; step: number | null }
+  | { name: 'wizard'; draft: string | null; source: string | null; researcher: number | null; step: number | null }
   | { name: 'profiles' }
   | { name: 'profile'; id: number }
   | { name: 'vault' }
@@ -55,10 +56,20 @@ export function matchRoute(full: string): Route {
   if (path === '/interests') return { name: 'interests' };
   if (path === '/interests/new') {
     const r = search.get('researcher');
-    return { name: 'wizard', draft: search.get('draft'), source: search.get('source'), researcher: r && /^\d+$/.test(r) ? Number(r) : null };
+    const st = search.get('step');
+    return {
+      name: 'wizard', draft: search.get('draft'), source: search.get('source'),
+      researcher: r && /^\d+$/.test(r) ? Number(r) : null,
+      step: st && /^[1-4]$/.test(st) ? Number(st) : null,
+    };
+  }
+  const me = path.match(/^\/interests\/([^/]+)\/edit$/);
+  if (me) {
+    const st = search.get('step');
+    return { name: 'interestEdit', key: decodeURIComponent(me[1]), step: st && /^[1-4]$/.test(st) ? Number(st) : null };
   }
   const m = path.match(/^\/interests\/([^/]+)$/);
-  if (m) return { name: 'interest', key: decodeURIComponent(m[1]) };
+  if (m) return { name: 'interest', key: decodeURIComponent(m[1]), tab: search.get('tab') };
   // "Profile" is a stored researcher (see terms.ts); interests live under /interests.
   if (path === '/profiles') return { name: 'profiles' };
   const pm = path.match(/^\/profiles\/(\d+)$/);
@@ -81,9 +92,13 @@ export const paths = {
   home: '/start',
   feed: '/feed',
   interests: '/interests',
-  interest: (key: string) => `/interests/${encodeURIComponent(key)}`,
-  wizard: (draft?: string | null) =>
-    draft ? `/interests/new?draft=${encodeURIComponent(draft)}` : '/interests/new',
+  /** ``tab`` opens that tab (``seeds``, ``threshold``…); it is in the URL so Back moves between tabs. */
+  interest: (key: string, tab?: string | null) => `/interests/${encodeURIComponent(key)}${tab ? `?tab=${encodeURIComponent(tab)}` : ''}`,
+  /** ``step`` puts the wizard step in the URL, so the browser's Back button moves between steps. */
+  /** Re-walk a saved interest's steps (seeds, check, topics, threshold); ``step`` is in the URL so Back works. */
+  interestEdit: (key: string, step?: number | null) => `/interests/${encodeURIComponent(key)}/edit${step ? `?step=${step}` : ''}`,
+  wizard: (draft?: string | null, step?: number | null) =>
+    draft ? `/interests/new?draft=${encodeURIComponent(draft)}${step ? `&step=${step}` : ''}` : '/interests/new',
   /** The wizard with a seed source preselected (``upload`` | ``orcid`` | ``prosopia`` | ``profile``). */
   wizardFrom: (source: string, researcher?: number | null) =>
     `/interests/new?source=${encodeURIComponent(source)}${researcher != null ? `&researcher=${researcher}` : ''}`,

@@ -69,8 +69,6 @@ export interface OrcidImportRequest {
   openalex_ids: string[];
   name?: string;
   embedding_model?: string;
-  /** ``id`` values from the works listing to keep; omitted = the whole profile. */
-  paper_ids?: string[];
 }
 
 /** One paper on a Prosopia profile, as ``GET /api/import/prosopia/works`` lists it. */
@@ -93,7 +91,11 @@ export interface ProsopiaWorksResponse {
 }
 
 export interface ProsopiaImportStart {
-  draft_slug: string;
+  /**
+   * Null when `already_running` joined an import of this person started
+   * from the Profiles page: that kind builds no draft.
+   */
+  draft_slug: string | null;
   run_id: number;
   /**
    * True when nothing was started: an import of this person was already in
@@ -105,13 +107,24 @@ export interface ProsopiaImportStart {
   already_running?: boolean;
 }
 
+/**
+ * What a finished import reports (services/prosopia.run_import). This used
+ * to declare n_seeds / n_resolved / n_synthetic, which the server has
+ * never sent, and to omit the fields it does.
+ */
 export interface ProsopiaImportResult {
-  draft_slug: string;
-  /** Display name the server chose for the draft, if it reports one. */
+  slug?: string;
+  /** Null for a researcher-only import, which builds no draft. */
+  draft_slug: string | null;
+  researcher_id?: number | null;
+  /** Display name the server chose for the draft. */
   name?: string;
-  n_seeds?: number;
-  n_resolved?: number;
-  n_synthetic?: number;
+  /** Papers imported. */
+  drafted?: number;
+  /** How many papers each resolution rung found (work_id, doi, pmcid, title, none). */
+  resolved_by?: Record<string, number>;
+  /** Ids of the papers no rung resolved, kept as synthetic records. */
+  unresolved?: string[];
   [extra: string]: unknown;
 }
 

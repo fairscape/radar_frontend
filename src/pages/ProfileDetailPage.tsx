@@ -12,7 +12,7 @@ import type { ResearcherPaper, SuggestedInterest } from '../types/researchers';
 import { Badge, Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, Stat, Swatch, Tabs, confirmDialog, useAction } from '../ui';
 import { Link } from '../ui/Link';
 import { HealthBadge, JobProgress, agreementTone } from '../ui/domain';
-import { PaperPickList, type PickWork } from '../ui/pickers';
+import { PaperLink, PaperPickList, type PickWork } from '../ui/pickers';
 
 type Tab = 'suggested' | 'papers' | 'interests' | 'about';
 
@@ -163,7 +163,7 @@ function PapersTab({ papers }: { papers: ResearcherPaper[] }) {
         <div className="rp-row" key={p.id}>
           <span className="idx">{String(i + 1).padStart(2, '0')}</span>
           <span>
-            <div className="rp-title">{p.title}</div>
+            <div className="rp-title"><PaperLink title={p.title} id={p.id} doi={p.doi} /></div>
             <div className="rp-meta">{[p.year, p.venue, p.authors.length > 3 ? `${p.authors.slice(0, 3).join(', ')} +${p.authors.length - 3}` : p.authors.join(', ')].filter(Boolean).join(' · ')}</div>
           </span>
           <span className="rp-side">
