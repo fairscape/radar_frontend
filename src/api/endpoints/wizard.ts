@@ -1,5 +1,5 @@
 /** Draft-interest (wizard) endpoints. Shapes mirror ``rag_lib/api/schemas.py``. */
-import type { Card, CoherenceLabel, Profile, SeedSimilarity, SweepRow, Topic, VaultDoc } from '../../types/radar';
+import type { Card, CoherenceLabel, Profile, SeedSimilarity, SweepRow, Topic, VaultDoc, YearSpan } from '../../types/radar';
 import { apiDelete, apiGet, apiPost } from '../client';
 import { invalidate } from '../../lib/query';
 import type { GatherRunStatus } from './profiles';
@@ -63,6 +63,7 @@ export interface CommitDraftRequest {
   selected_topic_ids: string[];
   cron?: string;
   tz?: string;
+  years?: { year_from: number | null; year_to: number | null } | null;
 }
 
 const enc = encodeURIComponent;
@@ -85,8 +86,10 @@ export function getDraftTopics(slug: string): Promise<Topic[]> {
   return apiGet<Topic[]>(`/api/profiles/draft/${enc(slug)}/topics`);
 }
 
-export function startDraftDryRun(slug: string, days = 30): Promise<{ ok: true; run_id: number }> {
-  return apiPost<{ ok: true; run_id: number }>(`/api/profiles/draft/${enc(slug)}/dry-run`, { days });
+/** ``years``: sample each of those years (most cited first) instead of the last ``days``. */
+export function startDraftDryRun(slug: string, days = 30, years?: YearSpan | null): Promise<{ ok: true; run_id: number }> {
+  return apiPost<{ ok: true; run_id: number }>(`/api/profiles/draft/${enc(slug)}/dry-run`,
+    years ? { days, year_from: years.from, year_to: years.to } : { days });
 }
 
 export function getDraftDryRunStatus(slug: string, runId: number): Promise<DraftDryRunStatus> {

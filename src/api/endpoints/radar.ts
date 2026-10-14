@@ -5,6 +5,7 @@ export function getDailyRadar(filters: DailyRadarFilters = {}): Promise<DailyRad
   const params: Record<string, string> = {};
   if (filters.profile && filters.profile !== 'all') params.profile = filters.profile;
   if (filters.bucket) params.bucket = filters.bucket;
+  if (filters.yearFrom) params.year_from = String(filters.yearFrom);
   return apiGet<DailyRadarResponse>('/api/radar/daily', params);
 }
 

@@ -16,11 +16,21 @@ import { AddInterestCards } from './HomePage';
 
 type BucketFilter = 'all' | Bucket;
 
+const THIS_YEAR = new Date().getFullYear();
+const PUBLISHED_SINCE = [
+  { label: 'This year', year: THIS_YEAR },
+  { label: 'Last 3 years', year: THIS_YEAR - 2 },
+  { label: 'Last 5 years', year: THIS_YEAR - 4 },
+  { label: 'Last 10 years', year: THIS_YEAR - 9 },
+];
+
 export function FeedPage() {
   const path = usePath();
   const initialInterest = useMemo(() => new URLSearchParams(path.split('?')[1] ?? '').get('interest') ?? 'all', [path]);
   const [profFilter, setProfFilter] = useState<string>(initialInterest);
   const [bucket, setBucket] = useState<BucketFilter>('all');
+  // "Published since" (a year), on top of each interest's own years.
+  const [yearFrom, setYearFrom] = useState<number | null>(null);
   const [showTriaged, setShowTriaged] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [focused, setFocused] = useState<string | null>(null);
@@ -39,6 +49,7 @@ export function FeedPage() {
   const { data, loading, error, refresh, fetching } = useDailyRadar({
     profile: profFilter,
     bucket: bucket === 'all' ? undefined : bucket,
+    yearFrom,
   });
   const jobs = useJobs();
   const scanning = jobs.filter((j) => j.kind === 'scan' && j.status === 'running');
@@ -181,7 +192,7 @@ export function FeedPage() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const filterActive = profFilter !== 'all' || bucket !== 'all';
+  const filterActive = profFilter !== 'all' || bucket !== 'all' || yearFrom != null;
   const selectedName = profFilter === 'all' ? `all ${TERMS.interests}` : byKey[profFilter]?.name ?? profFilter;
 
   return (
@@ -238,6 +249,10 @@ export function FeedPage() {
                 { value: 'low', label: 'Below the bar', count: bucket === 'all' ? bucketCounts.low : null },
               ]}
             />
+            <Select className="compact" value={yearFrom ?? ''} onChange={(e) => setYearFrom(e.target.value ? Number(e.target.value) : null)} aria-label="Published since">
+              <option value="">Published: any year</option>
+              {PUBLISHED_SINCE.map((o) => <option key={o.label} value={o.year}>{o.label}</option>)}
+            </Select>
             <label className="row small muted" style={{ gap: 6, cursor: 'pointer' }}>
               <input type="checkbox" checked={showTriaged} onChange={(e) => setShowTriaged(e.target.checked)} />
               Show saved and dismissed{triagedCount > 0 ? ` (${triagedCount})` : ''}
@@ -265,7 +280,7 @@ export function FeedPage() {
                 action={<Button variant="primary" icon="play" onClick={() => setScanOpen(true)}>Scan now</Button>}
               />
             ) : cards.length === 0 ? (
-              <EmptyState icon="search" title="Nothing matches these filters" action={<Button onClick={() => { setProfFilter('all'); setBucket('all'); }}>Clear filters</Button>} />
+              <EmptyState icon="search" title="Nothing matches these filters" action={<Button onClick={() => { setProfFilter('all'); setBucket('all'); setYearFrom(null); }}>Clear filters</Button>} />
             ) : (
               <EmptyState icon="check" title="All caught up" body="Every paper here has been saved or dismissed." action={<Button onClick={() => setShowTriaged(true)}>Show them anyway</Button>} />
             )

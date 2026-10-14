@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDrafts, useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
 import { createInterestFromResearcher } from '../api/endpoints/researchers';
-import { removeSeed as removeSeedOnServer } from '../api/endpoints/profiles';
+import { addSeeds, removeSeed as removeSeedOnServer } from '../api/endpoints/profiles';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
+import { YearRange } from '../ui/YearRange';
+import type { YearSpan } from '../types/radar';
 import {
   commitDraft,
   createDraft,
@@ -16,7 +18,7 @@ import {
 } from '../api/endpoints/wizard';
 import { getDraft, isSeedSource, resetDraft, useDraft, type DraftState, type SeedSource } from '../lib/draft';
 import { errorMessage, fmtRelative, plural } from '../lib/format';
-import { findJob, startDryRun, startImport, startOrcidImport, startScan, useJob, type Job } from '../lib/jobs';
+import { findJob, startBackfill, startDryRun, startImport, startOrcidImport, startScan, useJob, yearsLabel, type Job } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
@@ -460,6 +462,133 @@ function useRemoveSeed(slug: string) {
   return { remove, busyId };
 }
 
+type MoreSource = 'vault' | 'orcid' | 'profile' | 'prosopia';
+const MORE_SOURCES: { value: MoreSource; label: string }[] = [
+  { value: 'vault', label: 'Your Vault' },
+  { value: 'orcid', label: 'An ORCID' },
+  { value: 'profile', label: `A saved researcher ${TERMS.profile}` },
+  { value: 'prosopia', label: 'A Prosopia profile' },
+];
+
+/**
+ * "Add more seeds from: [source]" under the upload area once the draft
+ * exists. The draft is made from one source, and there used to be no way
+ * back to the others: the Vault list hid behind a link that could not be
+ * folded away again, and an ORCID or Prosopia search was not offered at
+ * all. One dropdown names every source and shows only the chosen picker.
+ */
+function MoreSeeds({ slug, seedIds, disabled, onVaultAdded, onImported }: {
+  slug: string;
+  seedIds: Set<string>;
+  disabled: boolean;
+  /** Vault docs the server accepted (the local seed list keeps them). */
+  onVaultAdded: (docs: import('../types/radar').VaultDoc[]) => void;
+  /** Papers arrived some other way: refresh the seed list and what depends on it. */
+  onImported: () => void;
+}) {
+  const [source, setSource] = useState<MoreSource | ''>('');
+  return (
+    <div className="stack" style={{ gap: 10, marginTop: 16 }}>
+      <Field label="Add more seeds from" inline>
+        <Select value={source} onChange={(e) => setSource(e.target.value as MoreSource | '')} disabled={disabled} aria-label="Where to add more seeds from" style={{ minWidth: 260 }}>
+          <option value="">Choose a source…</option>
+          {MORE_SOURCES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Select>
+      </Field>
+      {source === 'vault' && <VaultSeedPicker bare profileKey={slug} seedIds={seedIds} disabled={disabled} onAdded={onVaultAdded} />}
+      {(source === 'orcid' || source === 'prosopia') && <AddFromImport key={source} slug={slug} source={source} onAdded={onImported} />}
+      {source === 'profile' && <AddFromResearcher slug={slug} seedIds={seedIds} onAdded={onImported} />}
+    </div>
+  );
+}
+
+/**
+ * Another researcher's works, by ORCID or Prosopia profile, as more seeds
+ * of this draft. The import runs with ``into``: the server attaches the
+ * papers to the draft (so it completes even if the page is left), and the
+ * picker resets for the next person.
+ */
+function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid' | 'prosopia'; onAdded: () => void }) {
+  const [running, setRunning] = useState<{ jobId: string; who: string } | null>(null);
+  const job = useJob(running?.jobId ?? null);
+  const [round, setRound] = useState(0);
+  useEffect(() => {
+    if (!running || !job || job.status === 'running') return;
+    if (job.status === 'done') {
+      const r = job.result as ProsopiaImportResult | null;
+      toast.success(`Added ${plural(typeof r?.drafted === 'number' ? r.drafted : 0, 'paper')} from ${running.who}. You can add another.`);
+      onAdded();
+      setRound((n) => n + 1);   // a fresh picker for the next one
+      setRunning(null);
+    }
+    // an error stays on screen in the picker until the next attempt
+  }, [job, running, onAdded]);
+  return (
+    <LookupPicker
+      key={round}
+      lookup={source === 'orcid' ? ORCID_LOOKUP : PROSOPIA_LOOKUP}
+      job={job}
+      startLabel="Add"
+      start={(key, ids) => source === 'orcid' ? startOrcidImport(key, ids, undefined, slug) : startImport(key, undefined, ids, slug)}
+      onStarted={(j, listing) => setRunning({ jobId: j.id, who: listing.name || listing.key })}
+    />
+  );
+}
+
+/**
+ * Papers of a researcher already saved under Profiles. They are stored and
+ * embedded, so they attach at once (no import). Nothing starts ticked: a
+ * saved profile can hold hundreds of papers.
+ */
+function AddFromResearcher({ slug, seedIds, onAdded }: { slug: string; seedIds: Set<string>; onAdded: () => void }) {
+  const list = useResearchers();
+  const [id, setId] = useState<number | null>(null);
+  const chosenId = id ?? (list.data && list.data.length > 0 ? list.data[0].id : null);
+  const detail = useResearcher(chosenId);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  useEffect(() => { setPicked(new Set()); }, [chosenId]);
+  const researcher = detail.data?.researcher ?? list.data?.find((r) => r.id === chosenId) ?? null;
+  const works: PickWork[] = useMemo(
+    () => (detail.data?.papers ?? []).filter((p) => !seedIds.has(p.id)).map((p) => ({ id: p.id, title: p.title, year: p.year, venue: p.venue, authors: p.authors, doi: p.doi, note: p.resolved_by === 'none' ? 'unmatched' : null })),
+    [detail.data, seedIds],
+  );
+  const add = useAction(async () => {
+    const ids = works.filter((w) => picked.has(w.id)).map((w) => w.id);
+    if (ids.length === 0) return;
+    const res = await addSeeds(slug, ids);
+    setPicked(new Set());
+    toast.success(`Added ${plural(res.attached, 'paper')} from ${researcher?.name ?? `the ${TERMS.profile}`}.`);
+    onAdded();
+  });
+
+  if (list.error && !list.data) return <ErrorBox compact message={errorMessage(list.error)} onRetry={list.refresh} />;
+  if (list.loading && !list.data) return <LoadingRows rows={2} />;
+  if (list.data && list.data.length === 0) {
+    return <EmptyState compact icon="user" title={`No saved ${TERMS.profiles} yet`} body={`Import a researcher under ${TERMS.Profiles}, or choose "An ORCID" or "A Prosopia profile" above.`} />;
+  }
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <Select value={chosenId ?? ''} onChange={(e) => setId(Number(e.target.value))} aria-label={`Saved researcher ${TERMS.profile}`}>
+        {(list.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name} · {r.n_papers} papers{r.importing ? ' (importing…)' : ''}</option>)}
+      </Select>
+      {detail.error && !detail.data && <ErrorBox compact message={errorMessage(detail.error)} onRetry={detail.refresh} />}
+      {detail.loading && !detail.data && <LoadingRows rows={3} />}
+      {detail.data && works.length === 0 && (
+        <p className="muted small" style={{ margin: 0 }}>{(detail.data.papers ?? []).length === 0 ? `This ${TERMS.profile} has no papers yet.` : 'All of its papers are already seeds here.'}</p>
+      )}
+      {works.length > 0 && (
+        <>
+          <PaperPickList works={works} picked={picked} onChange={setPicked} head={researcher?.name ?? null} ariaLabel="Papers to add as seeds" />
+          <div className="row">
+            <Button variant="primary" icon="plus" onClick={() => add.run()} loading={add.busy} disabled={picked.size === 0}>Add {plural(picked.size, 'paper')}</Button>
+            {add.error && <span className="field-error">{add.error}</span>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: import('../types/radar').VaultDoc) => void }) {
   const { update } = useDraft();
   const slug = state.slug!;
@@ -525,7 +654,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
   }
 
   return (
-    <Panel title="Step 1 · Seed papers" description={state.researcher ? `${plural(state.researcher.nSeeds, 'paper')} from the ${TERMS.profile} of ${state.researcher.name}. You can add more PDFs.` : state.prosopia ? (state.source === 'orcid' ? `Imported ${state.prosopia.nSeeds != null ? `${state.prosopia.nSeeds} papers ` : ''}from ORCID ${state.prosopia.ref}. You can add more PDFs.` : `Imported from Prosopia (${state.prosopia.ref}). You can add more PDFs.`) : 'Upload the PDFs that define this interest. Each becomes a seed.'}>
+    <Panel title="Step 1 · Seed papers" description={state.researcher ? `${plural(state.researcher.nSeeds, 'paper')} from the ${TERMS.profile} of ${state.researcher.name}. You can add more PDFs.` : state.prosopia ? (state.source === 'orcid' ? `Imported ${state.prosopia.nSeeds != null ? `${state.prosopia.nSeeds} papers ` : ''}from ORCID ${state.prosopia.ref}. You can add more papers below.` : `Imported from Prosopia (${state.prosopia.ref}). You can add more papers below.`) : 'Upload the PDFs that define this interest. Each becomes a seed.'}>
       {!importing && (
         <p className="small muted" style={{ marginTop: -6, marginBottom: 12 }}>
           Wrong source? <button type="button" className="linklike" onClick={() => void startOver.run()} disabled={startOver.busy}>Choose a different way to add seeds</button>{seeds.length > 0 ? ' — this discards the draft and its seeds.' : '.'}
@@ -552,14 +681,15 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
       </div>
       {failures.length > 0 && <div style={{ marginTop: 10 }}><ErrorBox compact title="Some files were not added" message={failures.map((f) => <div key={f}>{f}</div>)} /></div>}
 
-      <VaultSeedPicker
-        profileKey={slug}
+      <MoreSeeds
+        slug={slug}
         seedIds={new Set(seeds.map((d) => d.id))}
         disabled={importing || !!progress}
         // Same bookkeeping as an upload: the local seed list (step 2's
         // spinner reads its length, and it survives a reload) and the
         // results computed from the old seed set.
-        onAdded={(docs) => { docs.forEach(addSeed); invalidateDownstream(); }}
+        onVaultAdded={(docs) => { docs.forEach(addSeed); invalidateDownstream(); }}
+        onImported={() => { invalidateDownstream(); invalidate(`vault/docs?tag=${slug}`); void docs.refresh(); }}
       />
 
       <div style={{ marginTop: 16 }}>
@@ -738,12 +868,14 @@ function StepThreshold({ state }: { state: DraftState }) {
   const [kickError, setKickError] = useState<string | null>(null);
   const kicking = useRef(false);
 
-  async function kick() {
+  // ``years`` passed explicitly when it just changed: ``state`` in this
+  // closure is still the render before the update.
+  async function kick(years: YearSpan | null = state.years) {
     if (kicking.current) return;
     kicking.current = true;
     setKickError(null);
     try {
-      const j = await startDryRun(slug, state.name, 30);
+      const j = await startDryRun(slug, state.name, 30, years);
       update({ dryRunJobId: j.id });
     } catch (e) {
       setKickError(errorMessage(e));
@@ -770,26 +902,51 @@ function StepThreshold({ state }: { state: DraftState }) {
   const passing = scores.filter((s) => s >= value).length;
 
   const save = useAction(async () => {
-    const profile = await commitDraft({ slug, threshold: Number(value.toFixed(3)), selected_topic_ids: state.selectedTopicIds ?? [], cron: DEFAULT_CRON, tz: DEFAULT_TZ });
+    const years = state.years;
+    const profile = await commitDraft({
+      slug, threshold: Number(value.toFixed(3)), selected_topic_ids: state.selectedTopicIds ?? [], cron: DEFAULT_CRON, tz: DEFAULT_TZ,
+      years: years ? { year_from: years.from, year_to: years.to } : null,
+    });
     // Leave the wizard before clearing its state, so no effect here can
     // re-adopt the interest we just committed from the ``?draft=`` URL.
     navigate(paths.interest(profile.key), { replace: true });
     reset();
     try {
-      await startScan({ key: profile.key, name: profile.name }, { days: 7, limit: 500 });
-      toast.success(`"${profile.name}" is live. Scanning the last 7 days now.`);
+      // A range of years: fetch papers from them once, instead of only the
+      // last week. The daily scans add new papers either way.
+      if (years) {
+        await startBackfill({ key: profile.key, name: profile.name }, years);
+        toast.success(`"${profile.name}" is live. Fetching papers from ${yearsLabel(years)} now.`);
+      } else {
+        await startScan({ key: profile.key, name: profile.name }, { days: 7, limit: 500 });
+        toast.success(`"${profile.name}" is live. Scanning the last 7 days now.`);
+      }
     } catch (e) {
       toast.error(`Saved, but the first scan didn't start: ${errorMessage(e)}`);
     }
   });
 
   return (
-    <Panel title="Step 4 · How strict should it be?" description="Radar runs a trial scan over the last 30 days and scores every paper it finds against your seeds. The shaded band shows where your own seed papers score; the suggested threshold sits just below it. Move the bar to trade volume for precision. You can change it later.">
-      {kickError && <ErrorBox title="Couldn't start the trial scan" message={kickError} onRetry={kick} />}
+    <Panel title="Step 4 · How strict should it be?" description="Radar runs a trial scan and scores every paper it finds against your seeds. The shaded band shows where your own seed papers score; the suggested threshold sits just below it. Move the bar to trade volume for precision. You can change it later.">
+      <div style={{ marginBottom: 14 }}>
+        <div className="field-label" style={{ marginBottom: 6 }}>Publication years</div>
+        <YearRange
+          value={state.years}
+          disabled={job?.status === 'running'}
+          newOnlyLabel="New papers only (trial over the last 30 days)"
+          onChange={(v) => { update({ years: v, threshold: null }); void kick(v); }}
+        />
+        <p className="small muted" style={{ margin: '6px 0 0' }}>
+          {state.years
+            ? `The trial samples each year, most cited first. Saving fetches up to 100 papers a year from ${yearsLabel(state.years)} once; after that Radar keeps adding new papers every day.`
+            : 'Radar follows new papers: the trial looks at the last 30 days, and after saving it scans for new papers every day.'}
+        </p>
+      </div>
+      {kickError && <ErrorBox title="Couldn't start the trial scan" message={kickError} onRetry={() => void kick()} />}
       {job && job.status === 'running' && (
         <JobProgress job={job} />
       )}
-      {job && job.status === 'error' && <ErrorBox title="The trial scan failed" message={job.error} onRetry={kick} />}
+      {job && job.status === 'error' && <ErrorBox title="The trial scan failed" message={job.error} onRetry={() => void kick()} />}
       {result && scores.length === 0 && (
         <EmptyState compact icon="search" title="The trial scan found no papers" body="Nothing recent matched the selected topics. You can still save with a default threshold and adjust it after the first real scan." />
       )}
@@ -825,7 +982,7 @@ function StepThreshold({ state }: { state: DraftState }) {
       <div className="wizard-foot">
         <Button icon="arrow-left" onClick={() => update({ step: 3 })}>Back</Button>
         <div className="row">
-          {job?.status !== 'running' && <Button variant="ghost" icon="refresh" onClick={kick}>Run trial again</Button>}
+          {job?.status !== 'running' && <Button variant="ghost" icon="refresh" onClick={() => void kick()}>Run trial again</Button>}
           <Button variant="primary" icon="check" onClick={() => save.run()} loading={save.busy} disabled={!result && job?.status !== 'error'} title={!result ? 'Wait for the trial scan to finish' : undefined}>
             Save {TERMS.interest} and start scanning
           </Button>

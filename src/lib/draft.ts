@@ -3,7 +3,7 @@
  * persisted to sessionStorage so a reload mid-wizard resumes where it was.
  */
 import { useCallback, useSyncExternalStore } from 'react';
-import type { VaultDoc } from '../types/radar';
+import type { VaultDoc, YearSpan } from '../types/radar';
 
 const STORAGE_KEY = 'radar.wizard.v2';
 
@@ -31,6 +31,8 @@ export interface DraftState {
   dryRunJobId: string | null;
   selectedTopicIds: string[] | null;
   threshold: number | null;
+  /** Step 4's publication years; null = new papers only (the last 30 days). */
+  years: YearSpan | null;
   step: number;
 }
 
@@ -45,6 +47,7 @@ export const EMPTY_DRAFT: DraftState = {
   dryRunJobId: null,
   selectedTopicIds: null,
   threshold: null,
+  years: null,
   step: 1,
 };
 

@@ -9,6 +9,7 @@ import type {
   ResearcherInterestRequest,
   ResearcherInterestResponse,
   ResearcherSuggestions,
+  ResearcherWorks,
 } from '../../types/researchers';
 
 export function listResearchers(): Promise<Researcher[]> {
@@ -22,6 +23,11 @@ export function getResearcher(id: number): Promise<ResearcherDetail> {
 /** Two or three groups of the profile's papers worth making interests from. A read; nothing is embedded. */
 export function getResearcherSuggestions(id: number): Promise<ResearcherSuggestions> {
   return apiGet<ResearcherSuggestions>(`/api/researchers/${id}/suggestions`);
+}
+
+/** The profile's source read again, with the works it already has marked. Nothing is written. */
+export function getResearcherWorks(id: number): Promise<ResearcherWorks> {
+  return apiGet<ResearcherWorks>(`/api/researchers/${id}/works`);
 }
 
 /** Starts (or refreshes) a profile; the papers arrive under ``run_id``. */

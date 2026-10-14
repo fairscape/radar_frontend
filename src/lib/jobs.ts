@@ -8,12 +8,13 @@
  * strip so "what is happening right now" is always visible.
  */
 import { useSyncExternalStore } from 'react';
-import { gatherNow, listProfileRuns, type GatherRunStatus } from '../api/endpoints/profiles';
+import { backfill as backfillApi, gatherNow, listProfileRuns, type GatherRunStatus } from '../api/endpoints/profiles';
 import { getProsopiaImportStatus, startOrcidImport as postOrcidImport, startProsopiaImport } from '../api/endpoints/prosopia';
 import { startResearcherImport as postResearcherImport } from '../api/endpoints/researchers';
 import type { ResearcherSource } from '../types/researchers';
 import { getDraftDryRunStatus, startDraftDryRun, type DraftDryRun } from '../api/endpoints/wizard';
 import type { ProsopiaImportResult } from '../types/prosopia';
+import type { YearSpan } from '../types/radar';
 import { errorMessage } from './format';
 import { invalidate } from './query';
 import { toast } from './toast';
@@ -37,6 +38,8 @@ export interface Job {
    * report progress for works the server never saw.
    */
   joinedExisting?: boolean;
+  /** A backfill's years, e.g. "2018–now", shown in place of "last N days". */
+  yearsLabel?: string;
   startedAt: number;
   finishedAt: number | null;
   status: JobStatus;
@@ -308,13 +311,25 @@ export async function startScan(
   return add({ ...base('scan', run_id, profile.key, profile.name), days: opts.days });
 }
 
-export async function startDryRun(slug: string, name: string, days = 30): Promise<Job> {
-  const { run_id } = await startDraftDryRun(slug, days);
-  return add({ ...base('dryrun', run_id, slug, name), days });
+export function yearsLabel(years: YearSpan): string {
+  return `${years.from}–${years.to ?? 'now'}`;
 }
 
-export async function startImport(ref: string, name?: string, paperIds?: string[]): Promise<Job> {
-  const start = await startProsopiaImport({ ref, ...(name ? { name } : {}), ...(paperIds ? { paper_ids: paperIds } : {}) });
+export async function startDryRun(slug: string, name: string, days = 30, years?: YearSpan | null): Promise<Job> {
+  const { run_id } = await startDraftDryRun(slug, days, years);
+  return years ? add({ ...base('dryrun', run_id, slug, name), yearsLabel: yearsLabel(years) }) : add({ ...base('dryrun', run_id, slug, name), days });
+}
+
+/** Papers from past years into a live interest: tracked like a scan. */
+export async function startBackfill(profile: { key: string; name: string }, years: YearSpan): Promise<Job> {
+  const { run_id } = await backfillApi(profile.key, years);
+  invalidate(`profiles/${profile.key}/runs`);
+  return add({ ...base('scan', run_id, profile.key, profile.name), yearsLabel: yearsLabel(years) });
+}
+
+/** ``into``: add the papers to that existing draft rather than opening a new one. */
+export async function startImport(ref: string, name?: string, paperIds?: string[], into?: string): Promise<Job> {
+  const start = await startProsopiaImport({ ref, ...(name ? { name } : {}), ...(paperIds ? { paper_ids: paperIds } : {}), ...(into ? { into } : {}) });
   const slug = requireDraft(start);
   return add({
     ...base('import', start.run_id, slug, name || ref),
@@ -336,8 +351,9 @@ function requireDraft(start: { draft_slug: string | null; already_running?: bool
   );
 }
 
-export async function startOrcidImport(orcid: string, openalexIds: string[], name?: string): Promise<Job> {
-  const start = await postOrcidImport({ orcid, openalex_ids: openalexIds, ...(name ? { name } : {}) });
+/** ``into``: add the works to that existing draft rather than opening a new one. */
+export async function startOrcidImport(orcid: string, openalexIds: string[], name?: string, into?: string): Promise<Job> {
+  const start = await postOrcidImport({ orcid, openalex_ids: openalexIds, ...(name ? { name } : {}), ...(into ? { into } : {}) });
   const slug = requireDraft(start);
   return add({
     ...base('import', start.run_id, slug, name || orcid),

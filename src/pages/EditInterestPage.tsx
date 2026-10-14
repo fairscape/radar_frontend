@@ -26,6 +26,7 @@ import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, useAct
 import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
 import { PaperLink } from '../ui/paperLink';
+import { ResearchTopics } from '../ui/ResearchTopics';
 import { ScanDialog, SeedsTab, ThresholdTab, type Detail } from './InterestDetailPage';
 import { AgreementMeter, verdictFor } from './WizardPage';
 import type { Profile } from '../types/radar';
@@ -96,7 +97,12 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
             </>
           )}
           {step === 2 && <StepCheck profile={profile} back={() => go(1)} next={() => go(3)} />}
-          {step === 3 && <StepTopics profile={profile} detail={detail} back={() => go(2)} next={() => go(4)} />}
+          {step === 3 && (
+            <div className="stack">
+              <StepTopics profile={profile} detail={detail} back={() => go(2)} next={() => go(4)} />
+              <ResearchTopics profileKey={profile.key} />
+            </div>
+          )}
           {step === 4 && (
             <>
               <ThresholdTab profile={profile} onScan={() => setScanOpen(true)} />

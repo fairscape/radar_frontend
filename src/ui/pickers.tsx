@@ -13,6 +13,7 @@ import { toast } from '../lib/toast';
 import { plural } from '../lib/format';
 import { getUserEmail } from '../lib/userEmail';
 import type { Job } from '../lib/jobs';
+import type { OrcidWork, ProsopiaWork } from '../types/prosopia';
 import { Button, EmptyState, ErrorBox, Field, Input, useAction } from './index';
 import { JobProgress } from './domain';
 import { paperHref, PaperLink } from './paperLink';
@@ -135,11 +136,21 @@ export const ORCID_LOOKUP: Lookup = {
   parseError: 'That does not look like an ORCID (0000-0000-0000-0000).',
   find: async (orcid) => {
     const r = await fetchOrcidWorks(orcid);
-    return { key: r.orcid, name: r.name, works: r.works.map((w) => ({ id: w.openalex_id, title: w.title, year: w.year, venue: w.venue, type: w.type, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors, claimed: w.claimed, duplicate_of: w.duplicate_of, doi: w.doi })) };
+    return { key: r.orcid, name: r.name, works: orcidPickWorks(r.works) };
   },
   emptyTitle: 'No papers on OpenAlex for this ORCID',
   emptyBody: 'OpenAlex has no works with this ORCID on an authorship. Check the iD, or upload PDFs instead.',
 };
+
+/** An ORCID works listing as pick-list rows (also used by "check for new papers"). */
+export function orcidPickWorks(works: OrcidWork[]): PickWork[] {
+  return works.map((w) => ({ id: w.openalex_id, title: w.title, year: w.year, venue: w.venue, type: w.type, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors, claimed: w.claimed, duplicate_of: w.duplicate_of, doi: w.doi }));
+}
+
+/** A Prosopia works listing as pick-list rows. */
+export function prosopiaPickWorks(works: ProsopiaWork[]): PickWork[] {
+  return works.map((w) => ({ id: w.id, title: w.title, year: w.year, venue: w.venue, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors, doi: w.doi, openalex: w.openalex_id }));
+}
 
 export const PROSOPIA_LOOKUP: Lookup = {
   label: 'Prosopia profile',
@@ -149,7 +160,7 @@ export const PROSOPIA_LOOKUP: Lookup = {
   parseError: '',
   find: async (ref) => {
     const r = await fetchProsopiaWorks(ref);
-    return { key: r.slug, name: r.name, works: r.works.map((w) => ({ id: w.id, title: w.title, year: w.year, venue: w.venue, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors, doi: w.doi, openalex: w.openalex_id })) };
+    return { key: r.slug, name: r.name, works: prosopiaPickWorks(r.works) };
   },
   emptyTitle: 'This profile lists no papers',
   emptyBody: 'The profile exists but has no papers to import. Upload PDFs instead.',

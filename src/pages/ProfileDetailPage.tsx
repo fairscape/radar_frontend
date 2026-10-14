@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useResearcher, useResearcherSuggestions } from '../api/hooks';
-import { createInterestFromResearcher, deleteResearcher } from '../api/endpoints/researchers';
+import { createInterestFromResearcher, deleteResearcher, getResearcherWorks } from '../api/endpoints/researchers';
 import { resetDraft, setDraft } from '../lib/draft';
 import { errorMessage, fmtDateTime, fmtRelative, plural } from '../lib/format';
 import { researcherJobKey, startResearcherImport, useRunningJob } from '../lib/jobs';
 import { navigate, paths } from '../lib/router';
+import { useQuery } from '../lib/query';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { Profile } from '../types/radar';
@@ -12,7 +13,9 @@ import type { ResearcherPaper, SuggestedInterest } from '../types/researchers';
 import { Badge, Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, Stat, Swatch, Tabs, confirmDialog, useAction } from '../ui';
 import { Link } from '../ui/Link';
 import { HealthBadge, JobProgress, agreementTone } from '../ui/domain';
-import { PaperLink, PaperPickList, type PickWork } from '../ui/pickers';
+import { PaperLink, PaperPickList, defaultPicks, orcidPickWorks, prosopiaPickWorks, type PickWork } from '../ui/pickers';
+import type { OrcidWork, ProsopiaWork } from '../types/prosopia';
+import type { Researcher } from '../types/researchers';
 
 type Tab = 'suggested' | 'papers' | 'interests' | 'about';
 
@@ -38,11 +41,11 @@ export function ProfileDetailPage({ id }: { id: number }) {
     return () => window.clearInterval(t);
   }, [importingRemotely, refresh]);
 
-  const reimport = useAction(async () => {
-    if (!r) return;
-    await startResearcherImport(r.source, r.key, r.name);
-    toast.success(`Re-importing ${r.name}. New papers are added; nothing is removed.`);
-  });
+  // "Check for new papers" reads the source again and offers only the
+  // works not saved yet. The old Re-import imported everything the source
+  // lists: papers deselected the first time came back, and every paper
+  // was resolved against OpenAlex again.
+  const [checking, setChecking] = useState(false);
 
   async function forget() {
     if (!r) return;
@@ -98,7 +101,7 @@ export function ProfileDetailPage({ id }: { id: number }) {
           </p>
         </div>
         <div className="page-actions">
-          <Button icon="refresh" onClick={() => reimport.run()} loading={reimport.busy} disabled={importing} title="Read the source again and add any new papers">Re-import</Button>
+          <Button icon="refresh" onClick={() => setChecking(true)} disabled={importing || checking} title={`Read ${r.source === 'prosopia' ? 'the Prosopia profile' : 'OpenAlex for this ORCID'} again and pick the papers that are new`}>Check for new papers</Button>
           <Button variant="danger" icon="trash" onClick={forget} disabled={importing}>Forget</Button>
           <Button variant="primary" icon="plus" onClick={() => navigate(paths.wizardFrom('profile', r.id))} disabled={r.n_papers === 0} title={r.n_papers === 0 ? 'No papers to build from yet' : undefined}>{TERMS.newInterest} from these papers</Button>
         </div>
@@ -106,7 +109,8 @@ export function ProfileDetailPage({ id }: { id: number }) {
 
       {running && <div style={{ marginBottom: 16 }}><JobProgress job={running} /></div>}
       {!running && r.importing && <Callout tone="info" title="Importing" icon="clock">The papers are still being matched and embedded. This page refreshes on its own.<span style={{ marginLeft: 8 }}><button type="button" className="linklike" onClick={() => void refresh()}>Refresh now</button></span></Callout>}
-      {!importing && r.last_error && <Callout tone="err" title="The last import failed">{r.last_error} <button type="button" className="linklike" onClick={() => reimport.run()}>Try again</button></Callout>}
+      {!importing && r.last_error && <Callout tone="err" title="The last import failed">{r.last_error} <button type="button" className="linklike" onClick={() => setChecking(true)}>Try again</button></Callout>}
+      {checking && !importing && <NewPapersPanel researcher={r} onClose={() => setChecking(false)} />}
 
       <div className="stat-grid" style={{ marginBottom: 18 }}>
         <Stat label="Papers" value={r.n_papers} sub={r.imported_at ? `imported ${fmtRelative(r.imported_at)}` : 'not imported yet'} />
@@ -277,6 +281,56 @@ function SuggestionCard({ suggestion: s, researcherId, researcherName, byId }: {
           {create.error && <span className="field-error">{create.error}</span>}
         </div>
       </div>
+    </Panel>
+  );
+}
+
+/**
+ * The works on the researcher's source that are not saved yet, to pick
+ * from. Only the picked ones are imported (``paper_ids``); the import adds
+ * and never removes. Interests already built from this profile keep their
+ * seeds: a new paper becomes a seed through the interest's Seeds step.
+ */
+function NewPapersPanel({ researcher: r, onClose }: { researcher: Researcher; onClose: () => void }) {
+  const q = useQuery(`researchers/${r.id}/works`, () => getResearcherWorks(r.id));
+  const fresh: PickWork[] = q.data
+    ? (q.data.source === 'orcid' ? orcidPickWorks(q.data.works as OrcidWork[]) : prosopiaPickWorks(q.data.works as ProsopiaWork[]))
+        .filter((w) => !q.data!.saved_ids.includes(w.id))
+    : [];
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    if (q.data && picked === null) setPicked(new Set(defaultPicks(fresh).map((w) => w.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q.data]);
+  const sel = picked ?? new Set<string>();
+  const add = useAction(async () => {
+    const ids = fresh.filter((w) => sel.has(w.id)).map((w) => w.id);
+    if (ids.length === 0) return;
+    await startResearcherImport(r.source, r.key, r.name, ids);
+    toast.success(`Importing ${plural(ids.length, 'new paper')} for ${r.name}.`);
+    onClose();
+  });
+  return (
+    <Panel
+      title="New papers"
+      description={`What ${r.source === 'prosopia' ? 'the Prosopia profile' : 'OpenAlex'} lists for ${r.name} now, minus the ${plural(r.n_papers, 'paper')} already saved.`}
+      actions={<Button size="sm" variant="ghost" onClick={onClose}>Close</Button>}
+    >
+      {q.error && <ErrorBox compact title="Couldn't read the source" message={errorMessage(q.error)} onRetry={q.refresh} />}
+      {!q.data && q.loading && <LoadingRows rows={3} />}
+      {q.data && fresh.length === 0 && (
+        <EmptyState compact icon="check" title="Nothing new" body={`All ${plural(q.data.works.length, 'paper')} on the source are already saved.`} />
+      )}
+      {fresh.length > 0 && (
+        <div className="stack" style={{ gap: 8 }}>
+          <PaperPickList works={fresh} picked={sel} onChange={setPicked} ariaLabel="New papers to import" />
+          <div className="row">
+            <Button variant="primary" icon="upload" onClick={() => add.run()} loading={add.busy} disabled={sel.size === 0}>Import {plural(sel.size, 'paper')}</Button>
+            {add.error && <span className="field-error">{add.error}</span>}
+          </div>
+          <p className="small muted">{TERMS.Interests} built from this {TERMS.profile} keep their seeds. To use a new paper in one, add it on that {TERMS.interest}'s Seeds step.</p>
+        </div>
+      )}
     </Panel>
   );
 }

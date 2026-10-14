@@ -20,6 +20,10 @@ export interface ProsopiaImportRequest {
   /** Optional profile name; the server derives one from the profile if omitted. */
   name?: string;
   embedding_model?: string;
+  /** The ``id`` values from the works listing to keep; omitted = every paper. */
+  paper_ids?: string[];
+  /** An existing draft to add the papers to, instead of opening a new one. */
+  into?: string;
 }
 
 /** One of an author's OpenAlex works, as ``GET /api/import/orcid/{orcid}/works`` lists it. */
@@ -69,6 +73,8 @@ export interface OrcidImportRequest {
   openalex_ids: string[];
   name?: string;
   embedding_model?: string;
+  /** An existing draft to add the works to, instead of opening a new one. */
+  into?: string;
 }
 
 /** One paper on a Prosopia profile, as ``GET /api/import/prosopia/works`` lists it. */

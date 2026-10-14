@@ -143,7 +143,7 @@ function JobRow({ job }: { job: Job }) {
         <div className="job-title">
           <b>{kindLabel(job.kind)} · {job.profileName}</b>
           <span className="job-step">
-            {job.status === 'running' ? `${stepLabel(job)}${job.days ? ` · last ${job.days} days` : ''}` : job.status === 'done' ? job.summary : 'Failed'}
+            {job.status === 'running' ? `${stepLabel(job)}${job.yearsLabel ? ` · ${job.yearsLabel}` : job.days ? ` · last ${job.days} days` : ''}` : job.status === 'done' ? job.summary : 'Failed'}
           </span>
         </div>
         {job.status === 'running' ? <JobProgress job={job} compact /> : job.status === 'error' && <div className="job-msg">{job.error}</div>}

@@ -23,7 +23,7 @@ import type { VaultDoc } from '../types/radar';
 import { Button, ErrorBox, Input, LoadingRows, useAction } from './index';
 import { PaperTitle } from './pickers';
 
-export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded, openSignal = 0 }: {
+export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded, openSignal = 0, bare = false }: {
   /** The draft's or interest's slug. */
   profileKey: string;
   /** Ids already seeds of it; they are not offered again. */
@@ -33,8 +33,10 @@ export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded
   onAdded?: (docs: VaultDoc[]) => void;
   /** Bumped by an "Add papers" button elsewhere: unfold. */
   openSignal?: number;
+  /** Shown by a source dropdown that already says "your Vault": open, no fold link, no Hide. */
+  bare?: boolean;
 }) {
-  const [open, setOpen] = useState(openSignal > 0);
+  const [open, setOpen] = useState(bare || openSignal > 0);
   useEffect(() => {
     if (openSignal > 0) setOpen(true);
   }, [openSignal]);
@@ -76,12 +78,18 @@ export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded
       </p>
     );
   }
-  if (!vault.data && vault.loading) return <div style={{ marginTop: 16 }}><LoadingRows rows={2} /></div>;
-  if (!vault.data && vault.error) return <div style={{ marginTop: 16 }}><ErrorBox compact message={errorMessage(vault.error)} onRetry={vault.refresh} /></div>;
+  // Folding it away again: once opened there was no way back short of
+  // adding papers, and the list (hundreds of rows) pushed the rest of the
+  // step off screen. Ticks and the filter are dropped with it.
+  const hide = bare ? null : (
+    <Button size="sm" icon="x" onClick={() => { setOpen(false); setChosen(new Set()); setQuery(''); }} disabled={attach.busy} title="Fold the Vault list away without adding anything">Hide</Button>
+  );
+  if (!vault.data && vault.loading) return <div style={{ marginTop: 16 }}><LoadingRows rows={2} />{hide}</div>;
+  if (!vault.data && vault.error) return <div style={{ marginTop: 16 }}><ErrorBox compact message={errorMessage(vault.error)} onRetry={vault.refresh} />{hide}</div>;
   if (inVault.length === 0) {
     return (
       <p className="muted small" style={{ margin: '12px 0 0' }}>
-        {(vault.data ?? []).length === 0 ? 'Your Vault is empty.' : 'Everything in your Vault is already a seed here.'}
+        {(vault.data ?? []).length === 0 ? 'Your Vault is empty.' : 'Everything in your Vault is already a seed here.'} {hide}
       </p>
     );
   }
@@ -89,7 +97,10 @@ export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded
   const busy = disabled || attach.busy;
   return (
     <div className="stack" style={{ gap: 6, marginTop: 16 }}>
-      <span className="field-label">Or use papers already in your Vault · {inVault.length}</span>
+      <div className="row spread">
+        <span className="field-label">{bare ? 'Papers in your Vault' : 'Or use papers already in your Vault'} · {inVault.length}</span>
+        {hide}
+      </div>
       {inVault.length > 8 && (
         <div className="row" style={{ gap: 6 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by title, author or venue" aria-label="Filter the papers in your Vault" />

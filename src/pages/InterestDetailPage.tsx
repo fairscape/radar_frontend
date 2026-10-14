@@ -7,11 +7,12 @@ import {
   recomputeCoherence,
   removeSeed,
   updateProfileThreshold,
+  updateProfileYears,
   type GatherRunStatus,
 } from '../api/endpoints/profiles';
 import { uploadPdf } from '../api/endpoints/vault';
 import { errorMessage, fmtDateTime, fmtDuration, fmtRelative, plural } from '../lib/format';
-import { startScan, useRunningJob } from '../lib/jobs';
+import { startBackfill, startScan, useRunningJob, yearsLabel } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
@@ -22,6 +23,9 @@ import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, Icon
 import { PaperTitle } from '../ui/pickers';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
+import { ResearchTopics } from '../ui/ResearchTopics';
+import { YearRange, inSpan } from '../ui/YearRange';
+import type { YearSpan } from '../types/radar';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, HealthBadge, JobProgress, RerankerBumpChart, SectionNote, ThresholdHistogram, agreementTone, axisFor, healthOf } from '../ui/domain';
 import { goToFeedFor } from './FeedPage';
@@ -297,6 +301,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
   const yieldQ = useQuery(`profiles/${profile.key}/topic-yield`, () => getTopicYield(profile.key, 30));
   const yieldBy = Object.fromEntries((yieldQ.data?.topics ?? []).map((t) => [t.topic_id, t]));
   return (
+    <div className="stack">
     <Panel title="Topics" description="What Radar asks OpenAlex for. Aggregated from the seeds; chosen when the interest was created.">
       <SectionNote>
         To switch topics on or off, or pick up topics that new seeds brought in, use{' '}
@@ -329,6 +334,8 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
       )}
       {yieldQ.error && <div style={{ marginTop: 10 }}><ErrorBox compact title="Topic yield unavailable" message={errorMessage(yieldQ.error)} onRetry={yieldQ.refresh} /></div>}
     </Panel>
+      <ResearchTopics profileKey={profile.key} />
+    </div>
   );
 }
 
@@ -336,9 +343,27 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
   const scoresQ = useQuery(`profiles/${profile.key}/scores`, () => candidateScores(profile.key));
   const [value, setValue] = useState<number>(profile.threshold);
   useEffect(() => setValue(profile.threshold), [profile.threshold, profile.key]);
+  // The publication years this interest's feed draws from (null = all).
+  const savedYears: YearSpan | null = profile.yearFrom != null ? { from: profile.yearFrom, to: profile.yearTo ?? null } : null;
+  const [years, setYears] = useState<YearSpan | null>(savedYears);
+  useEffect(() => setYears(savedYears), [profile.yearFrom, profile.yearTo, profile.key]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const yearsDirty = JSON.stringify(years) !== JSON.stringify(savedYears);
+  const papersInYears = (scoresQ.data?.papers ?? []).filter((p) => inSpan(p.year, years));
+  const shownScores = years && scoresQ.data?.papers ? papersInYears.map((p) => p.score) : scoresQ.data?.scores ?? [];
+  const oldestStored = (scoresQ.data?.papers ?? []).reduce<number | null>((m, p) => (p.year != null && (m == null || p.year < m) ? p.year : m), null);
+  const needsBackfill = !!savedYears && !yearsDirty && (oldestStored == null || savedYears.from < oldestStored);
+  const saveYears = useAction(async () => {
+    await updateProfileYears(profile.key, years);
+    toast.success(years ? `The feed now shows papers from ${yearsLabel(years)}.` : 'The feed shows papers from any year.');
+  });
+  const fetchYears = useAction(async () => {
+    if (!savedYears) return;
+    await startBackfill({ key: profile.key, name: profile.name }, savedYears);
+    toast.info(`Fetching papers from ${yearsLabel(savedYears)}. They appear here and in the feed when the run finishes.`);
+  });
   const band = scoresQ.data?.seed_similarity ?? (profile.seedSimMin != null && profile.seedSimMax != null ? { min: profile.seedSimMin, median: (profile.seedSimMin + profile.seedSimMax) / 2, max: profile.seedSimMax } : null);
   const suggested = scoresQ.data?.suggested_threshold ?? null;
-  const [axisLo, axisHi] = axisFor(scoresQ.data?.scores ?? [], band, scoresQ.data?.score_range ?? null);
+  const [axisLo, axisHi] = axisFor(shownScores, band, scoresQ.data?.score_range ?? null);
   const save = useAction(async () => {
     await updateProfileThreshold(profile.key, Number(value.toFixed(3)));
     toast.success(`Threshold saved as ${value.toFixed(2)}.`);
@@ -356,6 +381,21 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
       }
     >
       {save.error && <ErrorBox compact message={save.error} />}
+      <div style={{ marginBottom: 14 }}>
+        <div className="field-label" style={{ marginBottom: 6 }}>Publication years</div>
+        <YearRange value={years} onChange={setYears} newOnlyLabel="Any year" />
+        <div className="row" style={{ gap: 8, marginTop: 8 }}>
+          {yearsDirty && <Button size="sm" variant="primary" icon="check" loading={saveYears.busy} onClick={() => saveYears.run()}>Save years</Button>}
+          {yearsDirty && <Button size="sm" variant="ghost" onClick={() => setYears(savedYears)}>Reset</Button>}
+          {needsBackfill && (
+            <>
+              <span className="small muted">{oldestStored == null ? 'No papers stored yet.' : `The oldest paper stored is from ${oldestStored}.`}</span>
+              <Button size="sm" icon="play" loading={fetchYears.busy} onClick={() => fetchYears.run()}>Fetch papers from {yearsLabel(savedYears!)}</Button>
+            </>
+          )}
+        </div>
+        {(saveYears.error || fetchYears.error) && <ErrorBox compact message={saveYears.error ?? fetchYears.error ?? ''} />}
+      </div>
       {scoresQ.error && <ErrorBox compact message={errorMessage(scoresQ.error)} onRetry={scoresQ.refresh} />}
       {scoresQ.loading && <LoadingRows rows={3} />}
       {scoresQ.data && scoresQ.data.scores.length === 0 && (
@@ -369,7 +409,7 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
               <Button size="sm" variant="ghost" onClick={() => setValue(suggested)}>Use suggested</Button>
             </div>
           )}
-          <ThresholdHistogram scores={scoresQ.data.scores} value={value} min={axisLo} max={axisHi} onChange={setValue} reference={profile.threshold} seedBand={band} suggested={suggested} periodLabel="of gathered papers would pass" />
+          <ThresholdHistogram scores={shownScores} value={value} min={axisLo} max={axisHi} onChange={setValue} reference={profile.threshold} seedBand={band} suggested={suggested} periodLabel="of gathered papers would pass" />
           {/* Scans before 2026-10-01 dropped every paper below the threshold
               of the day, so an older interest has nothing below it to show. */}
           {scoresQ.data.papers && scoresQ.data.papers.length > 0 && !scoresQ.data.papers.some((p) => p.score < profile.threshold) && (
@@ -380,7 +420,8 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
           )}
           {scoresQ.data.papers && scoresQ.data.papers.length > 0 && (
             <div style={{ marginTop: 14 }}>
-              <ThresholdPaperList papers={scoresQ.data.papers} value={value} label={dirty ? 'Papers gathered so far (not saved yet)' : 'Papers gathered so far'} />
+              <ThresholdPaperList papers={years ? papersInYears : scoresQ.data.papers} value={value}
+                label={`${dirty ? 'Papers gathered so far (not saved yet)' : 'Papers gathered so far'}${years ? ` · ${yearsLabel(years)}` : ''}`} />
             </div>
           )}
         </>

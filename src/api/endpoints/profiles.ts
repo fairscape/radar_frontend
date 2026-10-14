@@ -6,6 +6,7 @@
  */
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../client';
 import { invalidate } from '../../lib/query';
+import type { YearSpan } from '../../types/radar';
 import type {
   FeedbackEvent,
   Profile,
@@ -131,6 +132,48 @@ export function previewTopics(key: string): Promise<Topic[]> {
   return apiGet<Topic[]>(`/api/profiles/${enc(key)}/topics/preview`);
 }
 
+export interface InterestTerm { label: string; weight?: number | null; paper_ids?: string[]; kind?: string | null }
+export interface InterestTerms {
+  source: 'prosopia' | 'rp-sdk-llm' | 'rp-sdk-cluster' | 'manual' | null;
+  model: string | null;
+  generated_at: string | null;
+  stale: boolean;
+  terms: InterestTerm[];
+  /** Struck out by the user: kept so they can be put back, never used. */
+  removed: InterestTerm[];
+  not_interests: string[];
+  edited: boolean;
+  usage?: Record<string, unknown> | null;
+  seed_hash?: string | null;
+  /** False for a freshly generated preview, which is not stored until saved. */
+  saved: boolean;
+}
+
+/** An interest's research topics (Prosopia method); empty until generated. */
+export function getTerms(key: string): Promise<InterestTerms> {
+  return apiGet<InterestTerms>(`/api/profiles/${enc(key)}/terms`);
+}
+
+/**
+ * Generate a preview (nothing is stored). ``apiKey`` is the user's Anthropic
+ * key for this one call: sent in the body, never stored by the server;
+ * null = clustering, no LLM.
+ */
+export function generateTerms(key: string, apiKey: string | null): Promise<InterestTerms> {
+  return apiPost<InterestTerms>(`/api/profiles/${enc(key)}/terms/generate`, apiKey ? { api_key: apiKey } : {});
+}
+
+/**
+ * Store topics: a generated preview being kept (pass its provenance in
+ * ``from``), or edits to the stored ones (omit it).
+ */
+export async function saveTerms(key: string, terms: InterestTerm[], removed: InterestTerm[], notInterests: string[], from?: InterestTerms, edited = true): Promise<InterestTerms> {
+  const provenance = from ? { source: from.source, model: from.model, generated_at: from.generated_at, seed_hash: from.seed_hash, usage: from.usage } : {};
+  const res = await apiPut<InterestTerms>(`/api/profiles/${enc(key)}/terms`, { terms, removed, not_interests: notInterests, ...provenance, edited });
+  invalidate(`profiles/${key}/terms`);
+  return res;
+}
+
 /** Switch a saved interest's topics: exactly ``selectedIds`` on (409 if none). */
 export async function saveTopics(key: string, selectedIds: string[]): Promise<Topic[]> {
   const res = await apiPut<Topic[]>(`/api/profiles/${enc(key)}/topics`, { selected_topic_ids: selectedIds });
@@ -182,6 +225,18 @@ export function gatherNow(
     `/api/profiles/${enc(key)}/gather-now` +
       `?days=${opts.days ?? 7}&limit=${opts.limit ?? 500}`,
   );
+}
+
+/** Fetch papers from past years into a live interest, once (a background run). */
+export function backfill(key: string, years: YearSpan): Promise<{ ok: true; run_id: number }> {
+  return apiPost<{ ok: true; run_id: number }>(`/api/profiles/${enc(key)}/backfill`, { year_from: years.from, year_to: years.to });
+}
+
+/** Set the years an interest's feed draws from; null clears the range. */
+export async function updateProfileYears(key: string, years: YearSpan | null): Promise<Profile> {
+  const res = await apiPatch<Profile>(`/api/profiles/${enc(key)}`, { years: years ? { year_from: years.from, year_to: years.to } : { year_from: null, year_to: null } });
+  invalidate('profiles', 'radar');
+  return res;
 }
 
 export function listProfileRuns(key: string, limit = 20): Promise<GatherRunStatus[]> {

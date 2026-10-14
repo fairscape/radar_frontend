@@ -28,6 +28,9 @@ export interface Profile {
   /** Leave-one-out similarity band of the seeds to their centroid. */
   seedSimMin?: number | null;
   seedSimMax?: number | null;
+  /** Publication years the feed draws from; null = open (yearTo null = to now). */
+  yearFrom?: number | null;
+  yearTo?: number | null;
   /** The stored researcher ("profile") this interest was built from, if any. */
   researcherId?: number | null;
 }
@@ -111,6 +114,14 @@ export interface ChatTurn {
 export interface DailyRadarFilters {
   profile?: string;
   bucket?: Bucket;
+  /** "Published since": on top of each interest's own years. */
+  yearFrom?: number | null;
+}
+
+/** A publication-year range; ``to`` null = to now. */
+export interface YearSpan {
+  from: number;
+  to: number | null;
 }
 
 export interface DailyRadarResponse {

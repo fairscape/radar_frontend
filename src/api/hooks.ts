@@ -13,7 +13,7 @@ export const keys = {
   profileDetail: (key: string) => `profiles/${key}/detail`,
   profileRuns: (key: string) => `profiles/${key}/runs`,
   profileFeedback: (key: string) => `profiles/${key}/feedback`,
-  radar: (f: DailyRadarFilters) => `radar?profile=${f.profile ?? 'all'}&bucket=${f.bucket ?? ''}`,
+  radar: (f: DailyRadarFilters) => `radar?profile=${f.profile ?? 'all'}&bucket=${f.bucket ?? ''}&year=${f.yearFrom ?? ''}`,
   vaultDocs: (tag: string) => `vault/docs?tag=${tag}`,
   vaultStats: 'vault/stats',
   vaultTags: 'vault/tags',

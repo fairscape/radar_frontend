@@ -95,6 +95,16 @@ export interface SuggestedInterest {
   seed_titles: string[];
 }
 
+/** ``GET /api/researchers/{id}/works``: the source read again; ``saved_ids`` are already saved. */
+export interface ResearcherWorks {
+  source: 'orcid' | 'prosopia' | string;
+  key: string;
+  name: string | null;
+  /** ``OrcidWork`` or ``ProsopiaWork`` items, by ``source``. */
+  works: unknown[];
+  saved_ids: string[];
+}
+
 export interface ResearcherSuggestions {
   researcher_id: number;
   embedding_model: string;
