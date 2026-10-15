@@ -119,7 +119,7 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
       )}
       {d && (
         <div className="row" style={{ gap: 6, marginTop: 10 }}>
-          <Input value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="Add a topic" aria-label="Add a research topic"
+          <Input value={adding} onChange={(e) => setAdding(e.target.value)} maxLength={200} placeholder="Add a topic" aria-label="Add a research topic"
             onKeyDown={(e) => { if (e.key === 'Enter' && adding.trim()) add(adding.trim()); }} />
           <Button size="sm" disabled={!adding.trim()} onClick={() => add(adding.trim())}>Add</Button>
           {!preview && editedSincePreviewOrSave && <Button size="sm" variant="primary" icon="check" loading={saving} onClick={() => void save()}>Save changes</Button>}

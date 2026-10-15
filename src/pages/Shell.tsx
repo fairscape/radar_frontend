@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useProfiles, useResearchers, useVaultStats } from '../api/hooks';
 import { TERMS } from '../lib/terms';
+import { daysLabel } from '../lib/format';
 import { dismissJob, kindLabel, stepLabel, useJobs, type Job } from '../lib/jobs';
 import { navigate, paths, type Route } from '../lib/router';
 import { setThemePref, useTheme } from '../lib/theme';
@@ -143,7 +144,7 @@ function JobRow({ job }: { job: Job }) {
         <div className="job-title">
           <b>{kindLabel(job.kind)} · {job.profileName}</b>
           <span className="job-step">
-            {job.status === 'running' ? `${stepLabel(job)}${job.yearsLabel ? ` · ${job.yearsLabel}` : job.days ? ` · last ${job.days} days` : ''}` : job.status === 'done' ? job.summary : 'Failed'}
+            {job.status === 'running' ? `${stepLabel(job)}${job.yearsLabel ? ` · ${job.yearsLabel}` : job.days ? ` · last ${daysLabel(job.days)}` : ''}` : job.status === 'done' ? job.summary : 'Failed'}
           </span>
         </div>
         {job.status === 'running' ? <JobProgress job={job} compact /> : job.status === 'error' && <div className="job-msg">{job.error}</div>}

@@ -88,6 +88,75 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
   return <input className={`input ${className ?? ''}`} {...rest} />;
 }
 
+/**
+ * A number field that can be emptied while typing. Driving ``<input
+ * type="number">`` straight from a number turned "" into the minimum (or
+ * 0) on the spot, so clearing a field and typing 30 gave 130, and clearing
+ * the threshold saved 0.000. The text is kept as typed; ``onChange`` only
+ * hears values that parse and sit in range, and leaving the field puts back
+ * the last good value (or the nearest bound).
+ */
+export function NumberInput({
+  value,
+  onChange,
+  min,
+  max,
+  integer,
+  digits,
+  className,
+  onBlur,
+  ...rest
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & {
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  integer?: boolean;
+  /** Decimals to show a value set from outside (a slider) with. */
+  digits?: number;
+}) {
+  const show = (v: number) => (digits != null ? String(Number(v.toFixed(digits))) : String(v));
+  const [text, setText] = useState(show(value));
+  // Follow outside changes (a slider, Reset) unless the text already means it.
+  useEffect(() => {
+    setText((t) => (t.trim() !== '' && Number(t) === value ? t : show(value)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  const parse = (t: string): number | null => {
+    if (t.trim() === '') return null;
+    const n = Number(t);
+    if (!Number.isFinite(n) || (integer && !Number.isInteger(n))) return null;
+    return n;
+  };
+  const inRange = (n: number) => (min == null || n >= min) && (max == null || n <= max);
+  return (
+    <input
+      {...rest}
+      type="number"
+      className={`input ${className ?? ''}`}
+      min={min}
+      max={max}
+      value={text}
+      aria-invalid={parse(text) == null || !inRange(parse(text)!) || undefined}
+      onChange={(e) => {
+        setText(e.target.value);
+        const n = parse(e.target.value);
+        if (n != null && inRange(n)) onChange(n);
+      }}
+      onBlur={(e) => {
+        const n = parse(text);
+        if (n == null) setText(show(value));
+        else if (!inRange(n)) {
+          const c = Math.max(min ?? -Infinity, Math.min(max ?? Infinity, n));
+          setText(show(c));
+          onChange(c);
+        }
+        onBlur?.(e);
+      }}
+    />
+  );
+}
+
 export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea className={`input textarea ${className ?? ''}`} {...rest} />;
 }

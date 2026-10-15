@@ -15,10 +15,12 @@ export function getDailyRadar(filters: DailyRadarFilters = {}): Promise<DailyRad
  * not necessarily the one on screen -- and since save toggles, a click
  * could un-save the paper there.
  */
-export function saveCard(id: string, profile: string): Promise<{ id: string; state: CardState }> {
-  return apiPost<{ id: string; state: CardState }>('/api/radar/cards/save', { card_id: id, profile });
+// ``on`` is the state wanted, not a toggle: a double click toggled a save
+// straight back off.
+export function saveCard(id: string, profile: string, on: boolean): Promise<{ id: string; state: CardState }> {
+  return apiPost<{ id: string; state: CardState }>('/api/radar/cards/save', { card_id: id, profile, on });
 }
 
-export function dismissCard(id: string, profile: string): Promise<{ id: string; state: CardState }> {
-  return apiPost<{ id: string; state: CardState }>('/api/radar/cards/dismiss', { card_id: id, profile });
+export function dismissCard(id: string, profile: string, on: boolean): Promise<{ id: string; state: CardState }> {
+  return apiPost<{ id: string; state: CardState }>('/api/radar/cards/dismiss', { card_id: id, profile, on });
 }

@@ -155,6 +155,17 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
     }
   }, [drafts.data, state.slug, state.importJobId, update]);
 
+  // A resumed draft starts as an upload (that is all the URL says). One
+  // built from a stored researcher then read "Upload the PDFs that define
+  // this interest" over seeds nobody uploaded; say where they came from.
+  useEffect(() => {
+    if (!state.slug || state.researcher || state.prosopia || state.source !== 'upload') return;
+    const row = profiles?.find((p) => p.key === state.slug);
+    const d = drafts.data?.find((x) => x.slug === state.slug);
+    if (row?.researcherId == null || !d?.researcher_name) return;
+    update({ source: 'profile', researcher: { id: row.researcherId, name: d.researcher_name, nSeeds: d.n_seeds } });
+  }, [profiles, drafts.data, state.slug, state.researcher, state.prosopia, state.source, update]);
+
   // An "Add more seeds" import ends here, whichever step is showing: the
   // seeds it attached make coherence, topics, the trial and the threshold
   // stale, as any other seed change does.
@@ -325,6 +336,7 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
   const [name, setName] = useState(state.name);
   const importJob = useJob(state.importJobId);
   const create = useAction(async () => {
+    if (!name.trim()) throw new Error('Give it a name first.');
     const d = await createDraft(name.trim());
     update({ slug: d.slug, name: d.name, source: 'upload' });
   });
@@ -345,7 +357,7 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
       <Panel title="Step 1 · Name it and add seed papers" description="Seeds are the papers that define what you are interested in. 5–15 focused papers work best; one is enough to start.">
         <div className="stack" style={{ gap: 16 }}>
           <Field label="Name" hint={state.source === 'upload' ? 'How this interest appears in the feed and the sidebar.' : state.source === 'profile' ? "How this interest appears in the feed and the sidebar. Several interests can come from one profile, so say what this one is about." : "How this interest appears in the feed and the sidebar. Leave it blank to use the researcher's name."}>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Neonatal vital-sign monitoring" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && state.source === 'upload') void create.run(); }} />
+            <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="e.g. Neonatal vital-sign monitoring" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && state.source === 'upload' && name.trim() && !create.busy) void create.run(); }} />
           </Field>
           <div>
             <div className="field-label" style={{ marginBottom: 8 }}>Where do the seeds come from?</div>
@@ -1006,7 +1018,9 @@ function StepThreshold({ state }: { state: DraftState }) {
     setKickError(null);
     try {
       const j = await startDryRun(slug, state.name, 30, years, state.selectedTopicIds);
-      update({ dryRunJobId: j.id, dryRunTopics: topicsKey });
+      // A new trial, a new suggestion: the threshold picked against the old
+      // one would otherwise stick (the fill-in below only fills a blank).
+      update({ dryRunJobId: j.id, dryRunTopics: topicsKey, threshold: null });
     } catch (e) {
       setKickError(errorMessage(e));
     } finally {
@@ -1026,6 +1040,8 @@ function StepThreshold({ state }: { state: DraftState }) {
   }, [slug, topicsKey, needsTopics]);
 
   const result = job?.status === 'done' ? (job.result as DraftDryRun) : null;
+  // What the trial covered, in words, for the copy below.
+  const period = state.years ? yearsLabel(state.years) : 'the last 30 days';
   const scores = useMemo(() => result?.scores ?? [], [result]);
   const band = result?.seed_similarity ?? null;
   const suggested = useMemo(() => result?.suggested_threshold ?? suggestThreshold(scores, band?.min ?? null), [result, scores, band]);
@@ -1091,20 +1107,20 @@ function StepThreshold({ state }: { state: DraftState }) {
       {job && job.status === 'running' && (
         <JobProgress job={job} />
       )}
-      {job && job.status === 'error' && <ErrorBox title="The trial scan failed" message={job.error} onRetry={() => void kick()} />}
+      {job && job.status === 'error' && <ErrorBox title="The trial scan failed" message={`${job.error ?? 'Unknown error.'} Saving needs a finished trial, so the threshold is calibrated against real papers: run it again.`} onRetry={() => void kick()} />}
       {result && scores.length === 0 && (
-        <EmptyState compact icon="search" title="The trial scan found no papers" body="Nothing recent matched the selected topics. You can still save with a default threshold and adjust it after the first real scan." />
+        <EmptyState compact icon="search" title="The trial scan found no papers" body={`Nothing from ${period} matched the selected topics. You can still save with a default threshold and adjust it after the first real scan.`} />
       )}
       {result && scores.length > 0 && (
         <div className="stack" style={{ gap: 16 }}>
           <Callout tone="info">
-            <b>{passing}</b> of <b>{scores.length}</b> papers from the last 30 days ({scores.length ? Math.round((100 * passing) / scores.length) : 0}%) would have reached your feed at <b className="mono">{value.toFixed(3)}</b>.
+            <b>{passing}</b> of <b>{scores.length}</b> {state.years ? 'sampled ' : ''}papers from {period} ({scores.length ? Math.round((100 * passing) / scores.length) : 0}%) would have reached your feed at <b className="mono">{value.toFixed(3)}</b>.
             {band && <> Your own seeds score <b className="mono">{band.min.toFixed(3)}–{band.max.toFixed(3)}</b>; papers above <b className="mono">{band.min.toFixed(3)}</b> are as close as your seeds.</>}
             {suggested != null && Math.abs(value - suggested) > 0.0005 && (
               <> <Button size="sm" variant="ghost" onClick={() => update({ threshold: suggested })}>Use suggested {suggested.toFixed(3)}</Button></>
             )}
           </Callout>
-          <ThresholdHistogram scores={scores} value={value} min={axisLo} max={axisHi} seedBand={band} suggested={suggested} periodLabel="would pass · last 30 days" onChange={(v) => update({ threshold: Number(v.toFixed(3)) })} />
+          <ThresholdHistogram scores={scores} value={value} min={axisLo} max={axisHi} seedBand={band} suggested={suggested} periodLabel={`would pass · ${period}`} onChange={(v) => update({ threshold: Number(v.toFixed(3)) })} />
           {result.papers && result.papers.length > 0 ? (
             <ThresholdPaperList papers={result.papers} value={value} label="Papers from the trial scan" />
           ) : result.preview.length > 0 && (
@@ -1128,7 +1144,7 @@ function StepThreshold({ state }: { state: DraftState }) {
         <Button icon="arrow-left" onClick={() => update({ step: 3 })}>Back</Button>
         <div className="row">
           {job?.status !== 'running' && <Button variant="ghost" icon="refresh" onClick={() => void kick()}>Run trial again</Button>}
-          <Button variant="primary" icon="check" onClick={() => save.run()} loading={save.busy} disabled={!result && job?.status !== 'error'} title={!result ? 'Wait for the trial scan to finish' : undefined}>
+          <Button variant="primary" icon="check" onClick={() => save.run()} loading={save.busy} disabled={!result} title={!result ? (job?.status === 'error' || kickError ? 'The trial scan failed: run it again first' : 'Wait for the trial scan to finish') : undefined}>
             Save {TERMS.interest} and start scanning
           </Button>
         </div>

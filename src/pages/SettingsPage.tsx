@@ -59,7 +59,7 @@ export function SettingsPage() {
               <Input value={user.email} readOnly />
             </Field>
             <Field label="Contact email for OpenAlex" hint="Sent with every OpenAlex request so Radar gets the faster polite pool. Defaults to your sign-in email." error={save.error}>
-              <Input type="email" value={mailto} onChange={(e) => { setMailto(e.target.value); save.clearError(); }} />
+              <Input type="email" maxLength={254} value={mailto} onChange={(e) => { setMailto(e.target.value); save.clearError(); }} />
             </Field>
             <div className="row">
               <Button variant="primary" onClick={() => save.run()} loading={save.busy} disabled={!dirty}>Save</Button>
@@ -70,11 +70,14 @@ export function SettingsPage() {
       </Panel>
 
       <Panel title="Appearance">
-        <Field label="Theme">
+        {/* Not a Field: that is a <label>, which names the first button inside
+            it -- "System" was announced as "Theme System Light Dark". */}
+        <div className="field">
+          <span className="field-label">Theme</span>
           <div>
             <Segmented<ThemePref> ariaLabel="Theme" value={pref} onChange={setThemePref} options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
           </div>
-        </Field>
+        </div>
       </Panel>
 
       <Panel title="Backend">

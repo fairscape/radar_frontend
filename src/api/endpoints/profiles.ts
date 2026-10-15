@@ -243,6 +243,20 @@ export function listProfileRuns(key: string, limit = 20): Promise<GatherRunStatu
   return apiGet<GatherRunStatus[]>(`/api/profiles/${enc(key)}/runs`, { limit });
 }
 
+/** What the interest's saves and dismisses say its threshold should be. */
+export interface FeedbackThreshold {
+  n_saved: number;
+  n_dismissed: number;
+  min_events: number;
+  /** Null until ``min_events`` papers are triaged, with at least one save. */
+  suggested: number | null;
+  threshold: number | null;
+}
+
+export function getFeedbackThreshold(key: string): Promise<FeedbackThreshold> {
+  return apiGet<FeedbackThreshold>(`/api/profiles/${enc(key)}/feedback-threshold`);
+}
+
 export function listProfileFeedback(key: string, limit = 50): Promise<FeedbackEvent[]> {
   return apiGet<FeedbackEvent[]>(`/api/profiles/${enc(key)}/feedback`, { limit });
 }

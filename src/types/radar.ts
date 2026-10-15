@@ -71,6 +71,8 @@ export interface VaultDoc {
   pages: number;
   chunks: number;
   added: string;
+  /** Upload response only: these bytes were already in your vault. */
+  duplicate?: boolean | null;
 }
 
 export interface Seed {

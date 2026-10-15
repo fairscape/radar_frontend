@@ -90,6 +90,24 @@ export function fmtDuration(startIso: string, endIso: string | null): string {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
+/**
+ * A signed difference (``+0.012`` / ``-0.004``). One that rounds to zero
+ * gets more digits instead of a "-0.000" that reads as no difference while
+ * the card is in fact below the bar.
+ */
+export function fmtSigned(n: number, digits = 3): string {
+  if (n === 0) return `+${(0).toFixed(digits)}`;
+  let d = digits;
+  while (Number(n.toFixed(d)) === 0 && d < digits + 3) d += 1;
+  const s = n.toFixed(d);
+  return n > 0 ? `+${s}` : s;
+}
+
+/** "1 day" / "30 days". */
+export function daysLabel(n: number): string {
+  return `${n} ${n === 1 ? 'day' : 'days'}`;
+}
+
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }

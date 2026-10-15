@@ -38,18 +38,21 @@ export function VaultPage() {
     if (!files || files.length === 0) return;
     const list = Array.from(files);
     let ok = 0;
+    const dups: string[] = [];
     const fails: string[] = [];
     for (let i = 0; i < list.length; i++) {
       setUploading({ done: i, total: list.length });
       try {
-        await uploadPdf(list[i], tag !== 'all' ? tag : undefined);
-        ok += 1;
+        const doc = await uploadPdf(list[i], tag !== 'all' ? tag : undefined);
+        if (doc.duplicate) dups.push(list[i].name);
+        else ok += 1;
       } catch (e) {
         fails.push(`${list[i].name}: ${errorMessage(e)}`);
       }
     }
     setUploading(null);
     if (ok) toast.success(`${plural(ok, 'PDF')} added to the ${TERMS.vault}${tag !== 'all' ? ` and tagged ${byKey[tag]?.name ?? tag}` : ''}.`);
+    if (dups.length) toast.info(`Already in your ${TERMS.vault}: ${dups.join(', ')}.`);
     for (const f of fails) toast.error(f);
   }
 

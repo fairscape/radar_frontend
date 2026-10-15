@@ -2,16 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { useProfileDetail, useProfileRuns, useProfiles, useResearchers } from '../api/hooks';
 import {
   candidateScores,
+  getFeedbackThreshold,
   getRerankerComparison,
   getTopicYield,
   recomputeCoherence,
   removeSeed,
   updateProfileThreshold,
   updateProfileYears,
+  type FeedbackThreshold,
   type GatherRunStatus,
 } from '../api/endpoints/profiles';
 import { uploadPdf } from '../api/endpoints/vault';
-import { errorMessage, fmtDateTime, fmtDuration, fmtRelative, plural } from '../lib/format';
+import { daysLabel, errorMessage, fmtDateTime, fmtDuration, fmtRelative, plural } from '../lib/format';
 import { startBackfill, startScan, useRunningJob, yearsLabel } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
@@ -19,7 +21,7 @@ import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { Profile } from '../types/radar';
-import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Stat, Tabs, confirmDialog, useAction } from '../ui';
+import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, IconButton, LoadingRows, NumberInput, Panel, Stat, Tabs, confirmDialog, useAction } from '../ui';
 import { PaperTitle } from '../ui/pickers';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
@@ -347,8 +349,34 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
   );
 }
 
+/** The threshold that best separates what was saved from what was dismissed. */
+function FeedbackSuggestion({ data, value, onUse }: { data: FeedbackThreshold | null; value: number; onUse: (v: number) => void }) {
+  if (!data) return null;
+  const n = data.n_saved + data.n_dismissed;
+  if (data.suggested == null) {
+    return (
+      <p className="small muted" style={{ marginTop: 0, marginBottom: 10 }}>
+        From your feedback: {n < data.min_events
+          ? `${plural(n, 'paper')} saved or dismissed so far; a suggestion appears at ${data.min_events}.`
+          : 'save at least one paper for a suggestion.'}
+      </p>
+    );
+  }
+  const s = data.suggested;
+  return (
+    <div className="row" style={{ marginBottom: 10 }}>
+      <span className="small muted">
+        From your feedback ({data.n_saved} saved, {data.n_dismissed} dismissed): <b className="mono">{s.toFixed(3)}</b> keeps what you saved and drops the most of what you dismissed.
+      </span>
+      {Math.abs(s - value) > 0.0005 && <Button size="sm" variant="ghost" onClick={() => onUse(s)}>Use this</Button>}
+    </div>
+  );
+}
+
 export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => void }) {
   const scoresQ = useQuery(`profiles/${profile.key}/scores`, () => candidateScores(profile.key));
+  // Saves and dismisses are where the feed's triage feeds back into scoring.
+  const feedbackQ = useQuery(`profiles/${profile.key}/feedback-threshold`, () => getFeedbackThreshold(profile.key));
   const [value, setValue] = useState<number>(profile.threshold);
   useEffect(() => setValue(profile.threshold), [profile.threshold, profile.key]);
   // The publication years this interest's feed draws from (null = all).
@@ -417,6 +445,7 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
               <Button size="sm" variant="ghost" onClick={() => setValue(suggested)}>Use suggested</Button>
             </div>
           )}
+          <FeedbackSuggestion data={feedbackQ.data ?? null} value={value} onUse={setValue} />
           <ThresholdHistogram scores={shownScores} value={value} min={axisLo} max={axisHi} onChange={setValue} reference={profile.threshold} seedBand={band} suggested={suggested} periodLabel="of gathered papers would pass" />
           {/* Scans before 2026-10-01 dropped every paper below the threshold
               of the day, so an older interest has nothing below it to show. */}
@@ -436,7 +465,7 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
       )}
       <div className="row" style={{ marginTop: 12 }}>
         <Field label="Exact value" inline>
-          <Input type="number" min={0} max={1} step={0.001} value={value} onChange={(e) => setValue(Math.max(0, Math.min(1, Number(e.target.value) || 0)))} style={{ width: 110 }} />
+          <NumberInput min={0} max={1} step={0.001} digits={3} value={value} onChange={setValue} style={{ width: 110 }} />
         </Field>
       </div>
     </Panel>
@@ -527,7 +556,7 @@ export function ScanDialog({ profile, open, onClose }: { profile: Profile; open:
   const go = useAction(async () => {
     await startScan(profile, { days, limit });
     invalidate(`profiles/${profile.key}/runs`);
-    toast.info(`Scanning "${profile.name}" for papers from the last ${days} days.`);
+    toast.info(`Scanning "${profile.name}" for papers from the last ${daysLabel(days)}.`);
     onClose();
   });
   return (
@@ -540,8 +569,8 @@ export function ScanDialog({ profile, open, onClose }: { profile: Profile; open:
       <div className="stack">
         <p>Radar will query OpenAlex for recent papers on this {TERMS.interest}'s topics, score them, and add the results to your feed. This usually takes a few minutes.</p>
         <div className="row" style={{ gap: 12 }}>
-          <Field label="Look back (days)"><Input type="number" min={1} max={365} value={days} onChange={(e) => setDays(Math.max(1, Math.min(365, Number(e.target.value) || 1)))} /></Field>
-          <Field label="Max papers to fetch"><Input type="number" min={1} max={5000} step={50} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(5000, Number(e.target.value) || 1)))} /></Field>
+          <Field label="Look back (days)"><NumberInput integer min={1} max={365} value={days} onChange={setDays} /></Field>
+          <Field label="Max papers to fetch"><NumberInput integer min={1} max={5000} step={50} value={limit} onChange={setLimit} /></Field>
         </div>
         {go.error && <ErrorBox compact message={go.error} />}
         <Callout tone="info">You can leave this page; progress shows at the top of every screen.</Callout>

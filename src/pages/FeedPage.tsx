@@ -2,14 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDailyRadar, useProfiles } from '../api/hooks';
 import { dismissCard, saveCard } from '../api/endpoints/radar';
 import { addSeeds } from '../api/endpoints/profiles';
-import { errorMessage, fmtRelative, plural } from '../lib/format';
+import { daysLabel, errorMessage, fmtRelative, fmtSigned, plural } from '../lib/format';
 import { invalidate } from '../lib/query';
 import { startScan, useJobs } from '../lib/jobs';
 import { navigate, paths, usePath } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { Bucket, Card, CardState, Profile } from '../types/radar';
-import { Badge, Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, Kbd, LoadingRows, Segmented, Select } from '../ui';
+import { Badge, Button, Callout, EmptyState, ErrorBox, Field, Icon, Kbd, LoadingRows, NumberInput, Segmented, Select } from '../ui';
 import { Link } from '../ui/Link';
 import { BucketBadge, InterestName, ScoreValue } from '../ui/domain';
 import { AddInterestCards } from './HomePage';
@@ -139,15 +139,20 @@ export function FeedPage() {
   const triaged = useRef(false);
   useEffect(() => () => { if (triaged.current) invalidate('radar'); }, []);
 
+  // A ref, not the ``busy`` state: two clicks in one frame both saw the
+  // state before either set it.
+  const inFlight = useRef(new Set<string>());
   async function act(card: Card, target: 'saved' | 'dismissed') {
     const k = keyOf(card);
-    if (busy.has(k)) return;
+    if (inFlight.current.has(k)) return;
+    inFlight.current.add(k);
     const prev = stateOf(card);
     const next: CardState = prev === target ? null : target;
     setOverrides((o) => ({ ...o, [k]: next }));
     setBusy((b) => new Set(b).add(k));
     try {
-      const res = await (target === 'saved' ? saveCard(card.id, card.profile) : dismissCard(card.id, card.profile));
+      const on = next === target;
+      const res = await (target === 'saved' ? saveCard(card.id, card.profile, on) : dismissCard(card.id, card.profile, on));
       setOverrides((o) => ({ ...o, [k]: res.state }));
       triaged.current = true;
       invalidate('profiles');
@@ -155,6 +160,7 @@ export function FeedPage() {
       setOverrides((o) => ({ ...o, [k]: prev }));
       toast.error(`Couldn't ${target === 'saved' ? 'save' : 'dismiss'} "${card.title.slice(0, 60)}": ${errorMessage(e)}`);
     } finally {
+      inFlight.current.delete(k);
       setBusy((b) => {
         const n = new Set(b);
         n.delete(k);
@@ -178,6 +184,11 @@ export function FeedPage() {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // Enter / Space on a button or link inside a card is that control's
+      // own activation (Save, Dismiss, the title link); only on the card
+      // itself do they expand it.
+      if ((e.key === 'Enter' || e.key === ' ') && t && !t.hasAttribute('data-card')
+        && t.closest('a, button, [role="button"], [role="radio"], [role="tab"], summary')) return;
       if (visible.length === 0) return;
       const idx = focused ? visible.findIndex((c) => c.id === focused) : -1;
       const focusCard = (i: number) => {
@@ -210,7 +221,7 @@ export function FeedPage() {
         <div>
           <h1 className="page-title">{TERMS.feed}</h1>
           <p className="page-sub">
-            Every paper Radar has gathered for {selectedName}, best score first. Save what is useful and dismiss the rest; both teach the scoring.
+            Every paper Radar has gathered for {selectedName}, best score first. Save what is useful and dismiss the rest; once you have triaged 30, the Threshold tab suggests a threshold from them.
             {data?.fetchedAt ? <> Last scan finished {fmtRelative(data.fetchedAt)}.</> : null}
           </p>
         </div>
@@ -366,7 +377,7 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
     setBusy(true);
     try {
       await startScan(p, { days, limit });
-      toast.info(`Scanning "${p.name}" for papers from the last ${days} days.`);
+      toast.info(`Scanning "${p.name}" for papers from the last ${daysLabel(days)}.`);
       onClose();
     } catch (e) {
       toast.error(`Couldn't start the scan: ${errorMessage(e)}`);
@@ -383,10 +394,10 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
         </Select>
       </Field>
       <Field label="Look back (days)">
-        <Input type="number" min={1} max={365} value={days} onChange={(e) => setDays(Math.max(1, Math.min(365, Number(e.target.value) || 1)))} />
+        <NumberInput integer min={1} max={365} value={days} onChange={setDays} />
       </Field>
       <Field label="Max papers to fetch">
-        <Input type="number" min={1} max={5000} step={50} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(5000, Number(e.target.value) || 1)))} />
+        <NumberInput integer min={1} max={5000} step={50} value={limit} onChange={setLimit} />
       </Field>
       <div className="row">
         <Button variant="primary" icon="play" onClick={go} loading={busy} disabled={!!already} title={already ? 'A scan is already running for this interest' : undefined}>
@@ -427,7 +438,7 @@ function PaperCard({
           // wider than the compact 60px score column. The words are in the
           // tooltip.
           <span className="small muted mono" title={`Similarity minus this ${TERMS.interest}'s threshold (${profile!.threshold.toFixed(3)}): above the bar when positive`}>
-            {delta >= 0 ? '+' : ''}{delta.toFixed(3)}
+            {fmtSigned(delta)}
           </span>
         )}
       </div>

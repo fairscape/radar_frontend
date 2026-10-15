@@ -321,6 +321,7 @@ export async function startScan(
 }
 
 export function yearsLabel(years: YearSpan): string {
+  if (years.to === years.from) return String(years.from);
   return `${years.from}–${years.to ?? 'now'}`;
 }
 
