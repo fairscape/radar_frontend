@@ -24,7 +24,7 @@ export function LoginPage() {
         </div>
         <h1>New papers, scored against the ones you already care about.</h1>
         <p className="lede">
-          Radar watches OpenAlex for you. Describe an interest with a handful of seed papers, and every day it scores what is new against them and shows you only what clears the bar.
+          Radar watches OpenAlex for you. Describe an interest with a handful of seed papers, and each scan scores what is new against them and shows you only what clears the bar.
         </p>
         <div className="login-steps">
           <div className="login-step"><span className="login-step-n">1</span><div><b>Add an interest</b><span>Upload PDFs, or import a researcher's papers by ORCID or Prosopia profile. Radar measures how tightly they cluster and picks the topics to watch.</span></div></div>

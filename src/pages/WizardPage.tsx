@@ -1064,7 +1064,7 @@ function StepThreshold({ state }: { state: DraftState }) {
     reset();
     try {
       // A range of years: fetch papers from them once, instead of only the
-      // last week. The daily scans add new papers either way.
+      // last week. Later scans are started by hand (Scan now).
       if (years) {
         await startBackfill({ key: profile.key, name: profile.name }, years);
         toast.success(`"${profile.name}" is live. Fetching papers from ${yearsLabel(years)} now.`);
@@ -1099,8 +1099,8 @@ function StepThreshold({ state }: { state: DraftState }) {
         />
         <p className="small muted" style={{ margin: '6px 0 0' }}>
           {state.years
-            ? `The trial samples each year, most cited first. Saving fetches up to 100 papers a year from ${yearsLabel(state.years)} once; after that Radar keeps adding new papers every day.`
-            : 'Radar follows new papers: the trial looks at the last 30 days, and after saving it scans for new papers every day.'}
+            ? `The trial samples each year, most cited first. Saving fetches up to 100 papers a year from ${yearsLabel(state.years)} once; after that, Scan now on the interest looks for new papers.`
+            : 'Radar follows new papers: the trial looks at the last 30 days, and saving scans the last week once. Scan now on the interest looks again.'}
         </p>
       </div>
       {kickError && <ErrorBox title="Couldn't start the trial scan" message={kickError} onRetry={() => void kick()} />}

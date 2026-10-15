@@ -155,7 +155,7 @@ function OverviewTab({ profile, detail, onScan }: { profile: Profile; detail: De
       <Panel title="How this interest works">
         <div className="stack" style={{ fontSize: 13.5, color: 'var(--fg-2)' }}>
           <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> topics and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed papers. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{profile.seedSimMin.toFixed(3)}</b> or more are as close as your own seeds</>}.</p>
-          <p>Scans run automatically every day at 04:00 UTC. You can also start one any time.</p>
+          <p>Radar does not scan on a schedule. Press Scan now to look for new papers.</p>
           <p>Saving or dismissing a paper in the feed is recorded as feedback for this {TERMS.interest} and used when it is refit.</p>
         </div>
       </Panel>
@@ -475,11 +475,11 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
 function ScansTab({ profile, onScan }: { profile: Profile; onScan: () => void }) {
   const { data: runs, loading, error, refresh } = useProfileRuns(profile.key, 30);
   return (
-    <Panel title="Scans" description="Every gather pass for this interest, newest first. Scheduled scans run daily at 04:00 UTC." actions={<Button size="sm" icon="play" onClick={onScan}>Scan now</Button>} className="panel-flush">
+    <Panel title="Scans" description="Every gather pass for this interest, newest first. Scans run only when you start one." actions={<Button size="sm" icon="play" onClick={onScan}>Scan now</Button>} className="panel-flush">
       <div style={{ padding: '0 18px 12px' }}>
         {error && !runs && <ErrorBox compact message={errorMessage(error)} onRetry={refresh} />}
         {loading && !runs && <LoadingRows rows={3} />}
-        {runs && runs.length === 0 && <EmptyState compact icon="clock" title="No scans yet" body="The first scheduled scan runs at 04:00 UTC, or start one now." />}
+        {runs && runs.length === 0 && <EmptyState compact icon="clock" title="No scans yet" body="Start a scan to look for new papers." />}
         {runs && runs.length > 0 && (
           <table className="table">
             <thead><tr><th>Started</th><th title="Which OpenAlex query tier the gatherer used">Tier</th><th>Status</th><th className="r">Fetched</th><th className="r">New</th><th className="r">Duration</th></tr></thead>

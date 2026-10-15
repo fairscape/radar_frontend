@@ -4,7 +4,7 @@
  * RADAR used to gather only papers published since its last scan, so every
  * interest's pool was recent. A range makes the trial scan sample those
  * years and, once saved, fetches papers from them once (a backfill); the
- * daily scans keep adding new papers either way. ``to`` null = "now".
+ * later scans (Scan now) add new papers either way. ``to`` null = "now".
  */
 import type { YearSpan } from '../types/radar';
 import { Select } from './index';

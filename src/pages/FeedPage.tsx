@@ -298,7 +298,7 @@ export function FeedPage() {
               <EmptyState
                 icon="radar"
                 title="No papers yet"
-                body={<>Radar scans each {TERMS.interest} daily at 04:00 UTC. Run a scan now to fill the feed without waiting.</>}
+                body={<>Radar scans an {TERMS.interest} only when you ask. Run a scan to fill the feed.</>}
                 action={<Button variant="primary" icon="play" onClick={() => setScanOpen(true)}>Scan now</Button>}
               />
             ) : cards.length === 0 ? (

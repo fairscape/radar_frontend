@@ -30,7 +30,7 @@ export function InterestsPage() {
       <header className="page-head">
         <div>
           <h1 className="page-title">{TERMS.Interests}</h1>
-          <p className="page-sub">Each {TERMS.interest} is a set of seed papers, the topics Radar queries for it, and a score threshold. Radar scans every {TERMS.interest} daily.</p>
+          <p className="page-sub">Each {TERMS.interest} is a set of seed papers, the topics Radar queries for it, and a score threshold. Radar scans an {TERMS.interest} when you start a scan.</p>
         </div>
         <div className="page-actions">
           <Link href={paths.wizard()} className="btn btn-primary"><Icon name="plus" size={16} /> {TERMS.newInterest}</Link>
