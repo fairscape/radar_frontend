@@ -558,18 +558,27 @@ function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid
   const [running, setRunning] = useState<{ jobId: string; who: string } | null>(null);
   const job = useJob(running?.jobId ?? null);
   const [round, setRound] = useState(0);
+  // onAdded is a new function on every render of the parent, and calling it
+  // re-renders the parent: as a dependency it re-ran this effect while the
+  // job still read "done", which called it again -- an endless loop that
+  // blanked the page after the first "Add N papers". Each job is handled
+  // once, and onAdded is read from a ref.
+  const handled = useRef<string | null>(null);
+  const onAddedRef = useRef(onAdded);
+  useEffect(() => { onAddedRef.current = onAdded; }, [onAdded]);
   useEffect(() => {
-    if (!running || !job || job.status === 'running') return;
+    if (!running || !job || job.status === 'running' || handled.current === job.id) return;
     if (job.status === 'done') {
+      handled.current = job.id;
       const r = job.result as ProsopiaImportResult | null;
       toast.success(`Added ${plural(typeof r?.drafted === 'number' ? r.drafted : 0, 'paper')} from ${running.who}. You can add another.`);
       noteUnmatchedImport(r?.unresolved);
-      onAdded();
       setRound((n) => n + 1);   // a fresh picker for the next one
       setRunning(null);
+      onAddedRef.current();
     }
     // an error stays on screen in the picker until the next attempt
-  }, [job, running, onAdded]);
+  }, [job, running]);
   return (
     <LookupPicker
       key={round}
