@@ -23,6 +23,7 @@ import { useQuery } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { topicSourceLabel, topicSourceTag } from '../lib/topicSource';
 import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, useAction } from '../ui';
 import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
@@ -235,11 +236,11 @@ function StepTopics({ profile, detail, back, next }: { profile: Profile; detail:
           </div>
           <div className="topics">
             {list.map((t) => (
-              <button key={t.id} type="button" className={`topic-toggle ${sel.has(t.id) ? 'on' : ''}`} onClick={() => toggle(t.id)} aria-pressed={sel.has(t.id)} title={`${t.count} seed${t.count === 1 ? '' : 's'} carry this topic · ${t.source === 'umls' ? 'mapped via UMLS' : 'OpenAlex topic'} ${t.id}`}>
+              <button key={t.id} type="button" className={`topic-toggle ${sel.has(t.id) ? 'on' : ''}`} onClick={() => toggle(t.id)} aria-pressed={sel.has(t.id)} title={`${t.count} ${t.count === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}`}>
                 <span className="tick">{sel.has(t.id) && <Icon name="check" size={10} />}</span>
                 {t.name}
                 <span className="tc">{t.count}</span>
-                {t.source === 'umls' && <span className="src">UMLS</span>}
+                {topicSourceTag(t.source) && <span className="src">{topicSourceTag(t.source)}</span>}
                 {t.new && <span className="src">new</span>}
               </button>
             ))}

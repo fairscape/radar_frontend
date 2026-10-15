@@ -26,6 +26,7 @@ import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { topicSourceLabel, topicSourceTag } from '../lib/topicSource';
 import { isUnmatched, noteUnmatchedImport, noteUnmatchedUploads } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { ProsopiaImportResult } from '../types/prosopia';
@@ -963,11 +964,11 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
           </div>
           <div className="topics">
             {list.map((t) => (
-              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.count} seed${t.count === 1 ? '' : 's'} carry this topic · ${t.source === 'umls' ? 'mapped via UMLS' : 'OpenAlex topic'} ${t.id}`}>
+              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.count} ${t.count === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}`}>
                 <span className="tick">{selected.has(t.id) && <Icon name="check" size={10} />}</span>
                 {t.name}
                 <span className="tc">{t.count}</span>
-                {t.source === 'umls' && <span className="src">UMLS</span>}
+                {topicSourceTag(t.source) && <span className="src">{topicSourceTag(t.source)}</span>}
               </button>
             ))}
           </div>

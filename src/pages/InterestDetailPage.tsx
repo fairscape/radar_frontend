@@ -19,6 +19,7 @@ import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { topicSourceTag } from '../lib/topicSource';
 import { isUnmatched, noteUnmatchedUploads } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { Profile } from '../types/radar';
@@ -334,7 +335,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
               return (
                 <tr key={t.id} style={{ opacity: t.on ? 1 : 0.6 }}>
                   <td>{t.name} <span className="muted mono small">{t.id}</span></td>
-                  <td><Badge>{t.source === 'umls' ? 'UMLS' : 'OpenAlex'}</Badge></td>
+                  <td><Badge>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge></td>
                   <td className="r">{t.count}</td>
                   <td>{t.on ? <Badge tone="ok">Queried</Badge> : <Badge>Off</Badge>}</td>
                   <td className="r">{yieldQ.loading ? '…' : y ? y.n_candidates : '—'}</td>

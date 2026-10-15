@@ -1,10 +1,10 @@
 /**
  * Telling the user which papers RADAR could not find on OpenAlex.
  *
- * Such a paper is still a seed: it is scored from its own text (a PDF's
- * title and body, a Prosopia paper's summary). What it lacks is an OpenAlex
- * record, so it adds no topics to search and no citation data -- worth
- * saying, since nothing else on screen shows it.
+ * Such a paper is still a seed, scored from its own text (a PDF's title
+ * and body, a Prosopia paper's summary). What it lacks is an OpenAlex
+ * record: an uploaded PDF's topics are then read from its text instead
+ * (marked PDF in the topic list), and a Prosopia paper adds none.
  */
 import { plural } from './format';
 import { toast } from './toast';
@@ -23,7 +23,7 @@ function names(list: string[]): string {
 export function noteUnmatchedUploads(files: string[]): void {
   if (!files.length) return;
   toast.info(
-    `Not found on OpenAlex: ${names(files)}. ${files.length === 1 ? 'It is' : 'They are'} kept and scored from the PDF's own text, but add no OpenAlex topics to search.`,
+    `Not found on OpenAlex: ${names(files)}. ${files.length === 1 ? 'It is' : 'They are'} kept and scored from the PDF's own text, and the topics to search are read from that text too (marked PDF under Topics).`,
   );
 }
 
