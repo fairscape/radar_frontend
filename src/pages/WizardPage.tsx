@@ -188,6 +188,12 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
   // a URL change (Back/Forward, a pasted link) moves the store, but never
   // past the furthest step reached here, whose state (topics, trial scan)
   // may not exist yet.
+  // Not forward while an import is still attaching seeds: the later steps
+  // would describe part of them (the server refuses coherence, topics, the
+  // trial and the save then too). Gates the step rail and, below, the URL
+  // (Back/Forward, a pasted link).
+  const firstImport = useJob(state.importJobId ?? null);
+  const importing = firstImport?.status === 'running' || extraJob?.status === 'running';
   const prevUrlStep = useRef<number | null | undefined>(undefined);
   const prevStoreStep = useRef<number | undefined>(undefined);
   const maxReached = useRef({ slug: null as string | null, step: 1 });
@@ -199,7 +205,8 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
     prevUrlStep.current = urlStep;
     prevStoreStep.current = state.step;
     if (!state.slug || draftSlug !== state.slug) return;   // no draft yet, or the resume above is still running
-    if (urlChanged && urlStep != null && urlStep !== state.step && urlStep <= maxReached.current.step) {
+    if (urlChanged && urlStep != null && urlStep !== state.step && urlStep <= maxReached.current.step
+      && !(importing && urlStep > state.step)) {
       prevStoreStep.current = urlStep;
       update({ step: urlStep });
       return;
@@ -209,14 +216,9 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
       // (or one we can't go to) replaces.
       navigate(paths.wizard(state.slug, state.step), { replace: !storeChanged || urlStep == null || urlStep > maxReached.current.step });
     }
-  }, [urlStep, state.step, state.slug, draftSlug, update]);
+  }, [urlStep, state.step, state.slug, draftSlug, update, importing]);
 
   const step = state.step;
-  // Not forward while an import is still attaching seeds: the later steps
-  // would describe part of them (the server refuses the trial and the save
-  // then too).
-  const firstImport = useJob(state.importJobId ?? null);
-  const importing = firstImport?.status === 'running' || extraJob?.status === 'running';
   const canGo = (n: number) => n < step || n === step
     || (!importing && ((n === 2 && !!state.slug) || (n === 3 && !!state.slug && step >= 3)));
 
@@ -258,7 +260,7 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
         </div>
         <div className="page-actions">
           <Button variant="ghost" onClick={() => navigate(paths.interests)} title="Keep the draft and come back later">Save for later</Button>
-          <Button variant="danger" icon="trash" onClick={cancel}>{state.slug ? 'Delete draft' : 'Cancel'}</Button>
+          <Button variant="danger" icon="trash" onClick={cancel} disabled={importing} title={importing ? 'Wait for the import to finish first' : undefined}>{state.slug ? 'Delete draft' : 'Cancel'}</Button>
         </div>
       </header>
 
@@ -1043,14 +1045,20 @@ function StepThreshold({ state }: { state: DraftState }) {
   // threshold set on the old. The latest such change runs next.
   const pendingKick = useRef<{ years: YearSpan | null } | null>(null);
   const kickingYears = useRef<string>('');
+  // State as well as the ref: Save must wait while a trial is starting, or
+  // a Save right after a change of years committed the new years with the
+  // old trial's threshold (the old trial's result was still on screen).
+  const [starting, setStarting] = useState(false);
   async function kick(years: YearSpan | null = state.years) {
     if (kicking.current) {
-      // The same years again (a repeated effect) is the trial already starting.
-      if (JSON.stringify(years) !== kickingYears.current) pendingKick.current = { years };
+      // The same years again is the trial already starting (a repeated
+      // effect, or the user changing back): nothing else is wanted after it.
+      pendingKick.current = JSON.stringify(years) !== kickingYears.current ? { years } : null;
       return;
     }
     kicking.current = true;
     kickingYears.current = JSON.stringify(years);
+    setStarting(true);
     setKickError(null);
     try {
       const j = await startDryRun(slug, state.name, 30, years, state.selectedTopicIds);
@@ -1064,6 +1072,7 @@ function StepThreshold({ state }: { state: DraftState }) {
       const next = pendingKick.current;
       pendingKick.current = null;
       if (next) void kick(next.years);
+      else setStarting(false);
     }
   }
 
@@ -1183,7 +1192,7 @@ function StepThreshold({ state }: { state: DraftState }) {
         <Button icon="arrow-left" onClick={() => update({ step: 3 })}>Back</Button>
         <div className="row">
           {job?.status !== 'running' && <Button variant="ghost" icon="refresh" onClick={() => void kick()}>Run trial again</Button>}
-          <Button variant="primary" icon="check" onClick={() => save.run()} loading={save.busy} disabled={!result} title={!result ? (job?.status === 'error' || kickError ? 'The trial scan failed: run it again first' : 'Wait for the trial scan to finish') : undefined}>
+          <Button variant="primary" icon="check" onClick={() => save.run()} loading={save.busy} disabled={!result || starting} title={!result || starting ? (job?.status === 'error' || kickError ? 'The trial scan failed: run it again first' : 'Wait for the trial scan to finish') : undefined}>
             Save {TERMS.interest} and start scanning
           </Button>
         </div>
