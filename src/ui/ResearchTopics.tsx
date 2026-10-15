@@ -35,9 +35,15 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
   const [dialog, setDialog] = useState(false);
   const [saving, setSaving] = useState(false);
   const shown = preview ?? q.data ?? null;
+  // Reset the edits only when what is shown actually changed. Every
+  // refetch (window focus, a scan finishing, any seed or threshold edit)
+  // hands back a new object with the same content, and resetting on that
+  // threw away topics struck out or added but not yet saved.
+  const shownKey = shown ? JSON.stringify([!!preview, shown.generated_at, shown.saved, shown.terms, shown.removed ?? [], shown.not_interests]) : null;
   useEffect(() => {
     if (shown) { setTerms(shown.terms); setRemoved(shown.removed ?? []); setNotInterests(shown.not_interests); }
-  }, [shown]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey]);
   const list = terms ?? [];
   const labels = (ts: InterestTerm[]) => JSON.stringify(ts.map((t) => t.label));
   const editedSincePreviewOrSave = !!shown
@@ -70,7 +76,7 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
   return (
     <Panel
       title="Research topics (Prosopia method)"
-      description="Topics generated the way Prosopia generates them, from this interest's seeds (or the researcher's Prosopia profile). Demo: they are not used for scanning or for the feed's ranking yet."
+      description="Topics generated the way Prosopia generates them, from this interest's seeds (or the researcher's Prosopia profile). Scans do not search by them. They rank the feed only when Radar's reranker is set to rank by research topics (see Rank refinement for what it ranks by)."
       actions={<Button size="sm" icon="refresh" onClick={() => setDialog(true)} disabled={!!preview}>{q.data?.terms.length ? 'Regenerate' : 'Generate'}</Button>}
     >
       {q.error && <ErrorBox compact message={errorMessage(q.error)} onRetry={q.refresh} />}

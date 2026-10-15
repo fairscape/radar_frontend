@@ -28,7 +28,11 @@ export interface DraftState {
   /** The stored researcher this draft was built from, if any. */
   researcher: { id: number; name: string; nSeeds: number } | null;
   importJobId: string | null;
+  /** An "Add more seeds" import (ORCID / Prosopia into this draft) still running. */
+  extraImportJobId?: string | null;
   dryRunJobId: string | null;
+  /** The topic selection that trial scan ran with (sorted ids, joined). */
+  dryRunTopics?: string | null;
   selectedTopicIds: string[] | null;
   threshold: number | null;
   /** Step 4's publication years; null = new papers only (the last 30 days). */

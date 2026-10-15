@@ -36,6 +36,7 @@ export async function uploadPdf(file: File, profileSlug?: string): Promise<Vault
   form.append('file', file);
   if (profileSlug) form.append('profile_slug', profileSlug);
   const res = await apiPostMultipart<VaultDoc>('/api/vault/upload', form);
-  invalidate('vault', 'profiles');
+  // 'radar' too: a seed upload re-fits a live interest and re-scores its feed.
+  invalidate('vault', 'profiles', 'radar');
   return res;
 }

@@ -6,6 +6,7 @@ import { addSeeds, removeSeed as removeSeedOnServer } from '../api/endpoints/pro
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import { YearRange } from '../ui/YearRange';
+import { UmlsNotice } from '../ui/UmlsNotice';
 import type { YearSpan } from '../types/radar';
 import {
   commitDraft,
@@ -13,12 +14,14 @@ import {
   deleteDraft,
   getDraftCoherence,
   getDraftTopics,
+  startSeedUmls,
   type DraftCoherence,
+  type SeedUmlsStatus,
   type DraftDryRun,
 } from '../api/endpoints/wizard';
 import { getDraft, isSeedSource, resetDraft, useDraft, type DraftState, type SeedSource } from '../lib/draft';
 import { errorMessage, fmtRelative, plural } from '../lib/format';
-import { findJob, startBackfill, startDryRun, startImport, startOrcidImport, startScan, useJob, yearsLabel, type Job } from '../lib/jobs';
+import { findJob, startBackfill, startDryRun, startImport, startOrcidImport, startScan, trackImport, useJob, yearsLabel, type Job } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
@@ -139,6 +142,29 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
   useEffect(() => {
     if (resuming && state.slug === draftSlug) setResuming(false);
   }, [resuming, state.slug, draftSlug]);
+
+  // A draft whose import is still running on the server (resumed from the
+  // Drafts list, or opened in another tab): follow that import, so step 1
+  // shows its progress and holds Next until the seeds are in.
+  const drafts = useDrafts();
+  useEffect(() => {
+    if (!state.slug || state.importJobId) return;
+    const d = drafts.data?.find((x) => x.slug === state.slug);
+    if (d?.phase === 'importing' && d.import_run_id != null) {
+      update({ importJobId: trackImport(d.import_run_id, d.slug, d.name || d.slug).id });
+    }
+  }, [drafts.data, state.slug, state.importJobId, update]);
+
+  // An "Add more seeds" import ends here, whichever step is showing: the
+  // seeds it attached make coherence, topics, the trial and the threshold
+  // stale, as any other seed change does.
+  const extraJob = useJob(state.extraImportJobId ?? null);
+  useEffect(() => {
+    if (!state.extraImportJobId || !state.slug) return;
+    if (extraJob && extraJob.status === 'running') return;
+    update({ extraImportJobId: null, ...(extraJob?.status === 'done' ? { selectedTopicIds: null, dryRunJobId: null, threshold: null } : {}) });
+    if (extraJob?.status === 'done') invalidate(`draft/${state.slug}/`, 'vault');
+  }, [extraJob, state.extraImportJobId, state.slug, update]);
 
   // The step is mirrored into the URL (``&step=``) so the browser's Back
   // and Forward buttons move between steps. It used to live only in this
@@ -509,6 +535,7 @@ function MoreSeeds({ slug, seedIds, disabled, onVaultAdded, onImported }: {
  * picker resets for the next person.
  */
 function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid' | 'prosopia'; onAdded: () => void }) {
+  const { update } = useDraft();
   const [running, setRunning] = useState<{ jobId: string; who: string } | null>(null);
   const job = useJob(running?.jobId ?? null);
   const [round, setRound] = useState(0);
@@ -530,7 +557,7 @@ function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid
       job={job}
       startLabel="Add"
       start={(key, ids) => source === 'orcid' ? startOrcidImport(key, ids, undefined, slug) : startImport(key, undefined, ids, slug)}
-      onStarted={(j, listing) => setRunning({ jobId: j.id, who: listing.name || listing.key })}
+      onStarted={(j, listing) => { setRunning({ jobId: j.id, who: listing.name || listing.key }); update({ extraImportJobId: j.id }); }}
     />
   );
 }
@@ -594,12 +621,15 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
   const slug = state.slug!;
   const docs = useVaultDocs(slug);
   const importJob = useJob(state.importJobId);
+  const extraImport = useJob(state.extraImportJobId ?? null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
   const [failures, setFailures] = useState<string[]>([]);
   const seeds = docs.data ?? state.seeds;
-  const importing = importJob?.status === 'running';
+  // An "Add more seeds" import holds Next too: the trial and the fit would
+  // use part of the seeds, and the rest would land on the saved interest.
+  const importing = importJob?.status === 'running' || extraImport?.status === 'running';
   const removal = useRemoveSeed(slug);
   const haveSeeds = seeds.length > 0;
   // Coherence, the dry run, the threshold and the topic picks were all
@@ -814,18 +844,88 @@ export function AgreementMeter({ agreement, n }: { agreement: number | null; n: 
 
 // --- Step 3 ------------------------------------------------------------------
 
+/**
+ * Waits for UMLS extraction over every seed. The topic list merges the
+ * topics the seeds' UMLS concepts map to, so a list built while seeds were
+ * still being read lacked theirs -- and nothing added them later. Seeds
+ * added after going back, or whose text changed, are pending again.
+ */
+function useSeedUmls(slug: string) {
+  const [status, setStatus] = useState<SeedUmlsStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    let timer: number | undefined;
+    let waited = false;
+    setStatus(null);
+    setError(null);
+    async function poll() {
+      try {
+        // POST each time: it only starts a job when one is needed, so a
+        // job that died is restarted rather than waited on forever.
+        const s = await startSeedUmls(slug);
+        if (!alive) return;
+        setStatus(s);
+        if (s.pending > 0 || s.running) {
+          waited = true;
+          timer = window.setTimeout(() => void poll(), 2000);
+        } else if (waited) {
+          invalidate(`draft/${slug}/topics`);
+        }
+      } catch (e) {
+        if (alive) setError(errorMessage(e));
+      }
+    }
+    void poll();
+    return () => {
+      alive = false;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [slug, attempt]);
+  const ready = !!status && status.pending === 0 && !status.running;
+  return { status, ready, error, retry: () => setAttempt((a) => a + 1) };
+}
+
 function StepTopics({ state }: { state: DraftState }) {
+  const { update } = useDraft();
+  const umls = useSeedUmls(state.slug!);
+  if (!umls.ready) {
+    const st = umls.status;
+    return (
+      <Panel title="Step 3 · What should Radar query?" description="Reading each seed for UMLS concepts first: the topics they map to join the seeds' OpenAlex topics in the list.">
+        {umls.error ? <ErrorBox title="Couldn't check the seeds" message={umls.error} onRetry={umls.retry} /> : (
+          <>
+            <LoadingRows rows={2} />
+            <p className="small muted" role="status">
+              {st ? `Extracting UMLS concepts: ${st.done} of ${st.total} ${plural(st.total, 'seed')} read${st.failed ? `, ${st.failed} could not be` : ''}…` : 'Checking the seeds…'}
+            </p>
+          </>
+        )}
+        <div className="wizard-foot">
+          <Button icon="arrow-left" onClick={() => update({ step: 2 })}>Back</Button>
+        </div>
+      </Panel>
+    );
+  }
+  return <StepTopicsList state={state} unread={umls.status?.failed ?? 0} />;
+}
+
+function StepTopicsList({ state, unread }: { state: DraftState; unread: number }) {
   const { update, toggleTopic } = useDraft();
   const slug = state.slug!;
   const topics = useQuery(`draft/${slug}/topics`, () => getDraftTopics(slug));
   useEffect(() => {
-    if (topics.data && state.selectedTopicIds === null) update({ selectedTopicIds: topics.data.map((t) => t.id) });
+    // Start from what the draft has stored: a topic switched off before (and
+    // saved by the trial scan) stays off when the draft is resumed.
+    if (topics.data && state.selectedTopicIds === null) update({ selectedTopicIds: topics.data.filter((t) => t.on !== false).map((t) => t.id) });
   }, [topics.data, state.selectedTopicIds, update]);
   const selected = new Set(state.selectedTopicIds ?? []);
   const list = topics.data ?? [];
   return (
     <Panel title="Step 3 · What should Radar query?" description="These topics were aggregated from the seeds' OpenAlex records. Radar asks OpenAlex for new papers in each selected topic, then scores them. Fewer, sharper topics mean less noise.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
+      <UmlsNotice profileKey={slug} listed={topics.data} />
       {topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
         <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics. Go back and add seeds with DOIs, or continue without topic filters (Radar will fall back to a broader query)." />
@@ -851,11 +951,31 @@ function StepTopics({ state }: { state: DraftState }) {
           </div>
         </>
       )}
+      {unread > 0 && (
+        <p className="small muted" style={{ marginTop: 10 }}>
+          UMLS concepts could not be read from {plural(unread, 'seed')}; {unread === 1 ? 'its' : 'their'} OpenAlex topics are listed, and Radar tries again later.
+        </p>
+      )}
+      {list.length > 0 && selected.size === 0 && <NoTopicsChosen onBack={() => update({ step: 2 })} />}
       <div className="wizard-foot">
         <Button icon="arrow-left" onClick={() => update({ step: 2 })}>Back</Button>
         <Button variant="primary" iconRight="arrow-right" disabled={!topics.data || (list.length > 0 && selected.size === 0)} onClick={() => update({ step: 4 })}>Next: set the threshold</Button>
       </div>
     </Panel>
+  );
+}
+
+/** Shown with no topic ticked: a scan searches by topics, so there is no step 4. */
+function NoTopicsChosen({ onBack, onChoose }: { onBack?: () => void; onChoose?: () => void }) {
+  return (
+    <Callout tone="warn" title="Choose at least one topic to continue">
+      <p style={{ margin: '0 0 8px' }}>Radar asks OpenAlex for papers in the selected topics, so with none selected it has nothing to search. Tick at least one topic, go back to change the seeds, or leave and finish this draft later.</p>
+      <div className="row">
+        {onChoose && <Button size="sm" variant="primary" onClick={onChoose}>Choose topics</Button>}
+        {onBack && <Button size="sm" icon="arrow-left" onClick={onBack}>Back</Button>}
+        <Button size="sm" variant="ghost" onClick={() => navigate(paths.interests)} title="The draft stays under Drafts">Save for later and exit</Button>
+      </div>
+    </Callout>
   );
 }
 
@@ -867,6 +987,16 @@ function StepThreshold({ state }: { state: DraftState }) {
   const job = useJob(state.dryRunJobId);
   const [kickError, setKickError] = useState<string | null>(null);
   const kicking = useRef(false);
+  // The trial scans step 3's topics; a scan made with other ticks is stale.
+  const topicsKey = state.selectedTopicIds ? [...state.selectedTopicIds].sort().join(' ') : null;
+  // Step 4 can be reached with no topics chosen: browser Forward after a
+  // seed change cleared them (they are re-read from the new seeds). The
+  // trial then scanned the old ones and the save was refused, so stop here
+  // and say why instead. An empty selection is fine only for seeds with no
+  // topics at all (the scan falls back to a broader query).
+  const topics = useQuery(`draft/${slug}/topics`, () => getDraftTopics(slug));
+  const needsTopics = state.selectedTopicIds === null
+    || (state.selectedTopicIds.length === 0 && (topics.data?.length ?? 1) > 0);
 
   // ``years`` passed explicitly when it just changed: ``state`` in this
   // closure is still the render before the update.
@@ -875,8 +1005,8 @@ function StepThreshold({ state }: { state: DraftState }) {
     kicking.current = true;
     setKickError(null);
     try {
-      const j = await startDryRun(slug, state.name, 30, years);
-      update({ dryRunJobId: j.id });
+      const j = await startDryRun(slug, state.name, 30, years, state.selectedTopicIds);
+      update({ dryRunJobId: j.id, dryRunTopics: topicsKey });
     } catch (e) {
       setKickError(errorMessage(e));
     } finally {
@@ -884,11 +1014,16 @@ function StepThreshold({ state }: { state: DraftState }) {
     }
   }
 
-  // Start the trial scan once on entry (or if the remembered job vanished).
+  // Start the trial scan once on entry, if the remembered job vanished, or
+  // if the topics were changed in step 3 since it ran (then the threshold
+  // suggested for the old topics goes too).
   useEffect(() => {
-    if (!state.dryRunJobId || !findJob(state.dryRunJobId)) void kick();
+    if (needsTopics) return;
+    const changed = !!state.dryRunJobId && (state.dryRunTopics ?? null) !== topicsKey;
+    if (changed) update({ threshold: null });
+    if (!state.dryRunJobId || !findJob(state.dryRunJobId) || changed) void kick();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+  }, [slug, topicsKey, needsTopics]);
 
   const result = job?.status === 'done' ? (job.result as DraftDryRun) : null;
   const scores = useMemo(() => result?.scores ?? [], [result]);
@@ -925,6 +1060,16 @@ function StepThreshold({ state }: { state: DraftState }) {
       toast.error(`Saved, but the first scan didn't start: ${errorMessage(e)}`);
     }
   });
+
+  if (needsTopics) {
+    return (
+      <Panel title="Step 4 · How strict should it be?">
+        {topics.loading && state.selectedTopicIds !== null ? <LoadingRows rows={2} /> : (
+          <NoTopicsChosen onChoose={() => update({ step: 3 })} />
+        )}
+      </Panel>
+    );
+  }
 
   return (
     <Panel title="Step 4 · How strict should it be?" description="Radar runs a trial scan and scores every paper it finds against your seeds. The shaded band shows where your own seed papers score; the suggested threshold sits just below it. Move the bar to trade volume for precision. You can change it later.">

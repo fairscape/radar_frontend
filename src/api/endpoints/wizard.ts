@@ -82,14 +82,45 @@ export function getDraftCoherence(slug: string): Promise<DraftCoherence> {
   return apiPost<DraftCoherence>(`/api/profiles/draft/${enc(slug)}/coherence`);
 }
 
+/** UMLS extraction over a draft's seeds; step 3 lists topics once nothing is pending. */
+export interface SeedUmlsStatus {
+  enabled: boolean;
+  total: number;
+  done: number;
+  pending: number;
+  /** Could not be read; their OpenAlex topics still count. Retried later. */
+  failed: number;
+  running: boolean;
+  /** False when the last topic list was built without (all of) the UMLS topics; the stored ones are kept. */
+  topics_available?: boolean;
+  topics_reason?: 'busy' | 'error' | 'bad_data' | 'pending' | 'failed' | null;
+  topics_n?: number;
+}
+
+export function getSeedUmls(slug: string): Promise<SeedUmlsStatus> {
+  return apiGet<SeedUmlsStatus>(`/api/profiles/${enc(slug)}/umls`);
+}
+
+/** Start extracting the seeds that have none yet (idempotent: running or nothing pending = status only). */
+export function startSeedUmls(slug: string): Promise<SeedUmlsStatus> {
+  return apiPost<SeedUmlsStatus>(`/api/profiles/${enc(slug)}/umls`);
+}
+
 export function getDraftTopics(slug: string): Promise<Topic[]> {
   return apiGet<Topic[]>(`/api/profiles/draft/${enc(slug)}/topics`);
 }
 
-/** ``years``: sample each of those years (most cited first) instead of the last ``days``. */
-export function startDraftDryRun(slug: string, days = 30, years?: YearSpan | null): Promise<{ ok: true; run_id: number }> {
-  return apiPost<{ ok: true; run_id: number }>(`/api/profiles/draft/${enc(slug)}/dry-run`,
-    years ? { days, year_from: years.from, year_to: years.to } : { days });
+/**
+ * ``years``: sample each of those years (most cited first) instead of the last ``days``.
+ * ``selectedTopicIds``: step 3's ticks, saved on the draft before the scan so it
+ * searches only those topics; omit to keep what the draft has stored.
+ */
+export function startDraftDryRun(slug: string, days = 30, years?: YearSpan | null, selectedTopicIds?: string[] | null): Promise<{ ok: true; run_id: number }> {
+  return apiPost<{ ok: true; run_id: number }>(`/api/profiles/draft/${enc(slug)}/dry-run`, {
+    days,
+    ...(years ? { year_from: years.from, year_to: years.to } : {}),
+    ...(selectedTopicIds ? { selected_topic_ids: selectedTopicIds } : {}),
+  });
 }
 
 export function getDraftDryRunStatus(slug: string, runId: number): Promise<DraftDryRunStatus> {

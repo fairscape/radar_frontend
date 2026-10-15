@@ -15,6 +15,7 @@ import type { ResearcherSource } from '../types/researchers';
 import { getDraftDryRunStatus, startDraftDryRun, type DraftDryRun } from '../api/endpoints/wizard';
 import type { ProsopiaImportResult } from '../types/prosopia';
 import type { YearSpan } from '../types/radar';
+import { ApiError } from '../api/client';
 import { errorMessage } from './format';
 import { invalidate } from './query';
 import { toast } from './toast';
@@ -252,6 +253,14 @@ async function pollOne(job: Job) {
     invalidate('profiles', 'vault', 'researchers');
     if (job.researcherId != null) toast.success(`Profile "${job.profileName}" imported${n != null ? `: ${n} papers` : ''}.`);
   } catch (e) {
+    // A trial scan of a draft since saved or deleted: the draft's status
+    // route is gone (404). Nothing failed, and nobody is waiting for it, so
+    // it is dropped quietly instead of ending in a "Lost contact" toast.
+    if (job.kind === 'dryrun' && e instanceof ApiError && e.status === 404) {
+      failures.delete(job.id);
+      patch(job.id, { status: 'error', error: 'The draft is no longer there.', finishedAt: Date.now() });
+      return;
+    }
     const n = (failures.get(job.id) ?? 0) + 1;
     failures.set(job.id, n);
     if (n >= MAX_POLL_FAILURES) {
@@ -315,8 +324,8 @@ export function yearsLabel(years: YearSpan): string {
   return `${years.from}–${years.to ?? 'now'}`;
 }
 
-export async function startDryRun(slug: string, name: string, days = 30, years?: YearSpan | null): Promise<Job> {
-  const { run_id } = await startDraftDryRun(slug, days, years);
+export async function startDryRun(slug: string, name: string, days = 30, years?: YearSpan | null, selectedTopicIds?: string[] | null): Promise<Job> {
+  const { run_id } = await startDraftDryRun(slug, days, years, selectedTopicIds);
   return years ? add({ ...base('dryrun', run_id, slug, name), yearsLabel: yearsLabel(years) }) : add({ ...base('dryrun', run_id, slug, name), days });
 }
 
@@ -377,6 +386,16 @@ export function dismissJob(id: string) {
 
 export function clearFinishedJobs() {
   setJobs(jobs.filter((j) => j.status === 'running'));
+}
+
+/**
+ * Track an import already running on the server (a resumed draft's). The
+ * draft list hands back its run id; without this the wizard resumed with
+ * no progress, a partial seed list and Next enabled.
+ */
+export function trackImport(runId: number, slug: string, name: string): Job {
+  const job = base('import', runId, slug, name);
+  return findJob(job.id) ?? add(job);
 }
 
 export function findJob(id: string | null | undefined): Job | undefined {

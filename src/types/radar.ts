@@ -158,6 +158,8 @@ export interface RerankerComparisonResponse {
   max_rank_up: number;
   max_rank_down: number;
   queries_used: string[];
+  /** article | title | topic | terms; what the queries are. */
+  query_mode?: string | null;
 }
 
 export interface TopicYield {

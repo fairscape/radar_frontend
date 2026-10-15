@@ -101,7 +101,7 @@ export function FeedPage() {
   const triagedCount = cards.length - cards.filter((c) => stateOf(c) === null).length;
   const bucketCounts = useMemo(() => {
     const all = cards;
-    return { all: all.length, high: all.filter((c) => c.bucket === 'high').length, medium: all.filter((c) => c.bucket === 'medium').length, low: all.filter((c) => c.bucket === 'low').length };
+    return { all: all.length, high: all.filter((c) => c.bucket === 'high').length, medium: all.filter((c) => c.bucket === 'medium').length };
   }, [cards]);
 
   // A paper from the feed becomes a seed of the interest it was shown
@@ -131,6 +131,14 @@ export function FeedPage() {
     }
   }
 
+  // Saves and dismisses live in ``overrides`` while the page is up; the
+  // cached feed still holds the old states. Refetch it when leaving, or
+  // coming back within the cache's lifetime showed the old state -- and
+  // the next click, a toggle, undid the save. Not on each click: a refetch
+  // here would pull triaged cards out from under the reader.
+  const triaged = useRef(false);
+  useEffect(() => () => { if (triaged.current) invalidate('radar'); }, []);
+
   async function act(card: Card, target: 'saved' | 'dismissed') {
     const k = keyOf(card);
     if (busy.has(k)) return;
@@ -141,6 +149,7 @@ export function FeedPage() {
     try {
       const res = await (target === 'saved' ? saveCard(card.id, card.profile) : dismissCard(card.id, card.profile));
       setOverrides((o) => ({ ...o, [k]: res.state }));
+      triaged.current = true;
       invalidate('profiles');
     } catch (e) {
       setOverrides((o) => ({ ...o, [k]: prev }));
@@ -246,7 +255,9 @@ export function FeedPage() {
                 { value: 'all', label: 'All', count: bucket === 'all' ? bucketCounts.all : null },
                 { value: 'high', label: 'Like your seeds', count: bucket === 'all' ? bucketCounts.high : null },
                 { value: 'medium', label: 'Above the bar', count: bucket === 'all' ? bucketCounts.medium : null },
-                { value: 'low', label: 'Below the bar', count: bucket === 'all' ? bucketCounts.low : null },
+                // Not counted: "All" holds only papers above the threshold,
+                // and this filter asks the server for the ones below it.
+                { value: 'low', label: 'Below the bar', count: null },
               ]}
             />
             <Select className="compact" value={yearFrom ?? ''} onChange={(e) => setYearFrom(e.target.value ? Number(e.target.value) : null)} aria-label="Published since">
@@ -399,6 +410,7 @@ function PaperCard({
 }) {
   const href = card.doi ? `https://doi.org/${card.doi}` : card.openalex;
   const similarity = card.similarity ?? null;
+  const below = card.bucket === 'low';
   const delta = profile && similarity != null ? similarity - profile.threshold : null;
   return (
     <article
@@ -408,7 +420,7 @@ function PaperCard({
       onFocus={onFocus}
       aria-label={card.title}
     >
-      <div className="paper-score" title={similarity != null ? `Similarity to the seed papers: ${similarity.toFixed(3)}. Rank: top ${Math.max(1, Math.round(100 - card.score * 100))}% of this interest's pool.` : `Rank percentile ${card.score.toFixed(2)}`}>
+      <div className="paper-score" title={similarity != null ? `Similarity to the seed papers: ${similarity.toFixed(3)}. ${below ? "Below this interest's threshold, so not ranked in its pool." : `Rank: top ${Math.max(1, Math.round(100 - card.score * 100))}% of this interest's pool.`}` : `Rank percentile ${card.score.toFixed(2)}`}>
         <ScoreValue score={similarity ?? card.score} />
         {delta != null && (
           // The number alone: " vs bar" made it ~90px of unbreakable mono,
@@ -462,7 +474,8 @@ function PaperCard({
                 <h4>Why it scored this way</h4>
                 <div className="signals">
                   <Signal label="Similarity" value={card.similarity ?? card.centroidCos} hint="Cosine similarity to the interest's seed papers (0.80 ≈ unrelated papers in the same field, 0.93+ ≈ as close as your own seeds)" />
-                  <Signal label="Rank" value={card.score} hint="Position within everything gathered for this interest (1 = top)" />
+                  {/* A paper under the threshold is not in the pool the rank is taken over. */}
+                  {!below && <Signal label="Rank" value={card.score} hint="Position within everything gathered for this interest (1 = top)" />}
                   <Signal label="Topic match" value={card.topicMatch} hint="Overlap with the interest's topic filters" />
                   <Signal label="Novelty" value={card.noveltyDelta} hint="How different this is from what you have already seen" />
                 </div>

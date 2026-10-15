@@ -89,7 +89,7 @@ function DraftRow({ draft, info }: { draft: Profile; info?: DraftSummary }) {
   async function remove() {
     const ok = await confirmDialog({
       title: `Delete draft "${draft.name}"?`,
-      body: <p>The draft and its {draft.seeds} uploaded seed{draft.seeds === 1 ? '' : 's'} will be removed. This cannot be undone.</p>,
+      body: <p>The draft is removed, with its list of {draft.seeds} seed{draft.seeds === 1 ? '' : 's'}. The papers themselves stay in your vault if anything else holds them (an upload, a saved {TERMS.profile}, another {TERMS.interest}). This cannot be undone.</p>,
       confirmLabel: 'Delete draft',
       danger: true,
     });

@@ -17,6 +17,7 @@
 import { useEffect, useState } from 'react';
 import { useProfileDetail, useProfiles } from '../api/hooks';
 import { previewTopics, recomputeCoherence, saveTopics } from '../api/endpoints/profiles';
+import { UmlsNotice } from '../ui/UmlsNotice';
 import { errorMessage, plural } from '../lib/format';
 import { useQuery } from '../lib/query';
 import { navigate, paths } from '../lib/router';
@@ -213,6 +214,7 @@ function StepTopics({ profile, detail, back, next }: { profile: Profile; detail:
   return (
     <Panel title="What should Radar search for?" description="Topics aggregated from the seeds' OpenAlex records. Each scan asks OpenAlex for new papers in the topics that are on. Papers already found stay; a change applies from the next scan.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
+      <UmlsNotice profileKey={profile.key} listed={topics.data} />
       {!topics.data && topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
         <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics." />

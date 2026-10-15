@@ -34,6 +34,14 @@ type Tab = 'overview' | 'seeds' | 'topics' | 'threshold' | 'scans' | 'refinement
 
 const TABS: Tab[] = ['overview', 'seeds', 'topics', 'threshold', 'scans', 'refinement'];
 
+/** What the reranker's queries are, by its ``query_mode``. */
+const QUERY_KIND: Record<string, string> = {
+  article: 'one per seed, its title and abstract',
+  title: 'the seed titles',
+  topic: 'the topics that are on',
+  terms: 'the research topics',
+};
+
 export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: string; urlTab?: string | null }) {
   const { data: profiles, loading: listLoading } = useProfiles();
   const { data: detail, loading, error, refresh } = useProfileDetail(profileKey);
@@ -366,7 +374,7 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
   const [axisLo, axisHi] = axisFor(shownScores, band, scoresQ.data?.score_range ?? null);
   const save = useAction(async () => {
     await updateProfileThreshold(profile.key, Number(value.toFixed(3)));
-    toast.success(`Threshold saved as ${value.toFixed(2)}.`);
+    toast.success(`Threshold saved as ${value.toFixed(3)}.`);
   });
   const dirty = Math.abs(value - profile.threshold) > 0.0005;
   return (
@@ -493,7 +501,7 @@ function RankRefinementTab({ profile }: { profile: Profile }) {
           </div>
           {rr.data.queries_used.length > 0 && (
             <details className="rr-queries small" style={{ marginBottom: 10 }}>
-              <summary className="muted">Queries the reranker scored against ({rr.data.queries_used.length}, one per seed)</summary>
+              <summary className="muted">Queries the reranker scored against ({rr.data.queries_used.length}, {QUERY_KIND[rr.data.query_mode ?? ''] ?? 'as configured'})</summary>
               <ol>
                 {rr.data.queries_used.map((q) => (
                   <li key={q}>

@@ -54,7 +54,7 @@ export function ProfileDetailPage({ id }: { id: number }) {
       body: (
         <>
           <p>The {TERMS.profile} and its list of {plural(r.n_papers, 'paper')} are removed.</p>
-          <p>{r.n_interests > 0 ? `The ${plural(r.n_interests, TERMS.interest)} built from it keep their seeds and carry on scanning.` : 'The papers stay in your vault.'}</p>
+          <p>{r.n_interests > 0 ? `The ${plural(r.n_interests, TERMS.interest)} built from it keep their seeds and carry on scanning. ` : ''}Papers that seed one of your {TERMS.interests} stay in your vault; the others leave it with this {TERMS.profile}.</p>
         </>
       ),
       confirmLabel: 'Forget',
