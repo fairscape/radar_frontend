@@ -68,6 +68,8 @@ export interface ResearcherImportRequest {
 export interface ResearcherImportStart {
   researcher_id: number;
   run_id: number;
+  /** An import of this person was already running; this request's papers were not added. */
+  already_running?: boolean;
 }
 
 export interface ResearcherInterestRequest {

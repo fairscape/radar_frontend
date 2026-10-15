@@ -212,7 +212,13 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
   }, [urlStep, state.step, state.slug, draftSlug, update]);
 
   const step = state.step;
-  const canGo = (n: number) => n < step || (n === 2 && !!state.slug) || (n === 3 && !!state.slug && step >= 3) || n === step;
+  // Not forward while an import is still attaching seeds: the later steps
+  // would describe part of them (the server refuses the trial and the save
+  // then too).
+  const firstImport = useJob(state.importJobId ?? null);
+  const importing = firstImport?.status === 'running' || extraJob?.status === 'running';
+  const canGo = (n: number) => n < step || n === step
+    || (!importing && ((n === 2 && !!state.slug) || (n === 3 && !!state.slug && step >= 3)));
 
   async function cancel() {
     if (!state.slug) {
@@ -712,7 +718,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
     setProgress(null);
     if (added > 0) invalidateDownstream();
     invalidate(`vault/docs?tag=${slug}`);
-    noteUnmatchedUploads(unmatched);
+    noteUnmatchedUploads(unmatched, 'draft');
   }
 
   return (
@@ -1032,9 +1038,19 @@ function StepThreshold({ state }: { state: DraftState }) {
 
   // ``years`` passed explicitly when it just changed: ``state`` in this
   // closure is still the render before the update.
+  // A change of years while a trial is being started was dropped: the
+  // trial ran on the old years and Save stored the new ones with a
+  // threshold set on the old. The latest such change runs next.
+  const pendingKick = useRef<{ years: YearSpan | null } | null>(null);
+  const kickingYears = useRef<string>('');
   async function kick(years: YearSpan | null = state.years) {
-    if (kicking.current) return;
+    if (kicking.current) {
+      // The same years again (a repeated effect) is the trial already starting.
+      if (JSON.stringify(years) !== kickingYears.current) pendingKick.current = { years };
+      return;
+    }
     kicking.current = true;
+    kickingYears.current = JSON.stringify(years);
     setKickError(null);
     try {
       const j = await startDryRun(slug, state.name, 30, years, state.selectedTopicIds);
@@ -1045,6 +1061,9 @@ function StepThreshold({ state }: { state: DraftState }) {
       setKickError(errorMessage(e));
     } finally {
       kicking.current = false;
+      const next = pendingKick.current;
+      pendingKick.current = null;
+      if (next) void kick(next.years);
     }
   }
 

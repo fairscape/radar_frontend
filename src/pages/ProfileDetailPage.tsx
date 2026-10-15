@@ -306,7 +306,7 @@ function NewPapersPanel({ researcher: r, onClose }: { researcher: Researcher; on
   const add = useAction(async () => {
     const ids = fresh.filter((w) => sel.has(w.id)).map((w) => w.id);
     if (ids.length === 0) return;
-    await startResearcherImport(r.source, r.key, r.name, ids);
+    await startResearcherImport(r.source, r.key, r.name, ids, r.base_url);
     toast.success(`Importing ${plural(ids.length, 'new paper')} for ${r.name}.`);
     onClose();
   });

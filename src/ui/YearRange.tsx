@@ -57,6 +57,12 @@ export function YearRange({ value, onChange, disabled = false, newOnlyLabel = 'N
 }
 
 /** Whether a paper's year falls in the range (no year, or no range: yes). */
+/** The first year a backfill of ``span`` reaches: rag_lib/years.fetch_span
+ * keeps only the most recent MAX_SPAN years of a longer range. */
+export function fetchStart(span: YearSpan): number {
+  return Math.max(span.from, (span.to ?? NOW) - MAX_SPAN + 1);
+}
+
 export function inSpan(year: number | null | undefined, span: YearSpan | null): boolean {
   if (!span || year == null) return true;
   return year >= span.from && (span.to == null || year <= span.to);

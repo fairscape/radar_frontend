@@ -39,7 +39,8 @@ export async function startResearcherImport(body: ResearcherImportRequest): Prom
 
 export async function deleteResearcher(id: number): Promise<{ ok: boolean }> {
   const res = await apiDelete<{ ok: boolean }>(`/api/researchers/${id}`);
-  invalidate('researchers', 'profiles');
+  // 'vault' too: the Vault lists a researcher's papers until it is forgotten.
+  invalidate('researchers', 'profiles', 'vault');
   return res;
 }
 

@@ -43,7 +43,7 @@ export function HomePage() {
           <div>
             <h2>Read the {TERMS.feed}</h2>
             <p>
-              Radar scans every {TERMS.interest} each morning and puts the matches in the {TERMS.feed}, best first.
+              Each scan you start puts an {TERMS.interest}'s matches in the {TERMS.feed}, best first.
               Save the useful ones and dismiss the rest. Once there are enough, they suggest where each interest's threshold should sit.
             </p>
             <Link href={paths.feed} className="home-link">Open the {TERMS.feed} <Icon name="arrow-right" size={13} /></Link>

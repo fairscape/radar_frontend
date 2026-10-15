@@ -148,6 +148,19 @@ export function FeedPage() {
     inFlight.current.add(k);
     const prev = stateOf(card);
     const next: CardState = prev === target ? null : target;
+    // The card is about to leave the list (saved and dismissed are hidden):
+    // hand the keyboard focus on to the one that takes its place, or j/k/s/x
+    // lost their card and j jumped back to the top.
+    if (!showTriaged && next !== null && focused === card.id) {
+      const i = visible.findIndex((c) => c.id === card.id);
+      const after = visible[i + 1] ?? visible[i - 1];
+      setFocused(after ? after.id : null);
+      if (after) {
+        requestAnimationFrame(() => listRef.current
+          ?.querySelector<HTMLElement>(`[data-card="${CSS.escape(after.id)}"]`)
+          ?.focus({ preventScroll: true }));
+      }
+    }
     setOverrides((o) => ({ ...o, [k]: next }));
     setBusy((b) => new Set(b).add(k));
     try {

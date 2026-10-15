@@ -56,7 +56,7 @@ export function VaultPage() {
     setUploading(null);
     if (ok) toast.success(`${plural(ok, 'PDF')} added to the ${TERMS.vault}${tag !== 'all' ? ` and tagged ${byKey[tag]?.name ?? tag}` : ''}.`);
     if (dups.length) toast.info(`Already in your ${TERMS.vault}: ${dups.join(', ')}.`);
-    noteUnmatchedUploads(unmatched);
+    noteUnmatchedUploads(unmatched, tag === 'all' ? 'vault' : byKey[tag]?.isDraft ? 'draft' : 'interest');
     for (const f of fails) toast.error(f);
   }
 

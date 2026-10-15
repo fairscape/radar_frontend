@@ -372,9 +372,18 @@ export async function startOrcidImport(orcid: string, openalexIds: string[], nam
 }
 
 /** Import (or refresh) a stored profile. Polled like any import; no draft is created. */
-export async function startResearcherImport(source: ResearcherSource, ref: string, name: string, paperIds?: string[]): Promise<Job> {
-  const start = await postResearcherImport({ source, ref, ...(paperIds ? { paper_ids: paperIds } : {}) });
-  return add({ ...base('import', start.run_id, `researcher:${start.researcher_id}`, name || ref), researcherId: start.researcher_id });
+/**
+ * ``baseUrl``: the Prosopia instance the profile was imported from; without
+ * it a re-import read the default instance. Throws when an import of this
+ * person is already running: the papers picked now would not be added.
+ */
+export async function startResearcherImport(source: ResearcherSource, ref: string, name: string, paperIds?: string[], baseUrl?: string | null): Promise<Job> {
+  const start = await postResearcherImport({ source, ref, ...(paperIds ? { paper_ids: paperIds } : {}), ...(baseUrl ? { base_url: baseUrl } : {}) });
+  const job = add({ ...base('import', start.run_id, `researcher:${start.researcher_id}`, name || ref), researcherId: start.researcher_id });
+  if (start.already_running) {
+    throw new Error(`${name || ref} is already being imported. Pick the papers again once that import has finished.`);
+  }
+  return job;
 }
 
 export function researcherJobKey(id: number): string {

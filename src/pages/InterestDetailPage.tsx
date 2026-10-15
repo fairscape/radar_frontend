@@ -28,7 +28,7 @@ import { PaperTitle } from '../ui/pickers';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import { ResearchTopics } from '../ui/ResearchTopics';
-import { YearRange, inSpan } from '../ui/YearRange';
+import { YearRange, fetchStart, inSpan } from '../ui/YearRange';
 import type { YearSpan } from '../types/radar';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, HealthBadge, JobProgress, RerankerBumpChart, SectionNote, ThresholdHistogram, agreementTone, axisFor, healthOf } from '../ui/domain';
@@ -150,8 +150,10 @@ export type Detail = NonNullable<ReturnType<typeof useProfileDetail>['data']>;
 
 function OverviewTab({ profile, detail, onScan }: { profile: Profile; detail: Detail; onScan: () => void }) {
   const { data: runs } = useProfileRuns(profile.key, 5);
-  // Trial scans from the wizard share the runs table; they are not real scans.
-  const last = runs?.find((r) => r.finished_at && r.tier_used !== 'dry-run');
+  // Trial scans from the wizard and imports share the runs table; they are
+  // not scans (a backfill is). The filter read 'dry-run'; the server writes
+  // 'dry_run'.
+  const last = runs?.find((r) => r.finished_at && ['scan', 'backfill'].includes(runKind(r.tier_used)));
   return (
     <div className="two-col">
       <Panel title="How this interest works">
@@ -225,7 +227,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     // Each upload re-fits the interest on the server; the coherence and
     // topic views are what still need a Recompute.
     if (ok > 0) toast.success(`${plural(ok, 'seed')} added. The papers already found were re-scored against the new seeds, so the feed is updated.`);
-    noteUnmatchedUploads(unmatched);
+    noteUnmatchedUploads(unmatched, 'interest');
   }
 
   // Seeds of a live interest could be added (by PDF) but never removed:
@@ -392,7 +394,10 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
   const papersInYears = (scoresQ.data?.papers ?? []).filter((p) => inSpan(p.year, years));
   const shownScores = years && scoresQ.data?.papers ? papersInYears.map((p) => p.score) : scoresQ.data?.scores ?? [];
   const oldestStored = (scoresQ.data?.papers ?? []).reduce<number | null>((m, p) => (p.year != null && (m == null || p.year < m) ? p.year : m), null);
-  const needsBackfill = !!savedYears && !yearsDirty && (oldestStored == null || savedYears.from < oldestStored);
+  // Against the first year a backfill can reach: a range longer than 15
+  // years fetches only its last 15, so comparing with ``from`` kept the
+  // button up for good, each click repeating the same fetch.
+  const needsBackfill = !!savedYears && !yearsDirty && (oldestStored == null || fetchStart(savedYears) < oldestStored);
   const saveYears = useAction(async () => {
     await updateProfileYears(profile.key, years);
     toast.success(years ? `The feed now shows papers from ${yearsLabel(years)}.` : 'The feed shows papers from any year.');
@@ -487,7 +492,7 @@ function ScansTab({ profile, onScan }: { profile: Profile; onScan: () => void })
         {runs && runs.length === 0 && <EmptyState compact icon="clock" title="No scans yet" body="Start a scan to look for new papers." />}
         {runs && runs.length > 0 && (
           <table className="table">
-            <thead><tr><th>Started</th><th title="Which OpenAlex query tier the gatherer used">Tier</th><th>Status</th><th className="r">Fetched</th><th className="r">New</th><th className="r">Duration</th></tr></thead>
+            <thead><tr><th>Started</th><th title="What the run was; for a scan, the OpenAlex query tier it used">Kind</th><th>Status</th><th className="r">Fetched</th><th className="r">New</th><th className="r">Duration</th></tr></thead>
             <tbody>
               {runs.map((r) => <RunRow key={r.id} run={r} />)}
             </tbody>
@@ -498,12 +503,22 @@ function ScansTab({ profile, onScan }: { profile: Profile; onScan: () => void })
   );
 }
 
+type RunKind = 'scan' | 'trial' | 'import' | 'backfill';
+const RUN_LABEL: Record<RunKind, string> = { scan: 'Scan', trial: 'Trial (wizard)', import: 'Import', backfill: 'Backfill' };
+
+function runKind(tier: string | null | undefined): RunKind {
+  if (tier === 'dry_run' || tier === 'dry-run') return 'trial';
+  if (tier?.endsWith('_import')) return 'import';
+  if (tier?.startsWith('backfill')) return 'backfill';
+  return 'scan';
+}
+
 function RunRow({ run }: { run: GatherRunStatus }) {
   const status = run.error ? <Badge tone="err">Failed</Badge> : run.finished_at ? <Badge tone="ok">Done</Badge> : <Badge tone="info" dot>Running</Badge>;
   return (
     <tr>
       <td className="nowrap" title={run.started_at}>{fmtDateTime(run.started_at)}</td>
-      <td className="muted">{run.tier_used ?? '—'}</td>
+      <td className="muted" title={run.tier_used ?? undefined}>{RUN_LABEL[runKind(run.tier_used)]}{runKind(run.tier_used) === 'scan' && run.tier_used ? ` · ${run.tier_used}` : ''}</td>
       <td>{status}{run.error && <div className="small" style={{ color: 'var(--err)', maxWidth: 360 }}>{run.error}</div>}</td>
       <td className="r">{run.n_fetched ?? '—'}</td>
       <td className="r">{run.n_new ?? '—'}</td>
