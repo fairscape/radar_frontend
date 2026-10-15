@@ -20,6 +20,8 @@ interface Entry<T> {
   subs: Set<() => void>;
   fetcher: () => Promise<T>;
   inflight: Promise<void> | null;
+  /** Invalidated while a request was in flight: that answer may predate the change. */
+  again: boolean;
 }
 
 const STALE_MS = 15_000;
@@ -45,6 +47,7 @@ function getEntry<T>(key: string, fetcher: () => Promise<T>): Entry<T> {
       subs: new Set(),
       fetcher,
       inflight: null,
+      again: false,
     };
     cache.set(key, e as Entry<unknown>);
   }
@@ -70,6 +73,10 @@ function run<T>(entry: Entry<T>): Promise<void> {
       entry.loading = false;
       entry.inflight = null;
       bump(entry as Entry<unknown>);
+      if (entry.again) {
+        entry.again = false;
+        void run(entry);
+      }
     });
   entry.inflight = p;
   return p;
@@ -80,7 +87,11 @@ export function invalidate(...prefixes: string[]): void {
   for (const [key, entry] of cache) {
     if (!prefixes.some((p) => key === p || key.startsWith(p))) continue;
     if (entry.subs.size > 0) {
-      void run(entry);
+      // A request already in flight was sent before this change (several
+      // uploads in a row invalidate each time): joining it showed the list
+      // without the last upload. Fetch once more when it lands.
+      if (entry.inflight) entry.again = true;
+      else void run(entry);
     } else {
       cache.delete(key);
     }

@@ -19,6 +19,7 @@ import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { isUnmatched, noteUnmatchedUploads } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { Profile } from '../types/radar';
 import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, IconButton, LoadingRows, NumberInput, Panel, Stat, Tabs, confirmDialog, useAction } from '../ui';
@@ -208,10 +209,12 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     const list = Array.from(files);
     setFailures([]);
     let ok = 0;
+    const unmatched: string[] = [];
     for (let i = 0; i < list.length; i++) {
       setProgress({ done: i, total: list.length, current: list[i].name });
       try {
-        await uploadPdf(list[i], profile.key);
+        const doc = await uploadPdf(list[i], profile.key);
+        if (isUnmatched(doc.id)) unmatched.push(list[i].name);
         ok += 1;
       } catch (e) {
         setFailures((f) => [...f, `${list[i].name}: ${errorMessage(e)}`]);
@@ -221,6 +224,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     // Each upload re-fits the interest on the server; the coherence and
     // topic views are what still need a Recompute.
     if (ok > 0) toast.success(`${plural(ok, 'seed')} added. The papers already found were re-scored against the new seeds, so the feed is updated.`);
+    noteUnmatchedUploads(unmatched);
   }
 
   // Seeds of a live interest could be added (by PDF) but never removed:

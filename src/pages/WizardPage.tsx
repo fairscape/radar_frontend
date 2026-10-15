@@ -26,6 +26,7 @@ import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { isUnmatched, noteUnmatchedImport, noteUnmatchedUploads } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { ProsopiaImportResult } from '../types/prosopia';
 import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Select, confirmDialog, useAction } from '../ui';
@@ -342,9 +343,14 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
   });
 
   // When an import finishes, record its result and continue.
+  const noted = useRef<string | null>(null);
   useEffect(() => {
     if (!importJob || importJob.status !== 'done') return;
     const r = importJob.result as ProsopiaImportResult | null;
+    if (noted.current !== importJob.id) {   // once per import, not per re-render
+      noted.current = importJob.id;
+      noteUnmatchedImport(r?.unresolved);
+    }
     update({
       slug: r?.draft_slug ?? importJob.profileKey,
       name: (r?.name as string | undefined) ?? importJob.profileName,
@@ -556,6 +562,7 @@ function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid
     if (job.status === 'done') {
       const r = job.result as ProsopiaImportResult | null;
       toast.success(`Added ${plural(typeof r?.drafted === 'number' ? r.drafted : 0, 'paper')} from ${running.who}. You can add another.`);
+      noteUnmatchedImport(r?.unresolved);
       onAdded();
       setRound((n) => n + 1);   // a fresh picker for the next one
       setRunning(null);
@@ -680,11 +687,13 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
     const list = Array.from(files);
     setFailures([]);
     let added = 0;
+    const unmatched: string[] = [];
     for (let i = 0; i < list.length; i++) {
       setProgress({ done: i, total: list.length, current: list[i].name });
       try {
         const doc = await uploadPdf(list[i], slug);
         addSeed(doc);
+        if (isUnmatched(doc.id)) unmatched.push(list[i].name);
         added += 1;
       } catch (e) {
         setFailures((f) => [...f, `${list[i].name}: ${errorMessage(e)}`]);
@@ -693,6 +702,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
     setProgress(null);
     if (added > 0) invalidateDownstream();
     invalidate(`vault/docs?tag=${slug}`);
+    noteUnmatchedUploads(unmatched);
   }
 
   return (

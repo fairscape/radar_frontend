@@ -6,6 +6,7 @@ import { errorMessage, fmtDate, fmtRelative, plural } from '../lib/format';
 import { invalidate, setQueryData } from '../lib/query';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { isUnmatched, noteUnmatchedUploads } from '../lib/unmatched';
 import { CHAT_ENABLED } from '../lib/features';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { ChatSource, ChatTurn, LLMProvider, VaultDoc } from '../types/radar';
@@ -39,6 +40,7 @@ export function VaultPage() {
     const list = Array.from(files);
     let ok = 0;
     const dups: string[] = [];
+    const unmatched: string[] = [];
     const fails: string[] = [];
     for (let i = 0; i < list.length; i++) {
       setUploading({ done: i, total: list.length });
@@ -46,6 +48,7 @@ export function VaultPage() {
         const doc = await uploadPdf(list[i], tag !== 'all' ? tag : undefined);
         if (doc.duplicate) dups.push(list[i].name);
         else ok += 1;
+        if (!doc.duplicate && isUnmatched(doc.id)) unmatched.push(list[i].name);
       } catch (e) {
         fails.push(`${list[i].name}: ${errorMessage(e)}`);
       }
@@ -53,6 +56,7 @@ export function VaultPage() {
     setUploading(null);
     if (ok) toast.success(`${plural(ok, 'PDF')} added to the ${TERMS.vault}${tag !== 'all' ? ` and tagged ${byKey[tag]?.name ?? tag}` : ''}.`);
     if (dups.length) toast.info(`Already in your ${TERMS.vault}: ${dups.join(', ')}.`);
+    noteUnmatchedUploads(unmatched);
     for (const f of fails) toast.error(f);
   }
 
