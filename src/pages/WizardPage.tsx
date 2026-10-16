@@ -950,7 +950,7 @@ function StepTopics({ state }: { state: DraftState }) {
           <>
             <LoadingRows rows={2} />
             <p className="small muted" role="status">
-              {st ? `Extracting UMLS concepts: ${st.done} of ${st.total} ${plural(st.total, 'seed')} read${st.failed ? `, ${st.failed} could not be` : ''}…` : 'Checking the seeds…'}
+              {st ? `Extracting UMLS concepts: ${st.done} of ${plural(st.total, 'seed')} read${st.failed ? `, ${st.failed} could not be` : ''}…` : 'Checking the seeds…'}
             </p>
           </>
         )}
