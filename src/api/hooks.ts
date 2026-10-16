@@ -11,7 +11,9 @@ export const keys = {
   profiles: 'profiles',
   drafts: 'profiles/drafts',
   profileDetail: (key: string) => `profiles/${key}/detail`,
-  profileRuns: (key: string) => `profiles/${key}/runs`,
+  // The limit is part of the key: Overview (5) and Scans (30) share the
+  // prefix, so invalidate('profiles/<key>/runs') still covers both.
+  profileRuns: (key: string, limit?: number) => `profiles/${key}/runs${limit != null ? `?limit=${limit}` : ''}`,
   profileFeedback: (key: string) => `profiles/${key}/feedback`,
   radar: (f: DailyRadarFilters) => `radar?profile=${f.profile ?? 'all'}&bucket=${f.bucket ?? ''}&year=${f.yearFrom ?? ''}`,
   vaultDocs: (tag: string) => `vault/docs?tag=${tag}`,
@@ -48,7 +50,7 @@ export function useProfileDetail(key: string | null) {
 }
 
 export function useProfileRuns(key: string | null, limit = 20) {
-  return useQuery(key ? keys.profileRuns(key) : null, () => listProfileRuns(key!, limit));
+  return useQuery(key ? keys.profileRuns(key, limit) : null, () => listProfileRuns(key!, limit));
 }
 
 export function useProfileFeedback(key: string | null) {

@@ -278,6 +278,10 @@ function fail(job: Job, error: string) {
   failures.delete(job.id);
   patch(job.id, { status: 'error', error, finishedAt: Date.now() });
   toast.error(`${kindLabel(job.kind)} of "${job.profileName}" failed: ${error}`);
+  // What the server now says about it (a draft's import_error, a
+  // researcher's last_error, a run's error) is read at once, not when the
+  // 15 s staleness passes.
+  invalidate('profiles', 'researchers');
 }
 
 function add(job: Job): Job {
