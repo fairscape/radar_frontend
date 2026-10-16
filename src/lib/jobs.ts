@@ -16,7 +16,7 @@ import { getDraftDryRunStatus, startDraftDryRun, type DraftDryRun } from '../api
 import type { ProsopiaImportResult } from '../types/prosopia';
 import type { YearSpan } from '../types/radar';
 import { ApiError } from '../api/client';
-import { errorMessage } from './format';
+import { errorMessage, parseServerTime } from './format';
 import { invalidate } from './query';
 import { toast } from './toast';
 
@@ -160,6 +160,23 @@ async function tick() {
   }
 }
 
+// The server stops treating a run as in flight once it has not reported
+// progress for this long (gather_runs.STALE_IMPORT_MINUTES, the scan cutoff):
+// drafts can be committed or deleted and another scan started, while a row
+// left open by a dead thread stays unfinished until the next restart. The
+// client gives it up on the same rule; before, this tab showed it running
+// (Next, Delete draft and Scan now disabled) until the backend restarted.
+const STALE_MINUTES: Record<JobKind, number> = { scan: 120, dryrun: 30, import: 30 };
+const STALE_MESSAGE = 'The job stopped reporting progress and the server no longer treats it as running. Start it again.';
+
+function isStale(job: Job, run: GatherRunStatus): boolean {
+  const last = run.progress_updated_at || run.started_at;
+  if (!last) return false;
+  const t = parseServerTime(last).getTime();
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t > (STALE_MINUTES[job.kind] ?? 30) * 60_000;
+}
+
 function progressFrom(job: Job, run: GatherRunStatus): Partial<Job> {
   const p: Partial<Job> = {
     step: run.current_step,
@@ -209,6 +226,7 @@ async function pollOne(job: Job) {
       const run = runs.find((r) => r.id === job.runId);
       if (!run) throw new Error('run not found');
       if (!run.finished_at) {
+        if (isStale(job, run)) return fail(job, STALE_MESSAGE);
         patch(job.id, progressFrom(job, run));
         return;
       }
@@ -226,6 +244,7 @@ async function pollOne(job: Job) {
     if (job.kind === 'dryrun') {
       const status = await getDraftDryRunStatus(job.profileKey, job.runId);
       if (!status.run.finished_at) {
+        if (isStale(job, status.run)) return fail(job, STALE_MESSAGE);
         patch(job.id, progressFrom(job, status.run));
         return;
       }
@@ -239,6 +258,7 @@ async function pollOne(job: Job) {
     }
     const status = await getProsopiaImportStatus(job.runId);
     if (!status.run.finished_at) {
+      if (isStale(job, status.run)) return fail(job, STALE_MESSAGE);
       patch(job.id, progressFrom(job, status.run));
       return;
     }
@@ -383,11 +403,12 @@ export async function startOrcidImport(orcid: string, openalexIds: string[], nam
  */
 export async function startResearcherImport(source: ResearcherSource, ref: string, name: string, paperIds?: string[], baseUrl?: string | null): Promise<Job> {
   const start = await postResearcherImport({ source, ref, ...(paperIds ? { paper_ids: paperIds } : {}), ...(baseUrl ? { base_url: baseUrl } : {}) });
-  const job = add({ ...base('import', start.run_id, `researcher:${start.researcher_id}`, name || ref), researcherId: start.researcher_id });
   if (start.already_running) {
+    // The run is already tracked (it was started here or picked up from the
+    // server); replacing its job would reset its progress for a poll.
     throw new Error(`${name || ref} is already being imported. Pick the papers again once that import has finished.`);
   }
-  return job;
+  return add({ ...base('import', start.run_id, `researcher:${start.researcher_id}`, name || ref), researcherId: start.researcher_id });
 }
 
 export function researcherJobKey(id: number): string {

@@ -49,6 +49,8 @@ export interface GatherRunStatus {
   current_step: string | null;
   n_processed: number | null;
   n_total: number | null;
+  /** When the run last reported progress (server time); null before the first tick. */
+  progress_updated_at?: string | null;
   last_message: string | null;
 }
 

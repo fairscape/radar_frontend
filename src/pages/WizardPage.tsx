@@ -363,9 +363,12 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
     update({
       slug: r?.draft_slug ?? importJob.profileKey,
       name: (r?.name as string | undefined) ?? importJob.profileName,
-      prosopia: { ref: state.prosopia?.ref ?? '', nSeeds: typeof r?.drafted === 'number' ? r.drafted : null },
+      // Only for a draft this wizard started from ORCID/Prosopia: one resumed
+      // from the Drafts list (source "upload", tracked import) read
+      // "Imported from Prosopia ()".
+      prosopia: state.prosopia ? { ref: state.prosopia.ref, nSeeds: typeof r?.drafted === 'number' ? r.drafted : null } : null,
     });
-  }, [importJob, update, state.prosopia?.ref]);
+  }, [importJob, update, state.prosopia]);
 
   if (!state.slug) {
     return (
@@ -1076,6 +1079,10 @@ function StepThreshold({ state }: { state: DraftState }) {
       update({ dryRunJobId: j.id, dryRunTopics: topicsKey, threshold: null });
     } catch (e) {
       setKickError(errorMessage(e));
+      // The old trial (other years, or other topics) must not stand in for
+      // the one that failed to start: Save would commit the new years with
+      // a threshold set on it.
+      update({ dryRunJobId: null, threshold: null });
     } finally {
       kicking.current = false;
       const next = pendingKick.current;

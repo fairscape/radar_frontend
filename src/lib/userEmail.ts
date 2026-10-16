@@ -67,6 +67,20 @@ const SESSION_KEYS = ['radar.jobs.v1', 'radar.wizard.v2'];
 const PERSON_LOCAL_PREFIXES = ['radar.lastOrcid'];
 
 /**
+ * Drop the per-tab state of whoever was signed in before: called when the
+ * server resolves a different address than the one cached (A's Access
+ * session lapsed and B signed in through Access in the same tab), so B's
+ * app does not poll A's run ids or show A's job strip.
+ */
+export function forgetSessionState(): void {
+  try {
+    for (const k of SESSION_KEYS) window.sessionStorage.removeItem(k);
+  } catch {
+    // Storage blocked: nothing was kept either.
+  }
+}
+
+/**
  * Sign out for real.
  *
  * Clearing the cached address alone leaves the Access session intact, so

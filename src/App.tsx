@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ApiError } from './api/client';
 import { getMe } from './api/endpoints/users';
 import { useThemeEffect } from './lib/theme';
-import { setUserEmail, useUserEmail } from './lib/userEmail';
+import { forgetSessionState, getUserEmail, setUserEmail, useUserEmail } from './lib/userEmail';
 import { useRoute } from './lib/router';
 import { LoginPage } from './pages/LoginPage';
 import { Shell } from './pages/Shell';
@@ -88,6 +88,8 @@ export function App() {
           setGate({ k: 'anonymous' });
           return;
         }
+        const before = getUserEmail();
+        if (before && before.toLowerCase() !== email.toLowerCase()) forgetSessionState();
         setUserEmail(email);
         setGate({ k: 'ready', email });
       })
