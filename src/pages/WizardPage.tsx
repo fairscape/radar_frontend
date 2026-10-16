@@ -472,7 +472,7 @@ function ResearcherSeedPicker({ name, preselect }: { name: string; preselect: nu
         <div className="stack" style={{ gap: 8 }}>
           <PaperPickList works={works} picked={current} onChange={setPicked} head={researcher?.name ?? null} ariaLabel="Papers to use as seeds" />
           <div className="row">
-            <Button variant="primary" iconRight="arrow-right" onClick={() => create.run()} loading={create.busy} disabled={current.size === 0 || !finalName.trim()}>Create draft with {plural(current.size, 'seed')}</Button>
+            <Button variant="primary" iconRight="arrow-right" onClick={() => create.run()} loading={create.busy} disabled={current.size === 0 || !finalName.trim() || !!researcher?.importing} title={researcher?.importing ? 'Its import is still running; the draft would start with part of the papers' : undefined}>Create draft with {plural(current.size, 'seed')}</Button>
             {!name && researcher && <span className="small muted">Named "{finalName}" unless you type a name above.</span>}
             {create.error && <span className="field-error">{create.error}</span>}
           </div>

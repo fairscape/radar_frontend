@@ -103,7 +103,7 @@ export function ProfileDetailPage({ id }: { id: number }) {
         <div className="page-actions">
           <Button icon="refresh" onClick={() => setChecking(true)} disabled={importing || checking} title={`Read ${r.source === 'prosopia' ? 'the Prosopia profile' : 'OpenAlex for this ORCID'} again and pick the papers that are new`}>Check for new papers</Button>
           <Button variant="danger" icon="trash" onClick={forget} disabled={importing}>Forget</Button>
-          <Button variant="primary" icon="plus" onClick={() => navigate(paths.wizardFrom('profile', r.id))} disabled={r.n_papers === 0} title={r.n_papers === 0 ? 'No papers to build from yet' : undefined}>{TERMS.newInterest} from these papers</Button>
+          <Button variant="primary" icon="plus" onClick={() => navigate(paths.wizardFrom('profile', r.id))} disabled={r.n_papers === 0 || importing} title={importing ? 'Wait for the import to finish: the interest would start with part of the papers' : r.n_papers === 0 ? 'No papers to build from yet' : undefined}>{TERMS.newInterest} from these papers</Button>
         </div>
       </header>
 
@@ -131,7 +131,7 @@ export function ProfileDetailPage({ id }: { id: number }) {
 
       {tab === 'suggested' && <SuggestedTab researcherId={r.id} researcherName={r.name} papers={data.papers} importing={importing} />}
       {tab === 'papers' && <PapersTab papers={data.papers} />}
-      {tab === 'interests' && <InterestsTab interests={data.interests} researcherId={r.id} nPapers={r.n_papers} />}
+      {tab === 'interests' && <InterestsTab interests={data.interests} researcherId={r.id} nPapers={r.n_papers} importing={importing} />}
       {tab === 'about' && (
         <Panel title="About" description={`What ${r.source === 'prosopia' ? 'the Prosopia profile' : 'OpenAlex'} says about this researcher. Stored as read; Radar does not add to it.`}>
           <dl className="doc-detail" style={{ border: 0, background: 'transparent', padding: 0 }}>
@@ -181,14 +181,14 @@ function PapersTab({ papers }: { papers: ResearcherPaper[] }) {
   );
 }
 
-function InterestsTab({ interests, researcherId, nPapers }: { interests: Profile[]; researcherId: number; nPapers: number }) {
+function InterestsTab({ interests, researcherId, nPapers, importing }: { interests: Profile[]; researcherId: number; nPapers: number; importing: boolean }) {
   if (interests.length === 0) {
     return (
       <EmptyState
         icon="interests"
         title={`No ${TERMS.interests} from this ${TERMS.profile} yet`}
         body={`Pick some of the papers and Radar starts a draft with them as seeds. You can build several ${TERMS.interests} this way, one per topic.`}
-        action={nPapers > 0 ? <Link href={paths.wizardFrom('profile', researcherId)} className="btn btn-primary"><Icon name="plus" size={14} /> {TERMS.newInterest}</Link> : undefined}
+        action={nPapers > 0 && !importing ? <Link href={paths.wizardFrom('profile', researcherId)} className="btn btn-primary"><Icon name="plus" size={14} /> {TERMS.newInterest}</Link> : undefined}
       />
     );
   }
