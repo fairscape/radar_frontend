@@ -168,7 +168,8 @@ export function FeedPage() {
       const res = await (target === 'saved' ? saveCard(card.id, card.profile, on) : dismissCard(card.id, card.profile, on));
       setOverrides((o) => ({ ...o, [k]: res.state }));
       triaged.current = true;
-      invalidate('profiles');
+      // 'vault' too: a saved paper is listed in the Vault under its interest.
+      invalidate('profiles', 'vault');
     } catch (e) {
       setOverrides((o) => ({ ...o, [k]: prev }));
       toast.error(`Couldn't ${target === 'saved' ? 'save' : 'dismiss'} "${card.title.slice(0, 60)}": ${errorMessage(e)}`);

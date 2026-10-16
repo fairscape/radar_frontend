@@ -118,7 +118,10 @@ function DraftRow({ draft, info }: { draft: Profile; info?: DraftSummary }) {
           ) : info?.phase === 'failed' ? (
             <Badge tone="err" title={info.import_error ?? undefined}>import failed</Badge>
           ) : (
-            <span className="small muted">{draft.seeds} seed{draft.seeds === 1 ? '' : 's'}</span>
+            <>
+              <span className="small muted">{draft.seeds} seed{draft.seeds === 1 ? '' : 's'}</span>
+              {info?.import_error && <Badge tone="err" title={info.import_error}>import incomplete</Badge>}
+            </>
           )}
           {info?.researcher_name && (
             <span className="small muted truncate" title={info.orcid ?? undefined}>
@@ -126,10 +129,10 @@ function DraftRow({ draft, info }: { draft: Profile; info?: DraftSummary }) {
             </span>
           )}
         </div>
-        {info?.phase === 'failed' && info.import_error && (
-          // Surfaced rather than only logged: the draft looks empty either
-          // way, and without this the user is invited to start adding seeds
-          // by hand with no idea the import died.
+        {info?.import_error && (
+          // Surfaced rather than only logged, whatever the phase: with no
+          // seeds the draft looks empty, and with some it looks complete --
+          // either way the user has no idea the import died.
           <span className="small mono" style={{ color: 'var(--err)' }}>{info.import_error}</span>
         )}
       </div>

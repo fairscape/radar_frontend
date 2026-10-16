@@ -659,6 +659,10 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
   const docs = useVaultDocs(slug);
   const importJob = useJob(state.importJobId);
   const extraImport = useJob(state.extraImportJobId ?? null);
+  // The latest import's error, from the server: an import that died after
+  // attaching part of its papers resumed as a healthy-looking seed list.
+  const draftInfo = useDrafts().data?.find((d) => d.slug === slug);
+  const importError = draftInfo?.phase !== 'importing' ? draftInfo?.import_error ?? null : null;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
@@ -731,6 +735,11 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
         </p>
       )}
       {importing && importJob && <div style={{ marginBottom: 14 }}><JobProgress job={importJob} /></div>}
+      {!importing && importError && (
+        <div style={{ marginBottom: 14 }}>
+          <ErrorBox compact title="The last import did not finish" message={`${importError} The seeds below are the papers it attached before it stopped; add the rest from the same source, or carry on with these.`} />
+        </div>
+      )}
       <div
         className={`dropzone ${over ? 'over' : ''} ${progress ? 'busy' : ''}`}
         onClick={() => !progress && inputRef.current?.click()}

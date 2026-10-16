@@ -34,7 +34,8 @@ export interface ProfileDetail {
 
 export interface GatherRunStatus {
   id: number;
-  profile_id: number;
+  /** Null for a researcher import, which fills no interest. */
+  profile_id: number | null;
   started_at: string;
   finished_at: string | null;
   since_date: string | null;
