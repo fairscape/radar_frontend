@@ -56,6 +56,8 @@ export interface ResearcherTopics {
   /** Text concepts that map to no topic. */
   wanted_labels: string[];
   unwanted_labels: string[];
+  /** The labels could not be mapped to topics just now (the mapper is down); the lists hold only the topics the profile asserts outright. */
+  labels_unmapped: boolean;
 }
 
 /** ``GET /api/profiles/{key}/researcher-topics``: the profile topics an interest can take from its researcher. */

@@ -184,9 +184,10 @@ function sortedResearchers(st: MockState): MockResearcher[] {
 
 /** What a Prosopia profile declares; an ORCID-only researcher has none. */
 function mockResearcherTopics(r: MockResearcher) {
-  if (r.source !== 'prosopia') return { available: false, wanted: [], unwanted: [], wanted_labels: [], unwanted_labels: [] };
+  if (r.source !== 'prosopia') return { available: false, wanted: [], unwanted: [], wanted_labels: [], unwanted_labels: [], labels_unmapped: false };
   return {
     available: true,
+    labels_unmapped: false,
     wanted: [
       { id: 'https://openalex.org/T10222', name: 'Genomics and Chromatin Dynamics', weight: 0.5, method: 'declared', label: null },
       { id: 'https://openalex.org/T10885', name: 'Epigenetics and DNA Methylation', weight: 0.5, method: 'declared', label: null },

@@ -122,7 +122,12 @@ export function MarkSelect({ r, size = 'sm' }: { r: Researcher; size?: 'sm' | 'm
 function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]; runningIds: Set<string> }) {
   const serverIds = researchers.map((r) => r.id).join(',');
   const [order, setOrder] = useState<number[] | null>(null);
-  useEffect(() => { setOrder(null); }, [serverIds]);
+  // Saves still in flight. While there are any, a server list that lands
+  // is an earlier save's answer: the shown order stays the user's latest,
+  // and the server's is taken once the last save has answered.
+  const pending = useRef(0);
+  const [settled, setSettled] = useState(0);
+  useEffect(() => { if (pending.current === 0) setOrder(null); }, [serverIds, settled]);
   const byId = new Map(researchers.map((r) => [r.id, r]));
   const ids = (order ?? researchers.map((r) => r.id)).filter((id) => byId.has(id));
   const [drag, setDrag] = useState<number | null>(null);
@@ -134,15 +139,18 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
   function commit(next: number[]) {
     if (next.join(',') === ids.join(',')) return;
     setOrder(next);
+    pending.current += 1;
     chain.current = chain.current.then(async () => {
       try {
         await reorderResearchers(next);
       } catch (e) {
         // The list may have changed under us (a profile forgotten or added
         // in another tab): show the server's.
-        setOrder(null);
         invalidateExact('researchers');
         toast.error(`Couldn't save the order: ${errorMessage(e)}`);
+      } finally {
+        pending.current -= 1;
+        if (pending.current === 0) setSettled((n) => n + 1);
       }
     });
   }

@@ -49,7 +49,7 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
   if (d.applied && !t.available) {
     return (
       <Callout tone="warn" title={`Using ${who}'s profile topics`} icon="user">
-        <p style={{ margin: '0 0 6px' }}>The profile cannot be read at the moment (the topic mapper is unavailable). Its topics and marks stay in the list as last read; reload later to see them here.</p>
+        <p style={{ margin: '0 0 6px' }}>The profile lists no topics Radar can read just now: it may have been re-imported without research interests, or it has only text concepts and the topic mapper is unavailable. Its topics and marks stay in the list as last read. Remove them if they are out of date.</p>
         <div className="row" style={{ marginTop: 10 }}>
           <Button size="sm" onClick={() => toggle.run(false)} loading={toggle.busy}>Remove profile topics</Button>
         </div>
@@ -65,6 +65,7 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
         {saved && <> <b>This is saved straight away</b>, unlike the ticks below, and applies from the next scan.</>}
       </p>
       <TopicChips topics={t} />
+      {t.labels_unmapped && <p className="small muted" style={{ margin: '6px 0 0' }}>The profile's text concepts could not be matched to topics just now (the topic mapper is unavailable); the ones matched before stay in the list.</p>}
       <div className="row" style={{ marginTop: 10 }}>
         {d.applied
           ? <Button size="sm" onClick={() => toggle.run(false)} loading={toggle.busy}>Remove profile topics</Button>
