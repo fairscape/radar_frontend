@@ -17,6 +17,7 @@ import type {
   Topic,
   TopicYieldResponse,
 } from '../../types/radar';
+import type { ProfileResearcherTopics } from '../../types/researchers';
 import type { DraftCoherence, DryRunPaper } from './wizard';
 
 export type { DraftCoherence } from './wizard';
@@ -174,6 +175,22 @@ export async function saveTerms(key: string, terms: InterestTerm[], removed: Int
   const provenance = from ? { source: from.source, model: from.model, generated_at: from.generated_at, seed_hash: from.seed_hash, usage: from.usage } : {};
   const res = await apiPut<InterestTerms>(`/api/profiles/${enc(key)}/terms`, { terms, removed, not_interests: notInterests, ...provenance, edited });
   invalidate(`profiles/${key}/terms`);
+  return res;
+}
+
+/** The topics the researcher this interest was built from declares on their profile, and whether they are applied. */
+export function getResearcherTopics(key: string): Promise<ProfileResearcherTopics> {
+  return apiGet<ProfileResearcherTopics>(`/api/profiles/${enc(key)}/researcher-topics`);
+}
+
+/**
+ * Apply (or drop) the researcher's profile topics on a draft or a saved
+ * interest: wanted topics join the list switched on, not-wanted ones are
+ * switched off. Returns the new list.
+ */
+export async function setResearcherTopics(key: string, enabled: boolean): Promise<Topic[]> {
+  const res = await apiPut<Topic[]>(`/api/profiles/${enc(key)}/researcher-topics`, { enabled });
+  invalidate(`profiles/${key}/researcher-topics`, `draft/${key}/topics`, `draft/${key}/edit-topics`, `profiles/${key}/detail`);
   return res;
 }
 

@@ -18,12 +18,13 @@ import { useEffect, useState } from 'react';
 import { useProfileDetail, useProfiles } from '../api/hooks';
 import { previewTopics, recomputeCoherence, saveTopics } from '../api/endpoints/profiles';
 import { UmlsNotice } from '../ui/UmlsNotice';
+import { ProfileTopicsBox } from '../ui/ProfileTopics';
 import { errorMessage, plural } from '../lib/format';
 import { useQuery } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
-import { topicSourceLabel, topicSourceTag } from '../lib/topicSource';
+import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
 import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, useAction } from '../ui';
 import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
@@ -216,6 +217,18 @@ function StepTopics({ profile, detail, back, next }: { profile: Profile; detail:
     <Panel title="What should Radar search for?" description="Topics aggregated from the seeds' OpenAlex records. Each scan asks OpenAlex for new papers in the topics that are on. Papers already found stay; a change applies from the next scan.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
       <UmlsNotice profileKey={profile.key} listed={topics.data} />
+      {topics.data && (
+        <div style={{ marginBottom: 10 }}>
+          <ProfileTopicsBox
+            profileKey={profile.key}
+            onChanged={async () => {
+              // Saved on the server already; re-read and take the ticks from it.
+              await topics.refresh();
+              setSelected(null);
+            }}
+          />
+        </div>
+      )}
       {!topics.data && topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
         <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics." />
@@ -236,11 +249,13 @@ function StepTopics({ profile, detail, back, next }: { profile: Profile; detail:
           </div>
           <div className="topics">
             {list.map((t) => (
-              <button key={t.id} type="button" className={`topic-toggle ${sel.has(t.id) ? 'on' : ''}`} onClick={() => toggle(t.id)} aria-pressed={sel.has(t.id)} title={`${t.count} ${t.count === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}`}>
+              <button key={t.id} type="button" className={`topic-toggle ${sel.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggle(t.id)} aria-pressed={sel.has(t.id)} title={`${t.count} ${t.count === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
                 <span className="tick">{sel.has(t.id) && <Icon name="check" size={10} />}</span>
-                {t.name}
+                {t.profile === 'not_interest' ? <s>{t.name}</s> : t.name}
                 <span className="tc">{t.count}</span>
                 {topicSourceTag(t.source) && <span className="src">{topicSourceTag(t.source)}</span>}
+                {t.profile === 'interest' && t.source !== 'researcher' && <span className="src">PROFILE</span>}
+                {t.profile === 'not_interest' && <span className="pf">not wanted</span>}
                 {t.new && <span className="src">new</span>}
               </button>
             ))}

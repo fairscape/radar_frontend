@@ -11,6 +11,9 @@ import type { Profile } from './radar';
 
 export type ResearcherSource = 'prosopia' | 'orcid';
 
+/** ``self``: the user themself; ``followed``: someone they follow. Marked researchers list first. */
+export type ResearcherMark = 'self' | 'followed';
+
 export interface Researcher {
   id: number;
   source: ResearcherSource;
@@ -29,6 +32,38 @@ export interface Researcher {
   importing: boolean;
   last_error: string | null;
   created_at: string | null;
+  mark: ResearcherMark | null;
+  /** Where the user placed them in the list (lower first); null = never placed. */
+  position: number | null;
+}
+
+/** One OpenAlex topic a researcher's Prosopia profile has an opinion on. */
+export interface ResearcherTopic {
+  id: string;
+  name: string;
+  weight: number | null;
+  /** ``declared`` by the owner, ``inferred`` from their papers, or ``label``: matched from a text concept. */
+  method: 'declared' | 'inferred' | 'label' | string;
+  /** The text concept this topic was matched from (method ``label``). */
+  label: string | null;
+}
+
+/** What a researcher's profile says they do and do not want; empty for an ORCID-only one. */
+export interface ResearcherTopics {
+  available: boolean;
+  wanted: ResearcherTopic[];
+  unwanted: ResearcherTopic[];
+  /** Text concepts that map to no topic. */
+  wanted_labels: string[];
+  unwanted_labels: string[];
+}
+
+/** ``GET /api/profiles/{key}/researcher-topics``: the profile topics an interest can take from its researcher. */
+export interface ProfileResearcherTopics {
+  researcher_id: number | null;
+  researcher_name: string | null;
+  applied: boolean;
+  topics: ResearcherTopics;
 }
 
 export interface ResearcherPaper {
@@ -55,6 +90,7 @@ export interface ResearcherDetail {
   papers: ResearcherPaper[];
   /** Interests (drafts included) built from this researcher. */
   interests: Profile[];
+  topics: ResearcherTopics;
 }
 
 export interface ResearcherImportRequest {

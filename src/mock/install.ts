@@ -47,6 +47,8 @@ interface MockResearcher {
   imported_at: string | null;
   last_run_id: number | null;
   created_at: string;
+  mark: 'self' | 'followed' | null;
+  position: number | null;
 }
 
 interface MockProfile {
@@ -56,6 +58,8 @@ interface MockProfile {
   hue: number;
   is_draft: boolean;
   researcher_id?: number | null;
+  /** The researcher's profile topics are applied to ``topics``. */
+  researcherTopics?: boolean;
   threshold: number;
   coherence: number;
   seeds: { id: string; title: string; year: number; coh: number }[];
@@ -158,6 +162,39 @@ function toResearcher(st: MockState, r: MockResearcher): Researcher {
     id: r.id, source: r.source, key: r.key, name: r.name, orcid: r.orcid, affiliation: r.affiliation, url: r.url, base_url: r.base_url,
     n_papers: r.papers.length, n_interests: st.profiles.filter((p) => p.researcher_id === r.id).length,
     imported_at: r.imported_at, last_run_id: r.last_run_id, importing: !!run && !run.finished_at, last_error: run?.error ?? null, created_at: r.created_at,
+    mark: r.mark, position: r.position,
+  };
+}
+
+const MARK_RANK = { self: 0, followed: 1 } as const;
+
+/** The list order the backend uses: placed rows first, then by mark, then by name. */
+function sortedResearchers(st: MockState): MockResearcher[] {
+  return [...st.researchers].sort((a, b) => {
+    if ((a.position == null) !== (b.position == null)) return a.position == null ? 1 : -1;
+    if (a.position != null && b.position != null && a.position !== b.position) return a.position - b.position;
+    const ra = a.mark ? MARK_RANK[a.mark] : 2;
+    const rb = b.mark ? MARK_RANK[b.mark] : 2;
+    if (ra !== rb) return ra - rb;
+    return a.name.localeCompare(b.name) || a.id - b.id;
+  });
+}
+
+/** What a Prosopia profile declares; an ORCID-only researcher has none. */
+function mockResearcherTopics(r: MockResearcher) {
+  if (r.source !== 'prosopia') return { available: false, wanted: [], unwanted: [], wanted_labels: [], unwanted_labels: [] };
+  return {
+    available: true,
+    wanted: [
+      { id: 'https://openalex.org/T10222', name: 'Genomics and Chromatin Dynamics', weight: 0.5, method: 'declared', label: null },
+      { id: 'https://openalex.org/T10885', name: 'Epigenetics and DNA Methylation', weight: 0.5, method: 'declared', label: null },
+      { id: 'https://openalex.org/T11986', name: 'Scientific Computing and Data Management', weight: null, method: 'inferred', label: null },
+    ],
+    unwanted: [
+      { id: 'https://openalex.org/T10434', name: 'Genomics and Phylogenetic Studies', weight: null, method: 'label', label: 'phylogenomics' },
+    ],
+    wanted_labels: [],
+    unwanted_labels: ['phylogenomics', 'wet-lab-protocol-development'],
   };
 }
 
@@ -169,7 +206,7 @@ function ensureResearcher(st: MockState, source: 'prosopia' | 'orcid', key: stri
   r = {
     id: st.nextId++, source, key, name, orcid, affiliation: source === 'prosopia' ? 'University of Virginia' : null,
     url: source === 'prosopia' ? `https://prosopia.databio.org/${key}` : `https://orcid.org/${key}`, base_url: source === 'prosopia' ? 'https://prosopia.databio.org' : null,
-    expertise: null, grants: [], papers: [], imported_at: null, last_run_id: null, created_at: nowIso(),
+    expertise: null, grants: [], papers: [], imported_at: null, last_run_id: null, created_at: nowIso(), mark: null, position: null,
   };
   st.researchers.push(r);
   return r;
@@ -210,7 +247,7 @@ function seedState(email: string): MockState {
     expertise: 'Genomic region sets, epigenomics, reproducible computational pipelines and the FAIR sharing of biomedical data.',
     grants: [{ name: 'Standards for genomic interval data', funder: 'NIH NHGRI', role: 'pi' }],
     papers: mockResearcherPapers('sheffield-nathan', 14),
-    imported_at: nowIso(-86400000 * 5), last_run_id: 13, created_at: nowIso(-86400000 * 5),
+    imported_at: nowIso(-86400000 * 5), last_run_id: 13, created_at: nowIso(-86400000 * 5), mark: 'self', position: null,
   };
   st.researchers = [sheffield];
   st.researcherRuns = [{ id: 13, profile_id: 0, started_at: nowIso(-86400000 * 5), finished_at: nowIso(-86400000 * 5 + 70000), since_date: null, filter_string: null, tier_used: 'researcher_import', n_fetched: 14, n_new: 14, n_redup: 0, api_calls: 3, error: null, current_step: 'done', n_processed: 14, n_total: 14, last_message: null }];
@@ -691,7 +728,40 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
   }
 
   // --- researchers ("profiles") ---
-  if (path === '/api/researchers' && method === 'GET') return json(st.researchers.map((r) => toResearcher(st, r)));
+  if (path === '/api/researchers' && method === 'GET') return json(sortedResearchers(st).map((r) => toResearcher(st, r)));
+  if (path === '/api/researchers/order' && method === 'PUT') {
+    const ids = Array.isArray(body?.ids) ? (body!.ids as number[]) : [];
+    const have = st.researchers.map((r) => r.id).sort((a, b) => a - b);
+    if (new Set(ids).size !== ids.length || [...ids].sort((a, b) => a - b).join() !== have.join()) return err(400, 'ids must list each of your researchers exactly once');
+    ids.forEach((id, i) => { const r = st.researchers.find((x) => x.id === id); if (r) r.position = i; });
+    return json(sortedResearchers(st).map((r) => toResearcher(st, r)));
+  }
+  m = path.match(/^\/api\/profiles\/([^/]+)\/researcher-topics$/);
+  if (m) {
+    const slug = decodeURIComponent(m[1]);
+    const p = findProfile(slug);
+    if (!p) return err(404, `profile '${slug}' not found`);
+    const r = st.researchers.find((x) => x.id === p.researcher_id) ?? null;
+    const topics = r ? mockResearcherTopics(r) : mockResearcherTopics({ source: 'orcid' } as MockResearcher);
+    if (method === 'GET') return json({ researcher_id: r?.id ?? null, researcher_name: r?.name ?? null, applied: !!p.researcherTopics && topics.available, topics });
+    if (method === 'PUT') {
+      const enabled = !!body?.enabled;
+      if (enabled && !topics.available) return err(400, 'this interest was not built from a researcher whose profile lists topics');
+      p.researcherTopics = enabled;
+      p.topics = p.topics.filter((t) => t.source !== 'researcher').map((t) => ({ ...t, profile: null }));
+      if (enabled) {
+        for (const w of topics.wanted) {
+          const have = p.topics.find((t) => t.id === w.id);
+          if (have) { have.on = true; have.profile = 'interest'; } else p.topics.push({ id: w.id, name: w.name, count: 0, on: true, source: 'researcher', profile: 'interest' });
+        }
+        for (const u of topics.unwanted) {
+          const have = p.topics.find((t) => t.id === u.id);
+          if (have) { have.on = false; have.profile = 'not_interest'; }
+        }
+      }
+      return json(p.topics);
+    }
+  }
   if (path === '/api/researchers/import' && method === 'POST') {
     const source = String(body?.source ?? '');
     const rawRef = String(body?.ref ?? '').trim();
@@ -745,6 +815,17 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
       st.docs.push(...chosen.map((c, i) => ({ id: c.id, title: c.title, authors: c.authors, venue: c.venue ?? '—', tags: [slug], pages: 8 + (i % 5), chunks: 20, added: nowIso() })));
       return json({ draft: { slug, name }, n_seeds: chosen.length });
     }
+    if (method === 'PATCH') {
+      const mark = body?.mark == null ? null : String(body.mark);
+      if (mark !== null && mark !== 'self' && mark !== 'followed') return err(422, 'mark must be self, followed or null');
+      const rank = (x: MockResearcher) => (x.mark ? MARK_RANK[x.mark] : 2);
+      const ordered = sortedResearchers(st).filter((x) => x !== r);
+      r.mark = mark;
+      const at = ordered.findIndex((x) => rank(x) >= rank(r));
+      ordered.splice(at < 0 ? ordered.length : at, 0, r);
+      ordered.forEach((x, i) => { x.position = i; });
+      return json(toResearcher(st, r));
+    }
     if (method === 'DELETE') {
       st.researchers = st.researchers.filter((x) => x !== r);
       st.researcherRuns = st.researcherRuns.filter((x) => x.id !== r.last_run_id);
@@ -752,7 +833,7 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
       return json({ ok: true });
     }
     if (method === 'GET') {
-      return json({ researcher: toResearcher(st, r), expertise: r.expertise, soul: null, grants: r.grants, papers: r.papers, interests: st.profiles.filter((p) => p.researcher_id === r.id).map(toProfile) });
+      return json({ researcher: toResearcher(st, r), expertise: r.expertise, soul: null, grants: r.grants, papers: r.papers, interests: st.profiles.filter((p) => p.researcher_id === r.id).map(toProfile), topics: mockResearcherTopics(r) });
     }
   }
   m = path.match(/^\/api\/profiles\/draft\/([^/]+)\/seeds$/);

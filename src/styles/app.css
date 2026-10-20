@@ -723,3 +723,34 @@ a.interest-card:hover { border-color: var(--accent-line); text-decoration: none;
 /* A research topic the user struck out: kept so it can be put back. */
 .topic-toggle.topic-struck { background: transparent; color: var(--fg-3); border-style: dashed; }
 .topic-toggle.topic-struck s { text-decoration-thickness: 1.5px; }
+
+/* Researcher list: marks and drag-and-drop ordering (ProfilesPage). */
+.researcher-card { position: relative; display: flex; flex-direction: column; border-radius: var(--radius-lg); }
+.researcher-card .interest-card { flex: 1; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 0; }
+.researcher-card.is-self .interest-card { border-color: var(--accent-line); background: linear-gradient(var(--accent-soft), var(--bg-panel) 60%); }
+.researcher-card.is-followed .interest-card { border-color: var(--accent-line); }
+.researcher-card.dragging { opacity: 0.45; }
+.researcher-card.drop-before::before, .researcher-card.drop-after::after {
+  content: ''; position: absolute; top: 6px; bottom: 6px; width: 3px; border-radius: 2px; background: var(--accent);
+}
+.researcher-card.drop-before::before { left: -9px; }
+.researcher-card.drop-after::after { right: -9px; }
+.researcher-card-tools {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px 6px 8px; font-size: 12.5px; color: var(--fg-3);
+  background: var(--bg-panel); border: 1px solid var(--line); border-top: 1px dashed var(--line);
+  border-bottom-left-radius: var(--radius-lg); border-bottom-right-radius: var(--radius-lg);
+}
+.researcher-card.is-self .researcher-card-tools, .researcher-card.is-followed .researcher-card-tools { border-color: var(--accent-line); border-top-color: var(--line); }
+.researcher-card-tools .grab { cursor: grab; color: var(--fg-4); display: inline-flex; padding: 4px; border-radius: 6px; }
+.researcher-card-tools .grab:hover { background: var(--bg-elev); color: var(--fg); }
+.researcher-card-tools .select-wrap.compact .select { padding-top: 4px; padding-bottom: 4px; font-size: 12.5px; }
+.researcher-card-tools .spacer { flex: 1; }
+
+/* A topic the researcher's profile does not want: listed, off, struck. */
+.topic-toggle.topic-profile-off:not(.on) s { text-decoration-thickness: 1.5px; color: var(--fg-3); }
+.topic-toggle .pf { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; color: var(--warn); }
+.topic-toggle.on .pf { color: var(--fg-3); }
+.profile-topic-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; padding: 0; list-style: none; }
+.profile-topic-list li { font-size: 12.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--fg-2); background: var(--bg-panel); }
+.profile-topic-list li.off { border-style: dashed; color: var(--fg-3); }
+.profile-topic-list li .lbl { color: var(--fg-4); margin-left: 4px; }

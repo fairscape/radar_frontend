@@ -7,6 +7,7 @@ import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import { YearRange } from '../ui/YearRange';
 import { UmlsNotice } from '../ui/UmlsNotice';
+import { ProfileTopicsBox } from '../ui/ProfileTopics';
 import type { YearSpan } from '../types/radar';
 import {
   commitDraft,
@@ -26,7 +27,7 @@ import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
-import { topicSourceLabel, topicSourceTag } from '../lib/topicSource';
+import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
 import { isUnmatched, noteUnmatchedImport, noteUnmatchedUploads } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { ProsopiaImportResult } from '../types/prosopia';
@@ -978,6 +979,19 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
     <Panel title="Step 3 · What should Radar query?" description="These topics were aggregated from the seeds' OpenAlex records. Radar asks OpenAlex for new papers in each selected topic, then scores them. Fewer, sharper topics mean less noise.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
       <UmlsNotice profileKey={slug} listed={topics.data} />
+      {topics.data && (
+        <div style={{ marginBottom: 10 }}>
+          <ProfileTopicsBox
+            profileKey={slug}
+            onChanged={async () => {
+              // The server set the on/off states; re-read the list, then let
+              // the effect above pick the ticks up from it.
+              await topics.refresh();
+              update({ selectedTopicIds: null });
+            }}
+          />
+        </div>
+      )}
       {topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
         <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics. Go back and add seeds with DOIs, or continue without topic filters (Radar will fall back to a broader query)." />
@@ -993,11 +1007,13 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
           </div>
           <div className="topics">
             {list.map((t) => (
-              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.count} ${t.count === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}`}>
+              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.count} ${t.count === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
                 <span className="tick">{selected.has(t.id) && <Icon name="check" size={10} />}</span>
-                {t.name}
+                {t.profile === 'not_interest' ? <s>{t.name}</s> : t.name}
                 <span className="tc">{t.count}</span>
                 {topicSourceTag(t.source) && <span className="src">{topicSourceTag(t.source)}</span>}
+                {t.profile === 'interest' && t.source !== 'researcher' && <span className="src">PROFILE</span>}
+                {t.profile === 'not_interest' && <span className="pf">not wanted</span>}
               </button>
             ))}
           </div>

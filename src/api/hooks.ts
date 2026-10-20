@@ -23,6 +23,7 @@ export const keys = {
   researchers: 'researchers',
   researcher: (id: number) => `researchers/${id}`,
   researcherSuggestions: (id: number) => `researchers/${id}/suggestions`,
+  researcherTopics: (key: string) => `profiles/${key}/researcher-topics`,
   chatHistory: 'chat/history',
   health: 'health',
   providers: 'chat/providers',

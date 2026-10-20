@@ -16,6 +16,8 @@ import { HealthBadge, JobProgress, agreementTone } from '../ui/domain';
 import { PaperLink, PaperPickList, defaultPicks, orcidPickWorks, prosopiaPickWorks, type PickWork } from '../ui/pickers';
 import type { OrcidWork, ProsopiaWork } from '../types/prosopia';
 import type { Researcher } from '../types/researchers';
+import { TopicChips } from '../ui/ProfileTopics';
+import { MarkBadge, MarkSelect } from './ProfilesPage';
 
 type Tab = 'suggested' | 'papers' | 'interests' | 'about';
 
@@ -93,6 +95,7 @@ export function ProfileDetailPage({ id }: { id: number }) {
           <h1 className="page-title">
             <Icon name="user" size={18} />
             {r.name}
+            <MarkBadge mark={r.mark} />
             <Badge tone={r.source === 'prosopia' ? 'info' : 'neutral'}>{r.source === 'prosopia' ? 'Prosopia' : 'ORCID'}</Badge>
           </h1>
           <p className="page-sub">
@@ -101,6 +104,7 @@ export function ProfileDetailPage({ id }: { id: number }) {
           </p>
         </div>
         <div className="page-actions">
+          <MarkSelect r={r} size="md" />
           <Button icon="refresh" onClick={() => setChecking(true)} disabled={importing || checking} title={`Read ${r.source === 'prosopia' ? 'the Prosopia profile' : 'OpenAlex for this ORCID'} again and pick the papers that are new`}>Check for new papers</Button>
           <Button variant="danger" icon="trash" onClick={forget} disabled={importing}>Forget</Button>
           <Button variant="primary" icon="plus" onClick={() => navigate(paths.wizardFrom('profile', r.id))} disabled={r.n_papers === 0 || importing} title={importing ? 'Wait for the import to finish: the interest would start with part of the papers' : r.n_papers === 0 ? 'No papers to build from yet' : undefined}>{TERMS.newInterest} from these papers</Button>
@@ -116,6 +120,7 @@ export function ProfileDetailPage({ id }: { id: number }) {
         <Stat label="Papers" value={r.n_papers} sub={r.imported_at ? `imported ${fmtRelative(r.imported_at)}` : 'not imported yet'} />
         <Stat label={TERMS.Interests} value={r.n_interests} sub={r.n_interests === 0 ? 'none built from this profile yet' : 'built from these papers'} />
         <Stat label="Unmatched" value={data.papers.filter((p) => p.resolved_by === 'none').length} sub="papers not found on OpenAlex; embedded from their summary" />
+        <Stat label="Profile topics" value={data.topics.available ? data.topics.wanted.length : '—'} sub={data.topics.available ? `wanted${data.topics.unwanted.length > 0 ? ` · ${plural(data.topics.unwanted.length, 'topic')} not wanted` : ''}; see About` : 'none on this source'} />
       </div>
 
       <Tabs
@@ -140,6 +145,17 @@ export function ProfileDetailPage({ id }: { id: number }) {
             {r.orcid && <div><dt>ORCID</dt><dd className="mono">{r.orcid}</dd></div>}
             <div><dt>Source</dt><dd>{r.source === 'prosopia' ? `Prosopia profile "${r.key}"${r.base_url ? ` at ${r.base_url}` : ''}` : `OpenAlex works by ORCID ${r.key}`}</dd></div>
             <div><dt>Imported</dt><dd>{r.imported_at ? fmtDateTime(r.imported_at) : '—'}</dd></div>
+            {data.topics.available && (
+              <div>
+                <dt>Research interests</dt>
+                <dd>
+                  <p className="small muted" style={{ margin: '0 0 4px' }}>
+                    What the profile says its owner wants more of, and (struck) what they do not. An {TERMS.interest} built from this {TERMS.profile} can take these as its topics: on its Topics step, choose <b>Use profile topics</b>.
+                  </p>
+                  <TopicChips topics={data.topics} />
+                </dd>
+              </div>
+            )}
             {data.expertise && <div><dt>Expertise</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{data.expertise}</dd></div>}
             {data.grants.length > 0 && (
               <div>

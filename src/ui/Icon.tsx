@@ -2,7 +2,8 @@ export type IconName =
   | 'radar' | 'interests' | 'vault' | 'settings' | 'plus' | 'search' | 'check' | 'x'
   | 'chevron-down' | 'chevron-right' | 'chevron-up' | 'external' | 'upload' | 'play'
   | 'refresh' | 'bookmark' | 'trash' | 'sun' | 'moon' | 'info' | 'alert' | 'arrow-left'
-  | 'arrow-right' | 'chat' | 'file' | 'clock' | 'send' | 'sliders' | 'list' | 'keyboard' | 'id' | 'help' | 'user';
+  | 'arrow-right' | 'chat' | 'file' | 'clock' | 'send' | 'sliders' | 'list' | 'keyboard' | 'id' | 'help' | 'user'
+  | 'grip' | 'star';
 
 const PATHS: Record<IconName, JSX.Element> = {
   radar: (
@@ -57,6 +58,8 @@ const PATHS: Record<IconName, JSX.Element> = {
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.5-6.5 8-6.5s8 2.5 8 6.5" /></>,
   help: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7" /><path d="M12 17h.01" /></>,
   keyboard: <><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01" /><path d="M10 10h.01" /><path d="M14 10h.01" /><path d="M18 10h.01" /><path d="M8 14h8" /></>,
+  grip: <><path d="M9 6h.01" /><path d="M15 6h.01" /><path d="M9 12h.01" /><path d="M15 12h.01" /><path d="M9 18h.01" /><path d="M15 18h.01" /></>,
+  star: <path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z" />,
 };
 
 export function Icon({ name, size = 16, className }: { name: IconName; size?: number; className?: string }) {

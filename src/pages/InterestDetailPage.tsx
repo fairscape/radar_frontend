@@ -19,7 +19,7 @@ import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
-import { topicSourceTag } from '../lib/topicSource';
+import { topicProfileNote, topicSourceTag } from '../lib/topicSource';
 import { isUnmatched, noteUnmatchedUploads } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { Profile } from '../types/radar';
@@ -336,10 +336,16 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
               const y = yieldBy[t.id];
               return (
                 <tr key={t.id} style={{ opacity: t.on ? 1 : 0.6 }}>
-                  <td>{t.name} <span className="muted mono small">{t.id}</span></td>
-                  <td><Badge>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge></td>
+                  <td>{t.profile === 'not_interest' ? <s>{t.name}</s> : t.name} <span className="muted mono small">{t.id}</span></td>
+                  <td>
+                    <Badge>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge>
+                    {t.profile === 'interest' && t.source !== 'researcher' && <> <Badge tone="info" title={topicProfileNote(t.profile) ?? undefined}>Profile</Badge></>}
+                  </td>
                   <td className="r">{t.count}</td>
-                  <td>{t.on ? <Badge tone="ok">Queried</Badge> : <Badge>Off</Badge>}</td>
+                  <td>
+                    {t.on ? <Badge tone="ok">Queried</Badge> : <Badge>Off</Badge>}
+                    {t.profile === 'not_interest' && <> <Badge tone="warn" title={topicProfileNote(t.profile) ?? undefined}>Not wanted</Badge></>}
+                  </td>
                   <td className="r">{yieldQ.loading ? '…' : y ? y.n_candidates : '—'}</td>
                   <td className="r">{y ? y.n_saved : '—'}</td>
                   <td className="r">{y ? y.n_dismissed : '—'}</td>

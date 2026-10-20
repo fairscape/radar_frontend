@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type DragEvent } from 'react';
+import { reorderResearchers, setResearcherMark } from '../api/endpoints/researchers';
 import { useResearchers } from '../api/hooks';
 import { errorMessage, fmtRelative } from '../lib/format';
 import { researcherJobKey, startResearcherImport, useJob, useJobs, type Job } from '../lib/jobs';
 import { paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
-import type { Researcher } from '../types/researchers';
-import { Badge, Button, EmptyState, ErrorBox, Icon, LoadingRows, Panel, Segmented, Spinner } from '../ui';
+import { toast } from '../lib/toast';
+import type { Researcher, ResearcherMark } from '../types/researchers';
+import { Badge, Button, EmptyState, ErrorBox, Icon, IconButton, LoadingRows, Panel, Segmented, Select, Spinner } from '../ui';
 import { Link } from '../ui/Link';
 import { JobProgress } from '../ui/domain';
 import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP } from '../ui/pickers';
@@ -51,12 +53,10 @@ export function ProfilesPage() {
       )}
 
       {researchers && researchers.length > 0 && (
-        <div className="interest-grid" style={{ marginBottom: 18 }}>
-          {researchers.map((r) => {
-            const running = jobs.some((j) => j.kind === 'import' && j.profileKey === researcherJobKey(r.id) && j.status === 'running');
-            return <ResearcherCard key={r.id} r={r} running={running || r.importing} />;
-          })}
-        </div>
+        <ResearcherList
+          researchers={researchers}
+          runningIds={new Set(jobs.filter((j) => j.kind === 'import' && j.status === 'running').map((j) => j.profileKey))}
+        />
       )}
 
       <ImportPanel />
@@ -64,12 +64,134 @@ export function ProfilesPage() {
   );
 }
 
+export const MARK_LABEL: Record<ResearcherMark, string> = { self: 'You', followed: 'Following' };
+
+/** The badge a marked researcher carries wherever they are shown. */
+export function MarkBadge({ mark }: { mark: ResearcherMark | null }) {
+  if (!mark) return null;
+  return (
+    <Badge tone={mark === 'self' ? 'info' : 'ok'} title={mark === 'self' ? `This ${TERMS.profile} is you` : `A researcher you follow`}>
+      <Icon name={mark === 'self' ? 'user' : 'star'} size={10} /> {MARK_LABEL[mark]}
+    </Badge>
+  );
+}
+
+/** Mark as you / following / neither. Saves on change; the list re-sorts. */
+export function MarkSelect({ r, size = 'sm' }: { r: Researcher; size?: 'sm' | 'md' }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Select
+      className={size === 'sm' ? 'compact' : undefined}
+      value={r.mark ?? ''}
+      disabled={busy}
+      aria-label={`Mark ${r.name}`}
+      title="Mark this profile as you, or as a researcher you follow: it is highlighted and moves to the top of the list"
+      onChange={async (e) => {
+        const mark = (e.target.value || null) as ResearcherMark | null;
+        setBusy(true);
+        try {
+          await setResearcherMark(r.id, mark);
+          toast.success(mark ? `${r.name} marked as ${MARK_LABEL[mark].toLowerCase()}.` : `Mark removed from ${r.name}.`);
+        } catch (err) {
+          toast.error(`Couldn't save the mark: ${errorMessage(err)}`);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <option value="">No mark</option>
+      <option value="self">You</option>
+      <option value="followed">Following</option>
+    </Select>
+  );
+}
+
+/**
+ * The cards, in the user's order. Drag a card onto another to move it
+ * there (left half: before it; right half: after it), or use the arrows.
+ * The new order is shown at once and stored; if storing fails the server's
+ * order comes back.
+ */
+function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]; runningIds: Set<string> }) {
+  const serverIds = researchers.map((r) => r.id).join(',');
+  const [order, setOrder] = useState<number[] | null>(null);
+  useEffect(() => { setOrder(null); }, [serverIds]);
+  const byId = new Map(researchers.map((r) => [r.id, r]));
+  const ids = (order ?? researchers.map((r) => r.id)).filter((id) => byId.has(id));
+  const [drag, setDrag] = useState<number | null>(null);
+  const [over, setOver] = useState<{ id: number; side: 'before' | 'after' } | null>(null);
+
+  async function commit(next: number[]) {
+    if (next.join(',') === ids.join(',')) return;
+    setOrder(next);
+    try {
+      await reorderResearchers(next);
+    } catch (e) {
+      setOrder(null);
+      toast.error(`Couldn't save the order: ${errorMessage(e)}`);
+    }
+  }
+  function moveTo(id: number, target: number, side: 'before' | 'after') {
+    if (id === target) return;
+    const rest = ids.filter((x) => x !== id);
+    const at = rest.indexOf(target) + (side === 'after' ? 1 : 0);
+    void commit([...rest.slice(0, at), id, ...rest.slice(at)]);
+  }
+  function moveBy(id: number, delta: number) {
+    const i = ids.indexOf(id);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    const next = [...ids];
+    next.splice(i, 1);
+    next.splice(j, 0, id);
+    void commit(next);
+  }
+  function sideOf(e: DragEvent<HTMLElement>): 'before' | 'after' {
+    const box = e.currentTarget.getBoundingClientRect();
+    return e.clientX < box.left + box.width / 2 ? 'before' : 'after';
+  }
+
+  return (
+    <div className="interest-grid" style={{ marginBottom: 18 }} role="list" aria-label={`${TERMS.Profiles}, in your order`}>
+      {ids.map((id, i) => {
+        const r = byId.get(id)!;
+        const running = runningIds.has(researcherJobKey(r.id)) || r.importing;
+        const cls = ['researcher-card', r.mark === 'self' ? 'is-self' : '', r.mark === 'followed' ? 'is-followed' : '',
+          drag === id ? 'dragging' : '', over?.id === id && drag !== null && drag !== id ? `drop-${over.side}` : ''].filter(Boolean).join(' ');
+        return (
+          <div
+            key={id}
+            role="listitem"
+            className={cls}
+            draggable
+            onDragStart={(e) => { setDrag(id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(id)); }}
+            onDragEnd={() => { setDrag(null); setOver(null); }}
+            onDragOver={(e) => { if (drag === null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const side = sideOf(e); if (over?.id !== id || over.side !== side) setOver({ id, side }); }}
+            onDragLeave={() => { if (over?.id === id) setOver(null); }}
+            onDrop={(e) => { e.preventDefault(); const from = drag ?? Number(e.dataTransfer.getData('text/plain')); if (Number.isFinite(from)) moveTo(from, id, sideOf(e)); setDrag(null); setOver(null); }}
+          >
+            <ResearcherCard r={r} running={running} />
+            <div className="researcher-card-tools">
+              <span className="grab" title="Drag to move this profile in the list" aria-hidden="true"><Icon name="grip" size={14} /></span>
+              <MarkSelect r={r} />
+              <span className="spacer" />
+              <IconButton icon="arrow-left" size="sm" label={`Move ${r.name} up`} disabled={i === 0} onClick={() => moveBy(id, -1)} />
+              <IconButton icon="arrow-right" size="sm" label={`Move ${r.name} down`} disabled={i === ids.length - 1} onClick={() => moveBy(id, 1)} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ResearcherCard({ r, running }: { r: Researcher; running: boolean }) {
   return (
-    <Link href={paths.profile(r.id)} className="interest-card">
+    <Link href={paths.profile(r.id)} className="interest-card" draggable={false}>
       <div className="interest-card-head">
         <Icon name="user" size={14} />
         <span className="interest-card-name truncate">{r.name}</span>
+        <MarkBadge mark={r.mark} />
         <Badge tone={r.source === 'prosopia' ? 'info' : 'neutral'}>{r.source === 'prosopia' ? 'Prosopia' : 'ORCID'}</Badge>
       </div>
       <div className="interest-card-stats">

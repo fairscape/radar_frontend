@@ -91,6 +91,8 @@ export interface Topic {
   source?: string | null;
   /** Topic preview only: found by the seeds since the topics were last saved. */
   new?: boolean | null;
+  /** What the researcher's profile says about it, once its topics are applied: wanted or not. */
+  profile?: 'interest' | 'not_interest' | null;
 }
 
 export interface SweepRow {
