@@ -31,3 +31,4 @@ pnpm-debug.log*
 .vscode/
 *.swp
 smoke-shots/
+*.bak

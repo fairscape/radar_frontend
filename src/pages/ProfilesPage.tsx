@@ -1,7 +1,8 @@
-import { useEffect, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { reorderResearchers, setResearcherMark } from '../api/endpoints/researchers';
 import { useResearchers } from '../api/hooks';
 import { errorMessage, fmtRelative } from '../lib/format';
+import { invalidateExact } from '../lib/query';
 import { researcherJobKey, startResearcherImport, useJob, useJobs, type Job } from '../lib/jobs';
 import { paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
@@ -126,16 +127,24 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
   const ids = (order ?? researchers.map((r) => r.id)).filter((id) => byId.has(id));
   const [drag, setDrag] = useState<number | null>(null);
   const [over, setOver] = useState<{ id: number; side: 'before' | 'after' } | null>(null);
+  // Saves run one after another: two quick arrow clicks are two PUTs, and
+  // whichever answered last would otherwise be the order shown.
+  const chain = useRef<Promise<void>>(Promise.resolve());
 
-  async function commit(next: number[]) {
+  function commit(next: number[]) {
     if (next.join(',') === ids.join(',')) return;
     setOrder(next);
-    try {
-      await reorderResearchers(next);
-    } catch (e) {
-      setOrder(null);
-      toast.error(`Couldn't save the order: ${errorMessage(e)}`);
-    }
+    chain.current = chain.current.then(async () => {
+      try {
+        await reorderResearchers(next);
+      } catch (e) {
+        // The list may have changed under us (a profile forgotten or added
+        // in another tab): show the server's.
+        setOrder(null);
+        invalidateExact('researchers');
+        toast.error(`Couldn't save the order: ${errorMessage(e)}`);
+      }
+    });
   }
   function moveTo(id: number, target: number, side: 'before' | 'after') {
     if (id === target) return;

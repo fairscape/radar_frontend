@@ -745,7 +745,7 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     if (!p) return err(404, `profile '${slug}' not found`);
     const r = st.researchers.find((x) => x.id === p.researcher_id) ?? null;
     const topics = r ? mockResearcherTopics(r) : mockResearcherTopics({ source: 'orcid' } as MockResearcher);
-    if (method === 'GET') return json({ researcher_id: r?.id ?? null, researcher_name: r?.name ?? null, applied: !!p.researcherTopics && topics.available, topics });
+    if (method === 'GET') return json({ researcher_id: r?.id ?? null, researcher_name: r?.name ?? null, applied: !!p.researcherTopics && !!r, topics });
     if (method === 'PUT') {
       const enabled = !!body?.enabled;
       if (enabled && !topics.available) return err(400, 'this interest was not built from a researcher whose profile lists topics');
@@ -840,7 +840,15 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     if (method === 'DELETE') {
       st.researchers = st.researchers.filter((x) => x !== r);
       st.researcherRuns = st.researcherRuns.filter((x) => x.id !== r.last_run_id);
-      for (const p of st.profiles) if (p.researcher_id === r.id) p.researcher_id = null;
+      for (const p of st.profiles) {
+        if (p.researcher_id !== r.id) continue;
+        p.researcher_id = null;
+        // Their profile topics go with them, as on the server.
+        const before = p.topicsBeforeProfile ?? {};
+        p.topics = p.topics.filter((t) => t.source !== 'researcher').map((t) => ({ ...t, profile: null, on: t.id in before ? before[t.id] : t.on }));
+        p.topicsBeforeProfile = undefined;
+        p.researcherTopics = false;
+      }
       return json({ ok: true });
     }
     if (method === 'GET') {
