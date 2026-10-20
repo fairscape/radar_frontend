@@ -60,6 +60,8 @@ interface MockProfile {
   researcher_id?: number | null;
   /** The researcher's profile topics are applied to ``topics``. */
   researcherTopics?: boolean;
+  /** on/off of the marked topics before the profile was applied, restored on remove. */
+  topicsBeforeProfile?: Record<string, boolean>;
   threshold: number;
   coherence: number;
   seeds: { id: string; title: string; year: number; coh: number }[];
@@ -747,18 +749,26 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     if (method === 'PUT') {
       const enabled = !!body?.enabled;
       if (enabled && !topics.available) return err(400, 'this interest was not built from a researcher whose profile lists topics');
-      p.researcherTopics = enabled;
-      p.topics = p.topics.filter((t) => t.source !== 'researcher').map((t) => ({ ...t, profile: null }));
+      const before = p.topicsBeforeProfile ?? {};
+      p.topics = p.topics.filter((t) => t.source !== 'researcher').map((t) => ({ ...t, profile: null, on: t.id in before ? before[t.id] : t.on }));
       if (enabled) {
+        const next: Topic[] = p.topics.map((t) => ({ ...t }));
+        const remembered: Record<string, boolean> = {};
         for (const w of topics.wanted) {
-          const have = p.topics.find((t) => t.id === w.id);
-          if (have) { have.on = true; have.profile = 'interest'; } else p.topics.push({ id: w.id, name: w.name, count: 0, on: true, source: 'researcher', profile: 'interest' });
+          const have = next.find((t) => t.id === w.id);
+          if (have) { remembered[w.id] = have.on; have.on = true; have.profile = 'interest'; } else next.push({ id: w.id, name: w.name, count: 0, on: true, source: 'researcher', profile: 'interest' });
         }
         for (const u of topics.unwanted) {
-          const have = p.topics.find((t) => t.id === u.id);
-          if (have) { have.on = false; have.profile = 'not_interest'; }
+          const have = next.find((t) => t.id === u.id);
+          if (have) { remembered[u.id] = have.on; have.on = false; have.profile = 'not_interest'; }
         }
+        if (next.length > 0 && !next.some((t) => t.on)) return err(409, 'the profile would switch every topic off: a scan searches by them');
+        p.topics = next;
+        p.topicsBeforeProfile = remembered;
+      } else {
+        p.topicsBeforeProfile = undefined;
       }
+      p.researcherTopics = enabled;
       return json(p.topics);
     }
   }
@@ -816,7 +826,8 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
       return json({ draft: { slug, name }, n_seeds: chosen.length });
     }
     if (method === 'PATCH') {
-      const mark = body?.mark == null ? null : String(body.mark);
+      if (!body || !('mark' in body)) return err(422, 'mark is required');
+      const mark = body.mark == null ? null : String(body.mark);
       if (mark !== null && mark !== 'self' && mark !== 'followed') return err(422, 'mark must be self, followed or null');
       const rank = (x: MockResearcher) => (x.mark ? MARK_RANK[x.mark] : 2);
       const ordered = sortedResearchers(st).filter((x) => x !== r);

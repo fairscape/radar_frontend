@@ -1,6 +1,6 @@
 /** Stored researcher profiles: ``/api/researchers``. */
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../client';
-import { invalidate } from '../../lib/query';
+import { invalidate, invalidateExact, setQueryData } from '../../lib/query';
 import type {
   Researcher,
   ResearcherDetail,
@@ -41,14 +41,17 @@ export async function startResearcherImport(body: ResearcherImportRequest): Prom
 /** Mark the profile as the user themself, as followed, or clear it; it moves to the top of that group. */
 export async function setResearcherMark(id: number, mark: ResearcherMark | null): Promise<Researcher> {
   const res = await apiPatch<Researcher>(`/api/researchers/${id}`, { mark });
-  invalidate('researchers');
+  // Other rows moved too, so the list is re-read; the detail page gets the
+  // row itself. Not the prefix: that would re-run the suggestions query.
+  setQueryData<ResearcherDetail>(`researchers/${id}`, (prev) => (prev ? { ...prev, researcher: res } : prev!));
+  invalidateExact('researchers');
   return res;
 }
 
 /** Store the order the user dragged the list into: every profile id, once. */
 export async function reorderResearchers(ids: number[]): Promise<Researcher[]> {
   const res = await apiPut<Researcher[]>('/api/researchers/order', { ids });
-  invalidate('researchers');
+  setQueryData<Researcher[]>('researchers', () => res);
   return res;
 }
 

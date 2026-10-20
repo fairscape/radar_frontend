@@ -98,6 +98,19 @@ export function invalidate(...prefixes: string[]): void {
   }
 }
 
+/** As ``invalidate``, for exactly these keys: nothing that merely starts with them. */
+export function invalidateExact(...keys: string[]): void {
+  for (const [key, entry] of cache) {
+    if (!keys.includes(key)) continue;
+    if (entry.subs.size > 0) {
+      if (entry.inflight) entry.again = true;
+      else void run(entry);
+    } else {
+      cache.delete(key);
+    }
+  }
+}
+
 /** Write a value straight into the cache (optimistic updates). */
 export function setQueryData<T>(key: string, updater: (prev: T | undefined) => T): void {
   const entry = cache.get(key) as Entry<T> | undefined;

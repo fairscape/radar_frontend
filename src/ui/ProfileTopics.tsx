@@ -17,7 +17,7 @@ import { Button, Callout, useAction } from '.';
  * ``onChanged`` runs after the server has changed the list: the page
  * re-reads its topics and drops any local tick state.
  */
-export function ProfileTopicsBox({ profileKey, onChanged }: { profileKey: string; onChanged: () => void | Promise<void> }) {
+export function ProfileTopicsBox({ profileKey, saved = false, onChanged }: { profileKey: string; saved?: boolean; onChanged: () => void | Promise<void> }) {
   const q = useQuery(keys.researcherTopics(profileKey), () => getResearcherTopics(profileKey));
   const toggle = useAction(async (enabled: boolean) => {
     try {
@@ -28,7 +28,9 @@ export function ProfileTopicsBox({ profileKey, onChanged }: { profileKey: string
     }
     await q.refresh();
     await onChanged();
-    toast.success(enabled ? "The profile's topics are applied." : "The profile's topics were removed from the list.");
+    toast.success(enabled
+      ? `The profile's topics are applied${saved ? ' and saved' : ''}.`
+      : `The profile's topics were removed; the other topics are back as they were${saved ? ', and saved' : ''}.`);
   });
   const d = q.data;
   if (!d || !d.topics.available || d.researcher_id == null) return null;
@@ -38,15 +40,15 @@ export function ProfileTopicsBox({ profileKey, onChanged }: { profileKey: string
     <Callout tone={d.applied ? 'ok' : 'info'} title={d.applied ? `Using ${who}'s profile topics` : `${who}'s profile lists research interests`} icon="user">
       <p style={{ margin: '0 0 6px' }}>
         {d.applied
-          ? <>The {plural(t.wanted.length, 'topic')} the profile wants {t.wanted.length === 1 ? 'is' : 'are'} on{t.unwanted.length > 0 ? <>, and the {plural(t.unwanted.length, 'topic')} it does not want {t.unwanted.length === 1 ? 'is' : 'are'} off (struck in the list; switch any back on if you disagree)</> : null}. They follow the profile: a change there shows up here on the next recompute.</>
+          ? <>The {plural(t.wanted.length, 'topic')} the profile wants {t.wanted.length === 1 ? 'is' : 'are'} on{t.unwanted.length > 0 ? <>; the {plural(t.unwanted.length, 'topic')} it does not want {t.unwanted.length === 1 ? 'stays' : 'stay'} off wherever the seeds bring {t.unwanted.length === 1 ? 'it' : 'them'} in (struck in the list; switch any back on if you disagree)</> : null}. They follow the profile: a change there shows up here on the next recompute. Removing them puts the other topics back as they were.</>
           : <>The profile declares {plural(t.wanted.length, 'wanted topic')}{t.unwanted.length > 0 ? ` and ${plural(t.unwanted.length, 'topic')} to leave out` : ''}. Apply them and Radar adds the wanted ones to this list (switched on) and switches the unwanted ones off.</>}
+        {saved && <> <b>This is saved straight away</b>, unlike the ticks below, and applies from the next scan.</>}
       </p>
       <TopicChips topics={t} />
       <div className="row" style={{ marginTop: 10 }}>
         {d.applied
           ? <Button size="sm" onClick={() => toggle.run(false)} loading={toggle.busy}>Remove profile topics</Button>
           : <Button size="sm" variant="primary" icon="plus" onClick={() => toggle.run(true)} loading={toggle.busy}>Use profile topics</Button>}
-        {toggle.error && <span className="field-error">{toggle.error}</span>}
       </div>
     </Callout>
   );

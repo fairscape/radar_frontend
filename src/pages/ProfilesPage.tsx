@@ -79,20 +79,26 @@ export function MarkBadge({ mark }: { mark: ResearcherMark | null }) {
 /** Mark as you / following / neither. Saves on change; the list re-sorts. */
 export function MarkSelect({ r, size = 'sm' }: { r: Researcher; size?: 'sm' | 'md' }) {
   const [busy, setBusy] = useState(false);
+  // Shown value: the choice at once (a controlled select snapped back to the
+  // old mark until the list was re-read), the server's once it answers.
+  const [value, setValue] = useState<string>(r.mark ?? '');
+  useEffect(() => { setValue(r.mark ?? ''); }, [r.mark]);
   return (
     <Select
       className={size === 'sm' ? 'compact' : undefined}
-      value={r.mark ?? ''}
+      value={value}
       disabled={busy}
       aria-label={`Mark ${r.name}`}
       title="Mark this profile as you, or as a researcher you follow: it is highlighted and moves to the top of the list"
       onChange={async (e) => {
         const mark = (e.target.value || null) as ResearcherMark | null;
+        setValue(mark ?? '');
         setBusy(true);
         try {
           await setResearcherMark(r.id, mark);
           toast.success(mark ? `${r.name} marked as ${MARK_LABEL[mark].toLowerCase()}.` : `Mark removed from ${r.name}.`);
         } catch (err) {
+          setValue(r.mark ?? '');
           toast.error(`Couldn't save the mark: ${errorMessage(err)}`);
         } finally {
           setBusy(false);
@@ -167,7 +173,7 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
             onDragStart={(e) => { setDrag(id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(id)); }}
             onDragEnd={() => { setDrag(null); setOver(null); }}
             onDragOver={(e) => { if (drag === null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const side = sideOf(e); if (over?.id !== id || over.side !== side) setOver({ id, side }); }}
-            onDragLeave={() => { if (over?.id === id) setOver(null); }}
+            onDragLeave={(e) => { if (over?.id === id && !e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(null); }}
             onDrop={(e) => { e.preventDefault(); const from = drag ?? Number(e.dataTransfer.getData('text/plain')); if (Number.isFinite(from)) moveTo(from, id, sideOf(e)); setDrag(null); setOver(null); }}
           >
             <ResearcherCard r={r} running={running} />

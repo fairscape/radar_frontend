@@ -221,6 +221,7 @@ function StepTopics({ profile, detail, back, next }: { profile: Profile; detail:
         <div style={{ marginBottom: 10 }}>
           <ProfileTopicsBox
             profileKey={profile.key}
+            saved
             onChanged={async () => {
               // Saved on the server already; re-read and take the ticks from it.
               await topics.refresh();
