@@ -13,7 +13,7 @@ import {
   type GatherRunStatus,
 } from '../api/endpoints/profiles';
 import { uploadPdf } from '../api/endpoints/vault';
-import { daysLabel, errorMessage, fmtDateTime, fmtDuration, fmtRelative, plural } from '../lib/format';
+import { daysLabel, errorMessage, fmtDateTime, fmtDuration, fmtRelative, parseServerTime, plural } from '../lib/format';
 import { startBackfill, startScan, useRunningJob, yearsLabel } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
@@ -33,6 +33,10 @@ import type { YearSpan } from '../types/radar';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, HealthBadge, JobProgress, RerankerBumpChart, SectionNote, ThresholdHistogram, agreementTone, axisFor, healthOf } from '../ui/domain';
 import { goToFeedFor } from './FeedPage';
+
+// gather_runs.SCAN_STALE_MINUTES: the server stops treating an open scan
+// row as running once it has not reported progress for this long.
+const SCAN_STALE_MS = 120 * 60_000;
 
 type Tab = 'overview' | 'seeds' | 'topics' | 'threshold' | 'scans' | 'refinement';
 
@@ -61,8 +65,17 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
   const tabJob = useRunningJob('scan', profileKey);
   // A scan this tab did not start (another tab, or before this tab opened)
   // is in the runs list as unfinished; "Scan now" answered 409 for it.
+  // A row left open by a dead thread stays unfinished until the backend
+  // restarts; the server stops counting it after SCAN_STALE_MS and would
+  // accept a scan, so this does too.
   const { data: recentRuns } = useProfileRuns(profileKey, 5);
-  const serverRunning = recentRuns?.some((r) => !r.finished_at && ['scan', 'backfill'].includes(runKind(r.tier_used))) ?? false;
+  const serverRunning = recentRuns?.some((r) => {
+    if (r.finished_at || !['scan', 'backfill'].includes(runKind(r.tier_used))) return false;
+    const last = r.progress_updated_at || r.started_at;
+    if (!last) return true;
+    const t = parseServerTime(last).getTime();
+    return Number.isNaN(t) || Date.now() - t < SCAN_STALE_MS;
+  }) ?? false;
   const running = tabJob;
   const scanBusy = !!tabJob || serverRunning;
   const listed = profiles?.find((p) => p.key === profileKey);
@@ -140,11 +153,11 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
 
       {error && !detail && <ErrorBox message={errorMessage(error)} onRetry={refresh} />}
       {loading && !detail && <LoadingRows rows={4} />}
-      {detail && tab === 'overview' && <OverviewTab profile={profile} detail={detail} onScan={() => setScanOpen(true)} />}
+      {detail && tab === 'overview' && <OverviewTab profile={profile} detail={detail} onScan={() => setScanOpen(true)} busy={scanBusy} />}
       {detail && tab === 'seeds' && <SeedsTab profile={profile} detail={detail} openPicker={addPapers} />}
       {detail && tab === 'topics' && <TopicsTab profile={profile} detail={detail} />}
-      {detail && tab === 'threshold' && <ThresholdTab profile={profile} onScan={() => setScanOpen(true)} />}
-      {tab === 'scans' && <ScansTab profile={profile} onScan={() => setScanOpen(true)} />}
+      {detail && tab === 'threshold' && <ThresholdTab profile={profile} onScan={() => setScanOpen(true)} busy={scanBusy} />}
+      {tab === 'scans' && <ScansTab profile={profile} onScan={() => setScanOpen(true)} busy={scanBusy} />}
       {detail && tab === 'refinement' && <RankRefinementTab profile={profile} />}
 
       <ScanDialog profile={profile} open={scanOpen} onClose={() => setScanOpen(false)} />
@@ -154,7 +167,7 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
 
 export type Detail = NonNullable<ReturnType<typeof useProfileDetail>['data']>;
 
-function OverviewTab({ profile, detail, onScan }: { profile: Profile; detail: Detail; onScan: () => void }) {
+function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; detail: Detail; onScan: () => void; busy: boolean }) {
   const { data: runs } = useProfileRuns(profile.key, 5);
   // Trial scans from the wizard and imports share the runs table; they are
   // not scans (a backfill is). The filter read 'dry-run'; the server writes
@@ -169,7 +182,7 @@ function OverviewTab({ profile, detail, onScan }: { profile: Profile; detail: De
           <p>Saving or dismissing a paper in the feed is recorded as feedback for this {TERMS.interest} and used when it is refit.</p>
         </div>
       </Panel>
-      <Panel title="Recent activity" actions={<Button size="sm" icon="play" onClick={onScan}>Scan now</Button>}>
+      <Panel title="Recent activity" actions={<Button size="sm" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>}>
         {last ? (
           <div className="stack" style={{ gap: 6, fontSize: 13.5 }}>
             <div className="row spread"><span>Last scan</span><span>{fmtRelative(last.finished_at)}</span></div>
@@ -204,6 +217,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+  const uploadingRef = useRef(false);
   const [failures, setFailures] = useState<string[]>([]);
   // Coherence only. It used to run recompute-topics too, which switches
   // every topic the new seeds bring in *on* -- widening the next scan
@@ -215,6 +229,10 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
 
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;
+    // A second drop while a batch uploads ran a second loop: it wiped the
+    // first batch's failures and ended the busy state early.
+    if (uploadingRef.current) { toast.info('Still uploading the previous files; drop these again when that finishes.'); return; }
+    uploadingRef.current = true;
     const list = Array.from(files);
     setFailures([]);
     let ok = 0;
@@ -230,6 +248,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
       }
     }
     setProgress(null);
+    uploadingRef.current = false;
     // Each upload re-fits the interest on the server; the coherence and
     // topic views are what still need a Recompute.
     if (ok > 0) toast.success(`${plural(ok, 'seed')} added. The papers already found were re-scored against the new seeds, so the feed is updated.`);
@@ -392,7 +411,7 @@ function FeedbackSuggestion({ data, value, onUse }: { data: FeedbackThreshold | 
   );
 }
 
-export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => void }) {
+export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profile; onScan: () => void; busy?: boolean }) {
   const scoresQ = useQuery(`profiles/${profile.key}/scores`, () => candidateScores(profile.key), { once: true });
   // Saves and dismisses are where the feed's triage feeds back into scoring.
   const feedbackQ = useQuery(`profiles/${profile.key}/feedback-threshold`, () => getFeedbackThreshold(profile.key));
@@ -457,7 +476,7 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
       {scoresQ.error && <ErrorBox compact message={errorMessage(scoresQ.error)} onRetry={scoresQ.refresh} />}
       {scoresQ.loading && <LoadingRows rows={3} />}
       {scoresQ.data && scoresQ.data.scores.length === 0 && (
-        <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Run a scan first, then come back to tune the threshold." action={<Button icon="play" onClick={onScan}>Scan now</Button>} />
+        <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Run a scan first, then come back to tune the threshold." action={<Button icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} />
       )}
       {scoresQ.data && scoresQ.data.scores.length > 0 && (
         <>
@@ -474,7 +493,7 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
           {scoresQ.data.papers && scoresQ.data.papers.length > 0 && !scoresQ.data.papers.some((p) => p.score < profile.threshold) && (
             <Callout tone="info">
               Nothing below <b className="mono">{profile.threshold.toFixed(3)}</b> is stored yet: earlier scans kept only the papers above the threshold. Scans now keep everything, so after the next one a lower threshold shows what it adds.{' '}
-              <Button size="sm" variant="ghost" icon="play" onClick={onScan}>Scan now</Button>
+              <Button size="sm" variant="ghost" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>
             </Callout>
           )}
           {scoresQ.data.papers && scoresQ.data.papers.length > 0 && (
@@ -494,10 +513,10 @@ export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: ()
   );
 }
 
-function ScansTab({ profile, onScan }: { profile: Profile; onScan: () => void }) {
+function ScansTab({ profile, onScan, busy }: { profile: Profile; onScan: () => void; busy: boolean }) {
   const { data: runs, loading, error, refresh } = useProfileRuns(profile.key, 30);
   return (
-    <Panel title="Scans" description="Every gather pass for this interest, newest first. Scans run only when you start one." actions={<Button size="sm" icon="play" onClick={onScan}>Scan now</Button>} className="panel-flush">
+    <Panel title="Scans" description="Every gather pass for this interest, newest first. Scans run only when you start one." actions={<Button size="sm" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} className="panel-flush">
       <div style={{ padding: '0 18px 12px' }}>
         {error && !runs && <ErrorBox compact message={errorMessage(error)} onRetry={refresh} />}
         {loading && !runs && <LoadingRows rows={3} />}

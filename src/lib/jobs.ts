@@ -107,6 +107,9 @@ let jobs: Job[] = load();
 const listeners = new Set<() => void>();
 const failures = new Map<string, number>();
 const inflight = new Set<string>();
+// Bumped by resetJobs(): a poll in flight when the identity changed must
+// not finish the previous person's job (toast, invalidation) under the new one.
+let generation = 0;
 let timer: number | null = null;
 
 function load(): Job[] {
@@ -220,9 +223,11 @@ export function fmtSeconds(s: number): string {
 }
 
 async function pollOne(job: Job) {
+  const gen = generation;
   try {
     if (job.kind === 'scan') {
       const runs = await listProfileRuns(job.profileKey, 10);
+      if (gen !== generation) return;
       const run = runs.find((r) => r.id === job.runId);
       if (!run) throw new Error('run not found');
       if (!run.finished_at) {
@@ -243,6 +248,7 @@ async function pollOne(job: Job) {
     }
     if (job.kind === 'dryrun') {
       const status = await getDraftDryRunStatus(job.profileKey, job.runId);
+      if (gen !== generation) return;
       if (!status.run.finished_at) {
         if (isStale(job, status.run)) return fail(job, STALE_MESSAGE);
         patch(job.id, progressFrom(job, status.run));
@@ -257,6 +263,7 @@ async function pollOne(job: Job) {
       return;
     }
     const status = await getProsopiaImportStatus(job.runId);
+    if (gen !== generation) return;
     if (!status.run.finished_at) {
       if (isStale(job, status.run)) return fail(job, STALE_MESSAGE);
       patch(job.id, progressFrom(job, status.run));
@@ -273,6 +280,7 @@ async function pollOne(job: Job) {
     invalidate('profiles', 'vault', 'researchers');
     if (job.researcherId != null) toast.success(`Profile "${job.profileName}" imported${n != null ? `: ${n} papers` : ''}.`);
   } catch (e) {
+    if (gen !== generation) return;
     // A trial scan of a draft since saved or deleted: the draft's status
     // route is gone (404). Nothing failed, and nobody is waiting for it, so
     // it is dropped quietly instead of ending in a "Lost contact" toast.
@@ -327,6 +335,7 @@ function addOrJoin(job: Job, joined: boolean): Job {
  * new identity, written straight back on the next change).
  */
 export function resetJobs(): void {
+  generation += 1;
   failures.clear();
   inflight.clear();
   setJobs([]);

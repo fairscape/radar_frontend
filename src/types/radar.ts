@@ -86,7 +86,10 @@ export interface Seed {
 export interface Topic {
   id: string;
   name: string;
+  /** Topic assignments across the seeds (a seed's primary topic twice); ranks the list. */
   count: number;
+  /** Seeds carrying the topic, each once; absent on lists saved before it was recorded. */
+  papers?: number | null;
   on: boolean;
   source?: string | null;
   /** Topic preview only: found by the seeds since the topics were last saved. */

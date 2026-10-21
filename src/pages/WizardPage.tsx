@@ -676,6 +676,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+  const uploadingRef = useRef(false);
   const [failures, setFailures] = useState<string[]>([]);
   const seeds = docs.data ?? state.seeds;
   // An "Add more seeds" import holds Next too: the trial and the fit would
@@ -716,6 +717,11 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
 
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;
+    // A second drop while a batch uploads ran a second loop: it wiped the
+    // first batch's failures, and whichever finished first ended the busy
+    // state, so Next ran coherence on part of the seeds.
+    if (uploadingRef.current) { toast.info('Still uploading the previous files; drop these again when that finishes.'); return; }
+    uploadingRef.current = true;
     const list = Array.from(files);
     setFailures([]);
     let added = 0;
@@ -732,6 +738,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
       }
     }
     setProgress(null);
+    uploadingRef.current = false;
     if (added > 0) invalidateDownstream();
     invalidate(`vault/docs?tag=${slug}`);
     noteUnmatchedUploads(unmatched, 'draft');
@@ -979,8 +986,19 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
     // saved by the trial scan) stays off when the draft is resumed.
     if (topics.data && state.selectedTopicIds === null) update({ selectedTopicIds: topics.data.filter((t) => t.on !== false).map((t) => t.id) });
   }, [topics.data, state.selectedTopicIds, update]);
-  const selected = new Set(state.selectedTopicIds ?? []);
   const list = topics.data ?? [];
+  // Only ticks on topics the list still has count: another tab may have
+  // replaced the seeds since this tab ticked (the ids are per tab), and a
+  // tick on a vanished topic made "N of M selected" with nothing lit and a
+  // trial scan refused for having no topic.
+  const listed = new Set(list.map((t) => t.id));
+  const selected = new Set((state.selectedTopicIds ?? []).filter((id) => topics.data === undefined || listed.has(id)));
+  useEffect(() => {
+    if (topics.data === undefined || state.selectedTopicIds === null) return;
+    const kept = state.selectedTopicIds.filter((id) => listed.has(id));
+    if (kept.length !== state.selectedTopicIds.length) update({ selectedTopicIds: kept });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- listed derives from topics.data
+  }, [topics.data, state.selectedTopicIds, update]);
   // Ticks the trial scan has not saved yet: applying or removing the
   // profile's topics resets them to what the server then holds.
   const serverOn = new Set(list.filter((t) => t.on !== false).map((t) => t.id));
@@ -1019,10 +1037,10 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
           </div>
           <div className="topics">
             {list.map((t) => (
-              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.count} ${t.count === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
+              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.papers ?? t.count} ${(t.papers ?? t.count) === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
                 <span className="tick">{selected.has(t.id) && <Icon name="check" size={10} />}</span>
                 {t.profile === 'not_interest' ? <s>{t.name}</s> : t.name}
-                <span className="tc">{t.count}</span>
+                <span className="tc">{t.papers ?? t.count}</span>
                 {topicSourceTag(t.source) && <span className="src">{topicSourceTag(t.source)}</span>}
                 {t.profile === 'interest' && t.source !== 'researcher' && <span className="src">PROFILE</span>}
                 {t.profile === 'not_interest' && <span className="pf">not wanted</span>}

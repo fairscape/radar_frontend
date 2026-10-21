@@ -75,6 +75,10 @@ function run<T>(entry: Entry<T>): Promise<void> {
   const p = entry
     .fetcher()
     .then((d) => {
+      // A follow-up queued by markStale()/rerun() means this answer predates
+      // a change (a reorder, a save): the page would show the old state for
+      // one round-trip. The follow-up's answer is the one that lands.
+      if (entry.again) return;
       entry.data = d;
       entry.error = null;
       entry.updatedAt = Date.now();

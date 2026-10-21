@@ -261,10 +261,10 @@ function StepTopics({ profile, detail, back, next }: { profile: Profile; detail:
           </div>
           <div className="topics">
             {list.map((t) => (
-              <button key={t.id} type="button" className={`topic-toggle ${sel.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggle(t.id)} aria-pressed={sel.has(t.id)} title={`${t.count} ${t.count === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
+              <button key={t.id} type="button" className={`topic-toggle ${sel.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggle(t.id)} aria-pressed={sel.has(t.id)} title={`${t.papers ?? t.count} ${(t.papers ?? t.count) === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
                 <span className="tick">{sel.has(t.id) && <Icon name="check" size={10} />}</span>
                 {t.profile === 'not_interest' ? <s>{t.name}</s> : t.name}
-                <span className="tc">{t.count}</span>
+                <span className="tc">{t.papers ?? t.count}</span>
                 {topicSourceTag(t.source) && <span className="src">{topicSourceTag(t.source)}</span>}
                 {t.profile === 'interest' && t.source !== 'researcher' && <span className="src">PROFILE</span>}
                 {t.profile === 'not_interest' && <span className="pf">not wanted</span>}
