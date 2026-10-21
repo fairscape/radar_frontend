@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ApiError } from './api/client';
+import { ApiError, onSessionLost } from './api/client';
 import { getMe } from './api/endpoints/users';
 import { useThemeEffect } from './lib/theme';
 import { forgetSessionState, getUserEmail, setUserEmail, useUserEmail } from './lib/userEmail';
@@ -90,6 +90,7 @@ export function App() {
         }
         const before = getUserEmail();
         if (before && before.toLowerCase() !== email.toLowerCase()) forgetSessionState();
+        resolvedFor.current = email;
         setUserEmail(email);
         setGate({ k: 'ready', email });
       })
@@ -117,7 +118,18 @@ export function App() {
       });
   }, []);
 
-  useEffect(resolve, [resolve, cached]);
+  // The address the last resolve stored. ``setUserEmail`` changes ``cached``
+  // from null to it on a first sign-in, and re-running the resolve for that
+  // tore the whole app down (gate back to loading) to ask the same question.
+  const resolvedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (cached !== null && cached === resolvedFor.current) return;
+    resolve();
+  }, [resolve, cached]);
+  useEffect(() => onSessionLost(() => {
+    attempt.current += 1;        // a resolve still in flight must not land afterwards
+    setGate({ k: 'anonymous' });
+  }), []);
 
   let body: ReactNode;
   if (gate.k === 'ready') {

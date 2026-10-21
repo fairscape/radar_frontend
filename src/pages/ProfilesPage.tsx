@@ -90,7 +90,7 @@ export function MarkSelect({ r, size = 'sm' }: { r: Researcher; size?: 'sm' | 'm
       value={value}
       disabled={busy}
       aria-label={`Mark ${r.name}`}
-      title="Mark this profile as you, or as a researcher you follow: it is highlighted and moves to the top of the list"
+      title="Mark this profile as you, or as a researcher you follow: it is highlighted and moves to the top of its group. Clearing the mark moves it to the top of the unmarked ones."
       onChange={async (e) => {
         const mark = (e.target.value || null) as ResearcherMark | null;
         setValue(mark ?? '');
@@ -129,8 +129,16 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
   const [settled, setSettled] = useState(0);
   useEffect(() => { if (pending.current === 0) setOrder(null); }, [serverIds, settled]);
   const byId = new Map(researchers.map((r) => [r.id, r]));
-  const ids = (order ?? researchers.map((r) => r.id)).filter((id) => byId.has(id));
+  // A profile that landed meanwhile (an import finishing in another tab)
+  // is shown at the end rather than hidden; a save then names every id.
+  const shown = (order ?? researchers.map((r) => r.id)).filter((id) => byId.has(id));
+  const known = new Set(shown);
+  const ids = [...shown, ...researchers.map((r) => r.id).filter((id) => !known.has(id))];
   const [drag, setDrag] = useState<number | null>(null);
+  // Draggable only from the grip, and only while the pointer is down on it:
+  // a card that is always draggable swallows the mark <select> inside it in
+  // some browsers (Firefox), and the grip is what promises the drag.
+  const [armed, setArmed] = useState<number | null>(null);
   const [over, setOver] = useState<{ id: number; side: 'before' | 'after' } | null>(null);
   // Saves run one after another: two quick arrow clicks are two PUTs, and
   // whichever answered last would otherwise be the order shown.
@@ -186,16 +194,16 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
             key={id}
             role="listitem"
             className={cls}
-            draggable
+            draggable={armed === id}
             onDragStart={(e) => { setDrag(id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(id)); }}
-            onDragEnd={() => { setDrag(null); setOver(null); }}
+            onDragEnd={() => { setDrag(null); setOver(null); setArmed(null); }}
             onDragOver={(e) => { if (drag === null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const side = sideOf(e); if (over?.id !== id || over.side !== side) setOver({ id, side }); }}
             onDragLeave={(e) => { if (over?.id === id && !e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(null); }}
             onDrop={(e) => { e.preventDefault(); const from = drag ?? Number(e.dataTransfer.getData('text/plain')); if (Number.isFinite(from)) moveTo(from, id, sideOf(e)); setDrag(null); setOver(null); }}
           >
             <ResearcherCard r={r} running={running} />
             <div className="researcher-card-tools">
-              <span className="grab" title="Drag to move this profile in the list" aria-hidden="true"><Icon name="grip" size={14} /></span>
+              <span className="grab" title="Drag to move this profile in the list" aria-hidden="true" onPointerDown={() => setArmed(id)} onPointerUp={() => setArmed(null)}><Icon name="grip" size={14} /></span>
               <MarkSelect r={r} />
               <span className="spacer" />
               <IconButton icon="arrow-left" size="sm" label={`Move ${r.name} up`} disabled={i === 0} onClick={() => moveBy(id, -1)} />

@@ -309,6 +309,25 @@ function add(job: Job): Job {
   return job;
 }
 
+/** The server joined a run already tracked here: that record, with its progress, not a fresh one. */
+function addOrJoin(job: Job, joined: boolean): Job {
+  const existing = joined ? jobs.find((j) => j.id === job.id && j.status === 'running') : undefined;
+  return existing ?? add({ ...job, joinedExisting: joined });
+}
+
+/**
+ * Drop every job: whoever was signed in before is gone from this tab. The
+ * module read sessionStorage and started polling at import, before the
+ * identity gate resolved, so clearing the storage key alone left the
+ * previous person's jobs in memory (shown in the strip, polled under the
+ * new identity, written straight back on the next change).
+ */
+export function resetJobs(): void {
+  failures.clear();
+  inflight.clear();
+  setJobs([]);
+}
+
 function base(kind: JobKind, runId: number, profileKey: string, profileName: string): Job {
   return {
     id: `${kind}:${profileKey}:${runId}`,
@@ -365,10 +384,7 @@ export async function startBackfill(profile: { key: string; name: string }, year
 export async function startImport(ref: string, name?: string, paperIds?: string[], into?: string): Promise<Job> {
   const start = await startProsopiaImport({ ref, ...(name ? { name } : {}), ...(paperIds ? { paper_ids: paperIds } : {}), ...(into ? { into } : {}) });
   const slug = requireDraft(start);
-  return add({
-    ...base('import', start.run_id, slug, name || ref),
-    joinedExisting: start.already_running === true,
-  });
+  return addOrJoin(base('import', start.run_id, slug, name || ref), start.already_running === true);
 }
 
 /**
@@ -389,10 +405,7 @@ function requireDraft(start: { draft_slug: string | null; already_running?: bool
 export async function startOrcidImport(orcid: string, openalexIds: string[], name?: string, into?: string): Promise<Job> {
   const start = await postOrcidImport({ orcid, openalex_ids: openalexIds, ...(name ? { name } : {}), ...(into ? { into } : {}) });
   const slug = requireDraft(start);
-  return add({
-    ...base('import', start.run_id, slug, name || orcid),
-    joinedExisting: start.already_running === true,
-  });
+  return addOrJoin(base('import', start.run_id, slug, name || orcid), start.already_running === true);
 }
 
 /** Import (or refresh) a stored profile. Polled like any import; no draft is created. */

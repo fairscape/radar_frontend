@@ -22,10 +22,19 @@ interface Entry<T> {
   inflight: Promise<void> | null;
   /** Invalidated while a request was in flight: that answer may predate the change. */
   again: boolean;
+  /** When a render last asked for this entry (it may not have subscribed yet). */
+  leasedAt: number;
+  /** Fetched when there is no data and on invalidation only: never on focus or staleness. */
+  once: boolean;
 }
 
 const STALE_MS = 15_000;
 const FOCUS_THROTTLE_MS = 5_000;
+// A render asks for an entry before the component subscribes (the
+// subscription is an effect). An invalidation in that window found no
+// subscribers and dropped the entry; the component then subscribed to a
+// detached object that nothing could refresh again.
+const LEASE_MS = 5_000;
 
 const cache = new Map<string, Entry<unknown>>();
 
@@ -34,7 +43,7 @@ function bump(entry: Entry<unknown>) {
   entry.subs.forEach((cb) => cb());
 }
 
-function getEntry<T>(key: string, fetcher: () => Promise<T>): Entry<T> {
+function getEntry<T>(key: string, fetcher: () => Promise<T>, once = false): Entry<T> {
   let e = cache.get(key) as Entry<T> | undefined;
   if (!e) {
     e = {
@@ -48,10 +57,14 @@ function getEntry<T>(key: string, fetcher: () => Promise<T>): Entry<T> {
       fetcher,
       inflight: null,
       again: false,
+      leasedAt: 0,
+      once,
     };
     cache.set(key, e as Entry<unknown>);
   }
   e.fetcher = fetcher;
+  e.once = once;
+  e.leasedAt = Date.now();
   return e;
 }
 
@@ -82,19 +95,42 @@ function run<T>(entry: Entry<T>): Promise<void> {
   return p;
 }
 
+/**
+ * Fetch again, now. A request already in flight was sent before whatever
+ * prompted this (an apply, a save), so its answer may predate the change:
+ * it is not joined; one more fetch follows it, and the promise settles
+ * after that one.
+ */
+function rerun<T>(entry: Entry<T>): Promise<void> {
+  if (entry.inflight) {
+    entry.again = true;
+    return entry.inflight.then(() => entry.inflight ?? Promise.resolve());
+  }
+  return run(entry);
+}
+
+function invalidateEntry(key: string, entry: Entry<unknown>): void {
+  if (entry.subs.size > 0) {
+    // A request already in flight was sent before this change (several
+    // uploads in a row invalidate each time): joining it showed the list
+    // without the last upload. Fetch once more when it lands.
+    if (entry.inflight) entry.again = true;
+    else void run(entry);
+  } else if (Date.now() - entry.leasedAt < LEASE_MS) {
+    // Handed to a render that has not subscribed yet: kept, and stale, so
+    // the mount effect (or the in-flight request's follow-up) fetches.
+    entry.updatedAt = 0;
+    if (entry.inflight) entry.again = true;
+  } else {
+    cache.delete(key);
+  }
+}
+
 /** Refetch every mounted entry whose key starts with ``prefix``; forget the rest. */
 export function invalidate(...prefixes: string[]): void {
   for (const [key, entry] of cache) {
     if (!prefixes.some((p) => key === p || key.startsWith(p))) continue;
-    if (entry.subs.size > 0) {
-      // A request already in flight was sent before this change (several
-      // uploads in a row invalidate each time): joining it showed the list
-      // without the last upload. Fetch once more when it lands.
-      if (entry.inflight) entry.again = true;
-      else void run(entry);
-    } else {
-      cache.delete(key);
-    }
+    invalidateEntry(key, entry);
   }
 }
 
@@ -102,12 +138,19 @@ export function invalidate(...prefixes: string[]): void {
 export function invalidateExact(...keys: string[]): void {
   for (const [key, entry] of cache) {
     if (!keys.includes(key)) continue;
-    if (entry.subs.size > 0) {
-      if (entry.inflight) entry.again = true;
-      else void run(entry);
-    } else {
-      cache.delete(key);
-    }
+    invalidateEntry(key, entry);
+  }
+}
+
+/**
+ * After a write whose answer was put in the cache with ``setQueryData``: a
+ * read of the same key still in flight was sent before the write and would
+ * overwrite it with the old state when it lands. It fetches once more instead.
+ */
+export function markStale(...keys: string[]): void {
+  for (const key of keys) {
+    const entry = cache.get(key);
+    if (entry?.inflight) entry.again = true;
   }
 }
 
@@ -130,7 +173,7 @@ function revalidateAll() {
   if (now - lastFocusRun < FOCUS_THROTTLE_MS) return;
   lastFocusRun = now;
   for (const entry of cache.values()) {
-    if (entry.subs.size > 0 && !entry.inflight) void run(entry);
+    if (entry.subs.size > 0 && !entry.inflight && !entry.once) void run(entry);
   }
 }
 if (typeof window !== 'undefined') {
@@ -150,13 +193,22 @@ export interface QueryResult<T> {
   refresh: () => Promise<void>;
 }
 
+export interface QueryOptions {
+  /**
+   * Fetch when there is no data and when invalidated or refreshed, never
+   * because the tab regained focus or the data aged. For a fetcher that is
+   * a request the server does work for (a recompute, a scoring pass).
+   */
+  once?: boolean;
+}
+
 /**
  * ``key`` may be null to disable the query (returns an idle result).
  * ``fetcher`` is captured fresh on every render, so closures over props
  * are fine; the key is what identifies the request.
  */
-export function useQuery<T>(key: string | null, fetcher: () => Promise<T>): QueryResult<T> {
-  const entry = key ? getEntry(key, fetcher) : null;
+export function useQuery<T>(key: string | null, fetcher: () => Promise<T>, opts?: QueryOptions): QueryResult<T> {
+  const entry = key ? getEntry(key, fetcher, opts?.once === true) : null;
   const entryRef = useRef(entry);
   entryRef.current = entry;
 
@@ -178,12 +230,12 @@ export function useQuery<T>(key: string | null, fetcher: () => Promise<T>): Quer
   useEffect(() => {
     if (!entry) return;
     const stale = Date.now() - entry.updatedAt > STALE_MS;
-    if ((entry.data === undefined || stale) && !entry.inflight) void run(entry);
+    if ((entry.data === undefined || (stale && !entry.once)) && !entry.inflight) void run(entry);
   }, [entry]);
 
   const refresh = useCallback(() => {
     const e = entryRef.current;
-    return e ? run(e) : Promise.resolve();
+    return e ? rerun(e) : Promise.resolve();
   }, []);
 
   if (!entry) {

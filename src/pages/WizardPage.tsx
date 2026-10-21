@@ -352,24 +352,27 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
     update({ slug: d.slug, name: d.name, source: 'upload' });
   });
 
-  // When an import finishes, record its result and continue.
+  // When an import finishes, record its result and continue. Once per
+  // import: the update makes a new ``state.prosopia`` object, and an effect
+  // that depended on it and ran on every change updated itself forever
+  // ("Maximum update depth exceeded", a blank page).
   const noted = useRef<string | null>(null);
+  const prosopiaRef = state.prosopia?.ref ?? null;
   useEffect(() => {
     if (!importJob || importJob.status !== 'done') return;
+    if (noted.current === importJob.id) return;
+    noted.current = importJob.id;
     const r = importJob.result as ProsopiaImportResult | null;
-    if (noted.current !== importJob.id) {   // once per import, not per re-render
-      noted.current = importJob.id;
-      noteUnmatchedImport(r?.unresolved);
-    }
+    noteUnmatchedImport(r?.unresolved);
     update({
       slug: r?.draft_slug ?? importJob.profileKey,
       name: (r?.name as string | undefined) ?? importJob.profileName,
       // Only for a draft this wizard started from ORCID/Prosopia: one resumed
       // from the Drafts list (source "upload", tracked import) read
       // "Imported from Prosopia ()".
-      prosopia: state.prosopia ? { ref: state.prosopia.ref, nSeeds: typeof r?.drafted === 'number' ? r.drafted : null } : null,
+      prosopia: prosopiaRef !== null ? { ref: prosopiaRef, nSeeds: typeof r?.drafted === 'number' ? r.drafted : null } : null,
     });
-  }, [importJob, update, state.prosopia]);
+  }, [importJob, update, prosopiaRef]);
 
   if (!state.slug) {
     return (
@@ -975,6 +978,11 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
   }, [topics.data, state.selectedTopicIds, update]);
   const selected = new Set(state.selectedTopicIds ?? []);
   const list = topics.data ?? [];
+  // Ticks the trial scan has not saved yet: applying or removing the
+  // profile's topics resets them to what the server then holds.
+  const serverOn = new Set(list.filter((t) => t.on !== false).map((t) => t.id));
+  const unsavedTicks = state.selectedTopicIds !== null
+    && (selected.size !== serverOn.size || [...selected].some((id) => !serverOn.has(id)));
   return (
     <Panel title="Step 3 · What should Radar query?" description="These topics were aggregated from the seeds' OpenAlex records. Radar asks OpenAlex for new papers in each selected topic, then scores them. Fewer, sharper topics mean less noise.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
@@ -983,6 +991,7 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
         <div style={{ marginBottom: 10 }}>
           <ProfileTopicsBox
             profileKey={slug}
+            unsavedTicks={unsavedTicks}
             onChanged={async () => {
               // The server set the on/off states; re-read the list, then let
               // the effect above pick the ticks up from it.

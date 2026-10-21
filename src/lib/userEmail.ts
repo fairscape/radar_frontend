@@ -15,6 +15,8 @@
  * exactly the confusion this module used to cause.
  */
 import { useSyncExternalStore } from 'react';
+import { resetDraft } from './draft';
+import { resetJobs } from './jobs';
 
 const KEY = 'userEmail';
 const EVENT = 'radar:user-email-changed';
@@ -73,6 +75,10 @@ const PERSON_LOCAL_PREFIXES = ['radar.lastOrcid'];
  * app does not poll A's run ids or show A's job strip.
  */
 export function forgetSessionState(): void {
+  // The in-memory copies first: both modules loaded their state from
+  // sessionStorage at import and would write it back on the next change.
+  resetJobs();
+  resetDraft();
   try {
     for (const k of SESSION_KEYS) window.sessionStorage.removeItem(k);
   } catch {
@@ -92,6 +98,8 @@ export function signOut(): void {
   // Read before clearUserEmail(): afterwards there is no one to clear for.
   const who = getUserEmail();
   clearUserEmail();
+  resetJobs();
+  resetDraft();
   try {
     for (const k of SESSION_KEYS) window.sessionStorage.removeItem(k);
     if (who) for (const p of PERSON_LOCAL_PREFIXES) window.localStorage.removeItem(`${p}:${who.toLowerCase()}`);

@@ -65,11 +65,16 @@ export function matchRoute(full: string): Route {
   }
   const me = path.match(/^\/interests\/([^/]+)\/edit$/);
   if (me) {
+    const key = decodeKey(me[1]);
+    if (key === null) return { name: 'notfound', path };
     const st = search.get('step');
-    return { name: 'interestEdit', key: decodeURIComponent(me[1]), step: st && /^[1-4]$/.test(st) ? Number(st) : null };
+    return { name: 'interestEdit', key, step: st && /^[1-4]$/.test(st) ? Number(st) : null };
   }
   const m = path.match(/^\/interests\/([^/]+)$/);
-  if (m) return { name: 'interest', key: decodeURIComponent(m[1]), tab: search.get('tab') };
+  if (m) {
+    const key = decodeKey(m[1]);
+    return key === null ? { name: 'notfound', path } : { name: 'interest', key, tab: search.get('tab') };
+  }
   // "Profile" is a stored researcher (see terms.ts); interests live under /interests.
   if (path === '/profiles') return { name: 'profiles' };
   const pm = path.match(/^\/profiles\/(\d+)$/);
@@ -107,3 +112,12 @@ export const paths = {
   vault: '/vault',
   settings: '/settings',
 };
+
+/** ``decodeURIComponent`` throws on a truncated escape (``/interests/foo%``); that is a wrong link, not a crash. */
+function decodeKey(raw: string): string | null {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}

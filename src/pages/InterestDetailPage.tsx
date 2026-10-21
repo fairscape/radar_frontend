@@ -387,7 +387,7 @@ function FeedbackSuggestion({ data, value, onUse }: { data: FeedbackThreshold | 
 }
 
 export function ThresholdTab({ profile, onScan }: { profile: Profile; onScan: () => void }) {
-  const scoresQ = useQuery(`profiles/${profile.key}/scores`, () => candidateScores(profile.key));
+  const scoresQ = useQuery(`profiles/${profile.key}/scores`, () => candidateScores(profile.key), { once: true });
   // Saves and dismisses are where the feed's triage feeds back into scoring.
   const feedbackQ = useQuery(`profiles/${profile.key}/feedback-threshold`, () => getFeedbackThreshold(profile.key));
   const [value, setValue] = useState<number>(profile.threshold);

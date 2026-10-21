@@ -47,6 +47,24 @@ async function parseBody(resp: Response): Promise<unknown> {
   return await resp.text();
 }
 
+const sessionLostListeners = new Set<() => void>();
+
+/**
+ * Called when a request came back as Cloudflare Access's login page: the
+ * session lapsed mid-visit. ``App`` flips to "Session expired" rather than
+ * handing a page of HTML to components that expected a list.
+ */
+export function onSessionLost(cb: () => void): () => void {
+  sessionLostListeners.add(cb);
+  return () => { sessionLostListeners.delete(cb); };
+}
+
+function looksLikeLoginPage(resp: Response, body: unknown): boolean {
+  if (typeof body !== 'string') return false;
+  const ct = resp.headers.get('content-type') ?? '';
+  return resp.redirected || ct.includes('text/html') || /^\s*<(!doctype|html)/i.test(body);
+}
+
 async function request<T>(
   path: string,
   init: RequestInit = {},
@@ -70,6 +88,13 @@ async function request<T>(
       resp.status,
       body,
     );
+  }
+  if (looksLikeLoginPage(resp, body)) {
+    // An expired Access session answers with its own login page, HTML and
+    // status 200. Returned as data, the first component to iterate it threw
+    // during render and the whole app unmounted to a blank page.
+    sessionLostListeners.forEach((cb) => cb());
+    throw new ApiError(`${init.method ?? 'GET'} ${path}: the session has expired`, 401, body);
   }
   return body as T;
 }

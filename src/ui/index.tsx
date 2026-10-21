@@ -475,6 +475,10 @@ const confirmListeners = new Set<() => void>();
 
 export function confirmDialog(req: Omit<ConfirmRequest, 'resolve'>): Promise<boolean> {
   return new Promise((resolve) => {
+    // A second question before the first was answered replaced it, and the
+    // first promise never settled: its handler simply never ran. It is
+    // answered "no" instead, so that click reads as cancelled.
+    pending?.resolve(false);
     pending = { ...req, resolve };
     confirmListeners.forEach((l) => l());
   });

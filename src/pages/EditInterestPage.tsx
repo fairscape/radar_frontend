@@ -133,7 +133,9 @@ function Foot({ back, next, nextLabel, nextIcon, nextDisabled = false, nextLoadi
 /** Coherence of the seeds as they are now. Seeds were just changed on step 1, so re-run it on arrival. */
 function StepCheck({ profile, back, next }: { profile: Profile; back: () => void; next: () => void }) {
   // Under draft/<key>/ so adding or removing a seed invalidates it.
-  const coh = useQuery(`draft/${profile.key}/edit-coherence`, () => recomputeCoherence(profile.key));
+  // A recompute is server work: once on arrival (below) and when a seed
+  // changes, not every time the tab regains focus.
+  const coh = useQuery(`draft/${profile.key}/edit-coherence`, () => recomputeCoherence(profile.key), { once: true });
   useEffect(() => {
     if (coh.data) void coh.refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps

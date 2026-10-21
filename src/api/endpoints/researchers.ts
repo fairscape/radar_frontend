@@ -1,6 +1,6 @@
 /** Stored researcher profiles: ``/api/researchers``. */
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../client';
-import { invalidate, invalidateExact, setQueryData } from '../../lib/query';
+import { invalidate, invalidateExact, markStale, setQueryData } from '../../lib/query';
 import type {
   Researcher,
   ResearcherDetail,
@@ -44,6 +44,7 @@ export async function setResearcherMark(id: number, mark: ResearcherMark | null)
   // Other rows moved too, so the list is re-read; the detail page gets the
   // row itself. Not the prefix: that would re-run the suggestions query.
   setQueryData<ResearcherDetail>(`researchers/${id}`, (prev) => (prev ? { ...prev, researcher: res } : prev!));
+  markStale(`researchers/${id}`);
   invalidateExact('researchers');
   return res;
 }
@@ -52,6 +53,9 @@ export async function setResearcherMark(id: number, mark: ResearcherMark | null)
 export async function reorderResearchers(ids: number[]): Promise<Researcher[]> {
   const res = await apiPut<Researcher[]>('/api/researchers/order', { ids });
   setQueryData<Researcher[]>('researchers', () => res);
+  // A list read sent before the PUT (focus, an import finishing) would land
+  // with the old order and the page would snap back to it.
+  markStale('researchers');
   return res;
 }
 

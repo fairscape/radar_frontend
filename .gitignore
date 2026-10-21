@@ -32,3 +32,5 @@ pnpm-debug.log*
 *.swp
 smoke-shots/
 *.bak
+# the symlinked copy used in a work clone is not a directory, so node_modules/ did not match it
+node_modules
