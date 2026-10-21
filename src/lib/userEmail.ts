@@ -17,6 +17,7 @@
 import { useSyncExternalStore } from 'react';
 import { resetDraft } from './draft';
 import { resetJobs } from './jobs';
+import { clearQueryCache } from './query';
 
 const KEY = 'userEmail';
 const EVENT = 'radar:user-email-changed';
@@ -79,6 +80,9 @@ export function forgetSessionState(): void {
   // sessionStorage at import and would write it back on the next change.
   resetJobs();
   resetDraft();
+  // The request cache is per tab and outlives the Shell: without this the
+  // next person saw the previous one's lists until they aged out.
+  clearQueryCache();
   try {
     for (const k of SESSION_KEYS) window.sessionStorage.removeItem(k);
   } catch {
@@ -100,6 +104,7 @@ export function signOut(): void {
   clearUserEmail();
   resetJobs();
   resetDraft();
+  clearQueryCache();
   try {
     for (const k of SESSION_KEYS) window.sessionStorage.removeItem(k);
     if (who) for (const p of PERSON_LOCAL_PREFIXES) window.localStorage.removeItem(`${p}:${who.toLowerCase()}`);

@@ -28,6 +28,8 @@ export interface DraftState {
   /** The stored researcher this draft was built from, if any. */
   researcher: { id: number; name: string; nSeeds: number } | null;
   importJobId: string | null;
+  /** The finished import whose result step 1 has already recorded. */
+  importNotedId?: string | null;
   /** An "Add more seeds" import (ORCID / Prosopia into this draft) still running. */
   extraImportJobId?: string | null;
   dryRunJobId: string | null;

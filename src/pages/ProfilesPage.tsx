@@ -139,6 +139,15 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
   // a card that is always draggable swallows the mark <select> inside it in
   // some browsers (Firefox), and the grip is what promises the drag.
   const [armed, setArmed] = useState<number | null>(null);
+  useEffect(() => {
+    // Released off the grip without a drag: no dragend comes, so the card
+    // would stay draggable. During a real drag no pointerup fires.
+    if (armed === null) return;
+    const off = () => setArmed(null);
+    window.addEventListener('pointerup', off);
+    window.addEventListener('pointercancel', off);
+    return () => { window.removeEventListener('pointerup', off); window.removeEventListener('pointercancel', off); };
+  }, [armed]);
   const [over, setOver] = useState<{ id: number; side: 'before' | 'after' } | null>(null);
   // Saves run one after another: two quick arrow clicks are two PUTs, and
   // whichever answered last would otherwise be the order shown.

@@ -356,15 +356,18 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
   // import: the update makes a new ``state.prosopia`` object, and an effect
   // that depended on it and ran on every change updated itself forever
   // ("Maximum update depth exceeded", a blank page).
-  const noted = useRef<string | null>(null);
+  // Remembered in the draft (not a ref): step 1 unmounts on Next, and a
+  // ref started over on every return, replaying the toast and rewriting
+  // the name the user may have changed since.
   const prosopiaRef = state.prosopia?.ref ?? null;
+  const notedId = state.importNotedId ?? null;
   useEffect(() => {
     if (!importJob || importJob.status !== 'done') return;
-    if (noted.current === importJob.id) return;
-    noted.current = importJob.id;
+    if (notedId === importJob.id) return;
     const r = importJob.result as ProsopiaImportResult | null;
     noteUnmatchedImport(r?.unresolved);
     update({
+      importNotedId: importJob.id,
       slug: r?.draft_slug ?? importJob.profileKey,
       name: (r?.name as string | undefined) ?? importJob.profileName,
       // Only for a draft this wizard started from ORCID/Prosopia: one resumed
@@ -372,7 +375,7 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
       // "Imported from Prosopia ()".
       prosopia: prosopiaRef !== null ? { ref: prosopiaRef, nSeeds: typeof r?.drafted === 'number' ? r.drafted : null } : null,
     });
-  }, [importJob, update, prosopiaRef]);
+  }, [importJob, update, prosopiaRef, notedId]);
 
   if (!state.slug) {
     return (
@@ -981,7 +984,7 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
   // Ticks the trial scan has not saved yet: applying or removing the
   // profile's topics resets them to what the server then holds.
   const serverOn = new Set(list.filter((t) => t.on !== false).map((t) => t.id));
-  const unsavedTicks = state.selectedTopicIds !== null
+  const unsavedTicks = topics.data !== undefined && state.selectedTopicIds !== null
     && (selected.size !== serverOn.size || [...selected].some((id) => !serverOn.has(id)));
   return (
     <Panel title="Step 3 · What should Radar query?" description="These topics were aggregated from the seeds' OpenAlex records. Radar asks OpenAlex for new papers in each selected topic, then scores them. Fewer, sharper topics mean less noise.">

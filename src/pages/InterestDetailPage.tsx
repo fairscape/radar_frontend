@@ -58,7 +58,13 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
   // find -- the picker sat folded behind a link at the bottom of a tab.
   const [addPapers, setAddPapers] = useState(0);
   const [scanOpen, setScanOpen] = useState(false);
-  const running = useRunningJob('scan', profileKey);
+  const tabJob = useRunningJob('scan', profileKey);
+  // A scan this tab did not start (another tab, or before this tab opened)
+  // is in the runs list as unfinished; "Scan now" answered 409 for it.
+  const { data: recentRuns } = useProfileRuns(profileKey, 5);
+  const serverRunning = recentRuns?.some((r) => !r.finished_at && ['scan', 'backfill'].includes(runKind(r.tier_used))) ?? false;
+  const running = tabJob;
+  const scanBusy = !!tabJob || serverRunning;
   const listed = profiles?.find((p) => p.key === profileKey);
 
   // Only trust the freshly fetched detail here: right after the wizard
@@ -100,8 +106,8 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
           <Button icon="plus" onClick={() => { setTab('seeds'); setAddPapers((n) => n + 1); }} title="Add seed papers to this interest">Add papers</Button>
           <Button icon="sliders" onClick={() => navigate(paths.interestEdit(profile.key))} title="Go through the steps again: seeds, check, topics, threshold">Edit interest</Button>
           <Button icon="radar" onClick={() => goToFeedFor(profile.key)}>View in feed</Button>
-          <Button variant="primary" icon="play" onClick={() => setScanOpen(true)} disabled={!!running} title={running ? 'A scan is already running' : 'Look for new papers now'}>
-            {running ? 'Scanning…' : 'Scan now'}
+          <Button variant="primary" icon="play" onClick={() => setScanOpen(true)} disabled={scanBusy} title={scanBusy ? 'A scan is already running' : 'Look for new papers now'}>
+            {scanBusy ? 'Scanning…' : 'Scan now'}
           </Button>
         </div>
       </header>

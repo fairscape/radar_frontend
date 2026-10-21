@@ -143,6 +143,26 @@ export function invalidateExact(...keys: string[]): void {
 }
 
 /**
+ * Forget everything: another person signed in on this browser. Entries a
+ * mounted component still holds are emptied and refetched rather than
+ * dropped (dropped, they would be detached from the cache for good).
+ */
+export function clearQueryCache(): void {
+  for (const [key, entry] of cache) {
+    if (entry.subs.size > 0 || Date.now() - entry.leasedAt < LEASE_MS) {
+      entry.data = undefined;
+      entry.error = null;
+      entry.updatedAt = 0;
+      if (entry.inflight) entry.again = true;
+      else if (entry.subs.size > 0) void run(entry);
+      bump(entry);
+    } else {
+      cache.delete(key);
+    }
+  }
+}
+
+/**
  * After a write whose answer was put in the cache with ``setQueryData``: a
  * read of the same key still in flight was sent before the write and would
  * overwrite it with the old state when it lands. It fetches once more instead.
@@ -230,7 +250,9 @@ export function useQuery<T>(key: string | null, fetcher: () => Promise<T>, opts?
   useEffect(() => {
     if (!entry) return;
     const stale = Date.now() - entry.updatedAt > STALE_MS;
-    if ((entry.data === undefined || (stale && !entry.once)) && !entry.inflight) void run(entry);
+    // updatedAt 0 is an invalidation that found this entry leased but not
+    // yet subscribed: fetched now, `once` or not.
+    if ((entry.data === undefined || entry.updatedAt === 0 || (stale && !entry.once)) && !entry.inflight) void run(entry);
   }, [entry]);
 
   const refresh = useCallback(() => {

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatHistory, useChatProviders, useProfiles, useVaultDocs, useVaultMeta, useVaultStats, useVaultTags } from '../api/hooks';
 import { clearChatHistory, postChat } from '../api/endpoints/chat';
 import { uploadPdf } from '../api/endpoints/vault';
+import { getDraft, setDraft } from '../lib/draft';
 import { errorMessage, fmtDate, fmtRelative, plural } from '../lib/format';
 import { invalidate, setQueryData } from '../lib/query';
 import { TERMS } from '../lib/terms';
@@ -48,6 +49,13 @@ export function VaultPage() {
         const doc = await uploadPdf(list[i], tag !== 'all' ? tag : undefined);
         if (doc.duplicate) dups.push(list[i].name);
         else ok += 1;
+        if (!doc.duplicate && tag !== 'all' && byKey[tag]?.isDraft && getDraft().slug === tag) {
+          // A new seed for the draft the wizard holds: its topics, trial
+          // scan and threshold were computed without it. The in-wizard
+          // upload does the same (invalidateDownstream).
+          setDraft({ selectedTopicIds: null, dryRunJobId: null, dryRunTopics: null, threshold: null });
+          invalidate(`draft/${tag}/`);
+        }
         if (!doc.duplicate && isUnmatched(doc.id)) unmatched.push(list[i].name);
       } catch (e) {
         fails.push(`${list[i].name}: ${errorMessage(e)}`);

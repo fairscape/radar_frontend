@@ -16,6 +16,7 @@ export function topicSourceLabel(source: string | null | undefined): string {
   if (source === 'umls') return 'mapped via UMLS';
   if (source === 'pdf_content') return "read from an uploaded PDF's text (not on OpenAlex)";
   if (source === 'researcher') return "declared on the researcher's profile (no seed carries it)";
+  if (source === 'adopted') return "kept from the profile of a researcher since forgotten";
   return 'OpenAlex topic';
 }
 

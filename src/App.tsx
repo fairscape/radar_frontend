@@ -4,6 +4,7 @@ import { getMe } from './api/endpoints/users';
 import { useThemeEffect } from './lib/theme';
 import { forgetSessionState, getUserEmail, setUserEmail, useUserEmail } from './lib/userEmail';
 import { useRoute } from './lib/router';
+import { TERMS } from './lib/terms';
 import { LoginPage } from './pages/LoginPage';
 import { Shell } from './pages/Shell';
 import { Button, ConfirmHost, Spinner, Toaster } from './ui';
@@ -67,7 +68,8 @@ export function App() {
 
   useEffect(() => {
     const titles: Record<string, string> = {
-      home: 'Start', feed: 'Feed', interests: 'Interests', interest: 'Interest', wizard: 'New interest', vault: 'Vault', settings: 'Settings', notfound: 'Not found',
+      home: 'Start', feed: 'Feed', interests: 'Interests', interest: 'Interest', interestEdit: 'Edit interest', wizard: 'New interest',
+      profiles: TERMS.Profiles, profile: TERMS.Profile, vault: 'Vault', settings: 'Settings', notfound: 'Not found',
     };
     document.title = `${titles[route.name] ?? 'Radar'} · Radar`;
   }, [route.name]);
@@ -88,7 +90,10 @@ export function App() {
           setGate({ k: 'anonymous' });
           return;
         }
-        const before = getUserEmail();
+        // What this tab resolved last, not the shared localStorage: another
+        // tab's sign-in writes the new address there first, so comparing
+        // with it read "same person" and kept the previous one's state.
+        const before = resolvedFor.current ?? getUserEmail();
         if (before && before.toLowerCase() !== email.toLowerCase()) forgetSessionState();
         resolvedFor.current = email;
         setUserEmail(email);

@@ -55,6 +55,14 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
     if (detail?.profile.isDraft) navigate(paths.wizard(detail.profile.key), { replace: true });
   }, [detail]);
 
+  if (detail === null && !error) {
+    // The detail route answers null, not 404, for a slug the server does not know.
+    return (
+      <div className="page">
+        <EmptyState icon="alert" title={`No ${TERMS.interest} called "${profileKey}"`} body="It may have been deleted, or the link is wrong." action={<Link href={paths.interests} className="btn">All {TERMS.interests}</Link>} />
+      </div>
+    );
+  }
   if (!profile || !detail) {
     return <div className="page">{error ? <ErrorBox message={errorMessage(error)} onRetry={refresh} /> : <LoadingRows rows={4} />}</div>;
   }

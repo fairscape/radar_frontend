@@ -281,6 +281,10 @@ async function pollOne(job: Job) {
       patch(job.id, { status: 'error', error: 'The draft is no longer there.', finishedAt: Date.now() });
       return;
     }
+    // No session (expired, or signed out in another tab): every poll comes
+    // back as the login page. The job is still running on the server;
+    // the next poll after signing in again picks it up.
+    if (e instanceof ApiError && e.status === 401) return;
     const n = (failures.get(job.id) ?? 0) + 1;
     failures.set(job.id, n);
     if (n >= MAX_POLL_FAILURES) {
