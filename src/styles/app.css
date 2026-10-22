@@ -508,7 +508,7 @@ input[type='range'].range { width: 100%; accent-color: var(--accent); cursor: po
 .topic-chip.match { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); }
 .feed-keys { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--fg-3); margin-top: 14px; }
 .feed-keys span { display: inline-flex; gap: 5px; align-items: center; }
-.scan-popover { display: grid; grid-template-columns: 1fr 120px 130px auto; gap: 10px; align-items: end; padding: 12px 14px; background: var(--bg-panel); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); margin-bottom: 14px; }
+.scan-popover { display: grid; grid-template-columns: minmax(160px, 1fr) 120px 130px auto; gap: 10px; align-items: end; padding: 12px 14px; background: var(--bg-panel); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); margin-bottom: 14px; }
 /* ==========================================================================
    Home ("what you can do")
    ========================================================================== */
@@ -534,6 +534,7 @@ a.home-way:hover { border-color: var(--accent); text-decoration: none; }
    Interests
    ========================================================================== */
 .interest-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.interest-grid.one-column .move-btn svg { transform: rotate(90deg); }
 .interest-card { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; background: var(--bg-panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow); color: inherit; text-decoration: none; transition: border-color 120ms, transform 60ms; }
 a.interest-card:hover { border-color: var(--accent-line); text-decoration: none; }
 .interest-card-head { display: flex; align-items: center; gap: 10px; }
@@ -729,6 +730,13 @@ a.interest-card:hover { border-color: var(--accent-line); text-decoration: none;
   .scan-popover { grid-template-columns: 1fr 1fr; }
 }
 
+@media (max-width: 1100px) {
+  /* Four columns did not fit beside the sidebar: at 768px the interest
+     select shrank to one letter and Cancel ran off the page. */
+  .scan-popover { grid-template-columns: 1fr 1fr; }
+  .scan-popover > .row { grid-column: 1 / -1; }
+}
+
 /* Rank refinement: reranker queries are whole seed texts -- titles on one line, full text on demand. */
 .rr-queries { min-width: 0; }
 .rr-queries ol { margin: 6px 0 0; padding-left: 20px; }
@@ -756,6 +764,9 @@ a.interest-card:hover { border-color: var(--accent-line); text-decoration: none;
 }
 .researcher-card.drop-before::before { left: -9px; }
 .researcher-card.drop-after::after { right: -9px; }
+.one-column .researcher-card.drop-before::before, .one-column .researcher-card.drop-after::after { left: 6px; right: 6px; width: auto; height: 3px; }
+.one-column .researcher-card.drop-before::before { top: -9px; bottom: auto; }
+.one-column .researcher-card.drop-after::after { top: auto; bottom: -9px; }
 .researcher-card-tools {
   display: flex; align-items: center; gap: 6px; padding: 6px 10px 6px 8px; font-size: 12.5px; color: var(--fg-3);
   background: var(--bg-panel); border: 1px solid var(--line); border-top: 1px dashed var(--line);

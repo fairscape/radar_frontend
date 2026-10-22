@@ -138,6 +138,8 @@ export interface DailyRadarResponse {
   candidatesScored: number;
   cards: Card[];
   states: Record<string, CardState>;
+  /** Papers to review the shared cap left out (at least this many). */
+  untriagedNotShown?: number;
 }
 
 export interface VaultStats {

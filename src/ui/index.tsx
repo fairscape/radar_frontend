@@ -156,14 +156,12 @@ export function NumberInput({
         if (ok) onChange(n);
       }}
       title={min != null || max != null ? `${min != null && max != null ? `Between ${min} and ${max}` : min != null ? `At least ${min}` : `At most ${max}`}` : undefined}
-      onBlur={(e) => {
-        // Nothing readable, or out of range: back to the last accepted
-        // value. Clamping instead turned 1.5 into 1 without a word, and 1
-        // is a threshold nothing reaches.
-        const n = parse(text);
-        if (n == null || !inRange(n)) { setText(show(value)); onValidity?.(true); }
-        onBlur?.(e);
-      }}
+      // Nothing readable, or out of range, stays as typed and invalid. Clamping
+      // turned 1.5 into 1 without a word (1 is a threshold nothing reaches);
+      // putting the last accepted value back did the same thing later: the
+      // blur comes on the mousedown of the disabled Save, which it enabled
+      // before the click landed, and 366 days was sent as 36.
+      onBlur={onBlur}
     />
   );
 }

@@ -233,11 +233,17 @@ export async function removeSeed(key: string, openalexId: string): Promise<{ ok:
 }
 
 /** Delete a saved interest with its seeds, stored papers, feedback and
- * scans. The papers themselves stay in the vault. 409 while it scans. */
-export async function deleteProfile(key: string): Promise<{ ok: boolean }> {
-  const res = await apiDelete<{ ok: boolean }>(`/api/profiles/${enc(key)}`);
+ * scans. The papers themselves stay in the vault. 409 while it scans.
+ *
+ * Refetching is left to the caller, after it has left the interest's
+ * page: invalidated while that page was still mounted, its queries asked
+ * again for the interest just deleted (a 404 for each). */
+export function deleteProfile(key: string): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(`/api/profiles/${enc(key)}`);
+}
+
+export function afterProfileDeleted(key: string): void {
   invalidate('profiles', 'vault', 'radar', 'researchers', `draft/${key}/`);
-  return res;
 }
 
 /** Persisted candidate scores for a live interest (not a new scan). */

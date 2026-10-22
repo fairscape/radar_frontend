@@ -190,13 +190,31 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
     next.splice(j, 0, id);
     void commit(next);
   }
+  // One card per row on a narrow screen: the list then runs downwards, so
+  // the arrows point up and down and a drop goes by the card's top or
+  // bottom half. They were left/right, and the drop went by left/right.
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [oneColumn, setOneColumn] = useState(false);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const check = () => {
+      const first = el.firstElementChild as HTMLElement | null;
+      setOneColumn(!!first && first.getBoundingClientRect().width > el.getBoundingClientRect().width * 0.6);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   function sideOf(e: DragEvent<HTMLElement>): 'before' | 'after' {
     const box = e.currentTarget.getBoundingClientRect();
+    if (oneColumn) return e.clientY < box.top + box.height / 2 ? 'before' : 'after';
     return e.clientX < box.left + box.width / 2 ? 'before' : 'after';
   }
 
   return (
-    <div className="interest-grid" style={{ marginBottom: 18 }} role="list" aria-label={`${TERMS.Profiles}, in your order`}>
+    <div ref={gridRef} className={`interest-grid${oneColumn ? ' one-column' : ''}`} style={{ marginBottom: 18 }} role="list" aria-label={`${TERMS.Profiles}, in your order`}>
       {ids.map((id, i) => {
         const r = byId.get(id)!;
         const running = runningIds.has(researcherJobKey(r.id)) || r.importing;
@@ -219,8 +237,8 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
               <span className="grab" title="Drag to move this profile in the list" aria-hidden="true" onPointerDown={() => setArmed(id)} onPointerUp={() => setArmed(null)}><Icon name="grip" size={14} /></span>
               <MarkSelect r={r} />
               <span className="spacer" />
-              <IconButton icon="arrow-left" size="sm" label={`Move ${r.name} up`} disabled={i === 0} onClick={() => moveBy(id, -1)} />
-              <IconButton icon="arrow-right" size="sm" label={`Move ${r.name} down`} disabled={i === ids.length - 1} onClick={() => moveBy(id, 1)} />
+              <IconButton icon="arrow-left" size="sm" className="move-btn" label={`Move ${r.name} ${oneColumn ? 'up' : 'earlier'}`} disabled={i === 0} onClick={() => moveBy(id, -1)} />
+              <IconButton icon="arrow-right" size="sm" className="move-btn" label={`Move ${r.name} ${oneColumn ? 'down' : 'later'}`} disabled={i === ids.length - 1} onClick={() => moveBy(id, 1)} />
             </div>
           </div>
         );

@@ -42,19 +42,28 @@ export function FeedPage() {
 
   useEffect(() => setProfFilter(initialInterest), [initialInterest]);
 
-  const { data: profiles, loading: profilesLoading, error: profilesError, refresh: refreshProfiles } = useProfiles();
+  const { data: profiles, loading: profilesLoading, fetching: profilesFetching, error: profilesError, refresh: refreshProfiles } = useProfiles();
   const live = useMemo(() => (profiles ?? []).filter((p) => !p.isDraft), [profiles]);
   const drafts = useMemo(() => (profiles ?? []).filter((p) => p.isDraft), [profiles]);
   const byKey = useMemo(() => Object.fromEntries((profiles ?? []).map((p) => [p.key, p])), [profiles]);
-  // A link to an interest that has since been deleted (or never existed):
-  // the feed read "for <slug>" over an empty list. Any row will do, a
-  // draft included -- right after a commit the cached list can still
-  // call the new interest a draft.
+  // A link to an interest that has since been deleted (or never existed),
+  // or to a draft: the feed read "for <slug>" over an empty list, the
+  // selector (live interests only) showed something else, and "Start scan"
+  // did nothing. A draft gets one refetch first -- right after a commit the
+  // cached list can still call the new interest a draft.
+  const draftRechecked = useRef<string | null>(null);
   useEffect(() => {
-    if (!profiles || profilesLoading || profFilter === 'all' || byKey[profFilter]) return;
-    toast.info(`No ${TERMS.interest} called "${profFilter}"; showing all ${TERMS.interests}.`);
+    if (!profiles || profilesFetching || profFilter === 'all' || live.some((p) => p.key === profFilter)) return;
+    if (byKey[profFilter]?.isDraft && draftRechecked.current !== profFilter) {
+      draftRechecked.current = profFilter;
+      refreshProfiles();
+      return;
+    }
+    toast.info(byKey[profFilter]?.isDraft
+      ? `"${byKey[profFilter].name}" is still a draft; showing all ${TERMS.interests}.`
+      : `No ${TERMS.interest} called "${profFilter}"; showing all ${TERMS.interests}.`);
     setProfFilter('all');
-  }, [profiles, profilesLoading, byKey, profFilter]);
+  }, [profiles, profilesFetching, live, byKey, profFilter, refreshProfiles]);
   const { data, loading, error, refresh, fetching } = useDailyRadar({
     profile: profFilter,
     bucket: bucket === 'all' ? undefined : bucket,
@@ -108,10 +117,13 @@ export function FeedPage() {
   };
   const visible = showTriaged ? cards : cards.filter((c) => stateOf(c) === null);
   const triagedCount = cards.length - cards.filter((c) => stateOf(c) === null).length;
-  const bucketCounts = useMemo(() => {
-    const all = cards;
-    return { all: all.length, high: all.filter((c) => c.bucket === 'high').length, medium: all.filter((c) => c.bucket === 'medium').length };
-  }, [cards]);
+  // Counted over what the list shows: with triaged cards hidden, "All 57"
+  // sat beside "12 papers to review".
+  const bucketCounts = {
+    all: visible.length,
+    high: visible.filter((c) => c.bucket === 'high').length,
+    medium: visible.filter((c) => c.bucket === 'medium').length,
+  };
 
   // A paper from the feed becomes a seed of the interest it was shown
   // under. The server embeds it (feed papers are scored without their
@@ -244,7 +256,7 @@ export function FeedPage() {
         <div>
           <h1 className="page-title">{TERMS.feed}</h1>
           <p className="page-sub">
-            Every paper Radar has gathered for {selectedName}, best score first. Save what is useful and dismiss the rest; once you have triaged 30, the Threshold tab suggests a threshold from them.
+            Every paper Radar has gathered for {selectedName}, highest-ranked first (the rank blends similarity to your seeds with the reranker, so the similarity shown on each card is not strictly in order). Save what is useful and dismiss the rest; once you have triaged 30, the Threshold tab suggests a threshold from them.
             {data?.fetchedAt ? <> Last scan finished {fmtRelative(data.fetchedAt)}.</> : null}
           </p>
         </div>
@@ -308,6 +320,12 @@ export function FeedPage() {
               {data?.candidatesScored ? ` · ${data.candidatesScored.toLocaleString()} scored in the last scan` : ''}
             </span>
           </div>
+
+          {profFilter === 'all' && !!data?.untriagedNotShown && (
+            <Callout tone="info">
+              Showing each {TERMS.interest}'s top papers; at least {plural(data.untriagedNotShown, 'more paper')} to review {data.untriagedNotShown === 1 ? 'is' : 'are'} not listed. Pick one {TERMS.interest} above to see all of its papers.
+            </Callout>
+          )}
 
           {scanning.length > 0 && data && visible.length === 0 && !loading && (
             <Callout tone="info" title="A scan is running">New papers appear here when it finishes.</Callout>
@@ -387,7 +405,7 @@ function Onboarding() {
 }
 
 function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; defaultKey: string; onClose: () => void }) {
-  const [key, setKey] = useState(defaultKey);
+  const [key, setKey] = useState(profiles.some((p) => p.key === defaultKey) ? defaultKey : profiles[0].key);
   const [days, setDays] = useState(7);
   const [limit, setLimit] = useState(500);
   const [daysOk, setDaysOk] = useState(true);

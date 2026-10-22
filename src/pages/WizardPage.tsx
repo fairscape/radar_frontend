@@ -355,6 +355,8 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
   const create = useAction(async () => {
     if (!name.trim()) throw new Error('Give it a name first.');
     const d = await createDraft(name.trim());
+    // A name already in use gets a " (2)": say so, it is easy to miss.
+    if (d.name !== name.trim()) toast.info(`You already have one called "${name.trim()}"; this one is "${d.name}".`);
     update({ slug: d.slug, name: d.name, source: 'upload' });
   });
 

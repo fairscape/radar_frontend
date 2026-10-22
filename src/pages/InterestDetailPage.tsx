@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useProfileDetail, useProfileRuns, useProfiles, useResearchers } from '../api/hooks';
 import {
+  afterProfileDeleted,
   candidateScores,
   deleteProfile,
   getFeedbackThreshold,
@@ -671,6 +672,8 @@ function DeleteInterestButton({ profile, busy }: { profile: Profile; busy: boole
       await deleteProfile(profile.key);
       if (getDraft().slug === profile.key) resetDraft();
       navigate(paths.interests, { replace: true });
+      // Next tick: the interest's page has unmounted by then.
+      setTimeout(() => afterProfileDeleted(profile.key), 0);
       toast.success(`Deleted "${profile.name}".`);
     } catch (e) {
       toast.error(`Couldn't delete it: ${errorMessage(e)}`);

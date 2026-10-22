@@ -25,7 +25,7 @@ import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
-import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, useAction } from '../ui';
+import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, confirmDialog, useAction } from '../ui';
 import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
 import { PaperLink } from '../ui/paperLink';
@@ -46,8 +46,24 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
   const { data: detail, error, refresh } = useProfileDetail(profileKey);
   const [scanOpen, setScanOpen] = useState(false);
   const step = urlStep ?? 1;
-  const go = (n: number) => navigate(paths.interestEdit(profileKey, n));
-  const done = () => navigate(paths.interest(profileKey));
+  // The topics step is the one that does wait for its own Save: leaving it
+  // by the step list, Back or Done dropped the ticks without a word.
+  const [topicsDirty, setTopicsDirty] = useState(false);
+  const leave = async (to: () => void) => {
+    if (step === 3 && topicsDirty) {
+      const ok = await confirmDialog({
+        title: 'Leave without saving the topics?',
+        body: <p>Your topic changes are not saved; the {TERMS.interest} still searches by the saved list.</p>,
+        confirmLabel: 'Discard changes',
+        danger: true,
+      });
+      if (!ok) return;
+      setTopicsDirty(false);
+    }
+    to();
+  };
+  const go = (n: number) => void leave(() => navigate(paths.interestEdit(profileKey, n)));
+  const done = () => void leave(() => navigate(paths.interest(profileKey)));
 
   const profile: Profile | undefined = detail?.profile ?? profiles?.find((p) => p.key === profileKey);
   // A draft is edited in the wizard, which owns its unsaved choices.
@@ -77,7 +93,7 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
       <header className="page-head">
         <div>
           <h1 className="page-title">Edit "{profile.name}"</h1>
-          <p className="page-sub">Each step changes the {TERMS.interest} as you go; nothing waits for a final save. Use the steps on the left, or your browser's Back button, to go back.</p>
+          <p className="page-sub">Each step changes the {TERMS.interest} as you go; there is no final save (topics have their own Save button). Use the steps on the left, or your browser's Back button, to go back.</p>
         </div>
         <div className="page-actions">
           <Button variant="primary" icon="check" onClick={done}>Done</Button>
@@ -110,7 +126,7 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
           {step === 2 && <StepCheck profile={profile} back={() => go(1)} next={() => go(3)} />}
           {step === 3 && (
             <div className="stack">
-              <StepTopics profile={profile} detail={detail} back={() => go(2)} next={() => go(4)} />
+              <StepTopics profile={profile} detail={detail} back={() => go(2)} next={() => navigate(paths.interestEdit(profileKey, 4))} onDirty={setTopicsDirty} />
               <ResearchTopics profileKey={profile.key} />
             </div>
           )}
@@ -193,7 +209,7 @@ function StepCheck({ profile, back, next }: { profile: Profile; back: () => void
  * seeds without saving (a topic the new seeds brought in shows as "new"
  * and starts off); "Save" writes exactly the ticked ones.
  */
-function StepTopics({ profile, detail, back, next }: { profile: Profile; detail: Detail; back: () => void; next: () => void }) {
+function StepTopics({ profile, detail, back, next, onDirty }: { profile: Profile; detail: Detail; back: () => void; next: () => void; onDirty: (dirty: boolean) => void }) {
   const topics = useQuery(`draft/${profile.key}/edit-topics`, () => previewTopics(profile.key));
   useEffect(() => {
     if (topics.data) void topics.refresh();
@@ -207,6 +223,8 @@ function StepTopics({ profile, detail, back, next }: { profile: Profile; detail:
   const sel = selected ?? new Set<string>();
   const saved = new Set(list.filter((t) => t.on).map((t) => t.id));
   const dirty = selected !== null && (sel.size !== saved.size || [...sel].some((id) => !saved.has(id)));
+  useEffect(() => onDirty(dirty), [dirty, onDirty]);
+  useEffect(() => () => onDirty(false), [onDirty]);
   const nNew = list.filter((t) => t.new).length;
   // The saved list (what scans use) against the recomputed one shown here:
   // after the seeds changed they differ, and "8 of 18 on · 17 on now" read
