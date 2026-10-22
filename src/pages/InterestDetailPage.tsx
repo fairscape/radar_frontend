@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useProfileDetail, useProfileRuns, useProfiles, useResearchers } from '../api/hooks';
 import {
   candidateScores,
+  deleteProfile,
   getFeedbackThreshold,
   getRerankerComparison,
   getTopicYield,
@@ -33,6 +34,7 @@ import type { YearSpan } from '../types/radar';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, HealthBadge, JobProgress, RerankerBumpChart, SectionNote, ThresholdHistogram, agreementTone, axisFor, healthOf } from '../ui/domain';
 import { goToFeedFor } from './FeedPage';
+import { getDraft, resetDraft } from '../lib/draft';
 
 // gather_runs.SCAN_STALE_MINUTES: the server stops treating an open scan
 // row as running once it has not reported progress for this long.
@@ -122,6 +124,7 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
           <Button variant="primary" icon="play" onClick={() => setScanOpen(true)} disabled={scanBusy} title={scanBusy ? 'A scan is already running' : 'Look for new papers now'}>
             {scanBusy ? 'Scanning…' : 'Scan now'}
           </Button>
+          <DeleteInterestButton profile={profile} busy={scanBusy} />
         </div>
       </header>
 
@@ -648,6 +651,40 @@ export function ScanDialog({ profile, open, onClose }: { profile: Profile; open:
 }
 
 /** "Built from the profile of X", when the interest came from a stored researcher. */
+function DeleteInterestButton({ profile, busy }: { profile: Profile; busy: boolean }) {
+  const [deleting, setDeleting] = useState(false);
+  async function remove() {
+    const ok = await confirmDialog({
+      title: `Delete ${TERMS.interest} "${profile.name}"?`,
+      body: (
+        <p>
+          Its {plural(profile.seeds, 'seed')}, its stored papers and their scores, your saves and dismissals for it, and its scan history are all removed.
+          The papers stay in your vault if anything else holds them (an upload, a {TERMS.profile}, another {TERMS.interest}). This cannot be undone.
+        </p>
+      ),
+      confirmLabel: `Delete ${TERMS.interest}`,
+      danger: true,
+    });
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteProfile(profile.key);
+      if (getDraft().slug === profile.key) resetDraft();
+      navigate(paths.interests, { replace: true });
+      toast.success(`Deleted "${profile.name}".`);
+    } catch (e) {
+      toast.error(`Couldn't delete it: ${errorMessage(e)}`);
+      setDeleting(false);
+    }
+  }
+  return (
+    <Button variant="danger" icon="trash" onClick={remove} loading={deleting} disabled={busy || deleting}
+      title={busy ? 'Wait for the running scan to finish' : `Delete this ${TERMS.interest}`}>
+      Delete
+    </Button>
+  );
+}
+
 function BuiltFrom({ id }: { id: number }) {
   const { data: researchers } = useResearchers();
   const r = researchers?.find((x) => x.id === id);

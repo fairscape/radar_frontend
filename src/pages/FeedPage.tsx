@@ -46,6 +46,15 @@ export function FeedPage() {
   const live = useMemo(() => (profiles ?? []).filter((p) => !p.isDraft), [profiles]);
   const drafts = useMemo(() => (profiles ?? []).filter((p) => p.isDraft), [profiles]);
   const byKey = useMemo(() => Object.fromEntries((profiles ?? []).map((p) => [p.key, p])), [profiles]);
+  // A link to an interest that has since been deleted (or never existed):
+  // the feed read "for <slug>" over an empty list. Any row will do, a
+  // draft included -- right after a commit the cached list can still
+  // call the new interest a draft.
+  useEffect(() => {
+    if (!profiles || profilesLoading || profFilter === 'all' || byKey[profFilter]) return;
+    toast.info(`No ${TERMS.interest} called "${profFilter}"; showing all ${TERMS.interests}.`);
+    setProfFilter('all');
+  }, [profiles, profilesLoading, byKey, profFilter]);
   const { data, loading, error, refresh, fetching } = useDailyRadar({
     profile: profFilter,
     bucket: bucket === 'all' ? undefined : bucket,

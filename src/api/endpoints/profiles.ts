@@ -232,6 +232,14 @@ export async function removeSeed(key: string, openalexId: string): Promise<{ ok:
   return res;
 }
 
+/** Delete a saved interest with its seeds, stored papers, feedback and
+ * scans. The papers themselves stay in the vault. 409 while it scans. */
+export async function deleteProfile(key: string): Promise<{ ok: boolean }> {
+  const res = await apiDelete<{ ok: boolean }>(`/api/profiles/${enc(key)}`);
+  invalidate('profiles', 'vault', 'radar', 'researchers', `draft/${key}/`);
+  return res;
+}
+
 /** Persisted candidate scores for a live interest (not a new scan). */
 export function candidateScores(key: string): Promise<DryRunResult> {
   return apiPost<DryRunResult>(`/api/profiles/${enc(key)}/dry-run`);
