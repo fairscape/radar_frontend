@@ -3,7 +3,7 @@ import { useDrafts, useProfiles, useResearcher, useResearchers, useVaultDocs } f
 import { uploadPdf } from '../api/endpoints/vault';
 import { ApiError } from '../api/client';
 import { createInterestFromResearcher } from '../api/endpoints/researchers';
-import { addSeeds, removeSeed as removeSeedOnServer } from '../api/endpoints/profiles';
+import { addSeeds, removeSeed as removeSeedOnServer, saveTopics } from '../api/endpoints/profiles';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import { YearRange } from '../ui/YearRange';
@@ -266,7 +266,7 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
           <p className="page-sub">An {TERMS.interest} is a topic Radar follows for you, defined by a set of papers. Four short steps; your progress is saved as a draft, so you can leave and come back.</p>
         </div>
         <div className="page-actions">
-          <Button variant="ghost" onClick={() => navigate(paths.interests)} title="Keep the draft and come back later">Save for later</Button>
+          <Button variant="ghost" onClick={() => void saveForLater()} title="Keep the draft and come back later">Save for later</Button>
           <Button variant="danger" icon="trash" onClick={cancel} disabled={importing} title={importing ? 'Wait for the import to finish first' : undefined}>{state.slug ? 'Delete draft' : 'Cancel'}</Button>
         </div>
       </header>
@@ -1081,6 +1081,24 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
   );
 }
 
+/**
+ * Leave the wizard, keeping the draft. The step 3 ticks live in this tab
+ * only (they reach the server with the trial scan), so resuming the draft
+ * elsewhere showed every topic ticked again: write them to the draft first.
+ */
+async function saveForLater() {
+  const { slug, selectedTopicIds: ids } = getDraft();
+  if (slug && ids && ids.length > 0) {
+    try {
+      await saveTopics(slug, ids);
+      invalidate(`draft/${slug}/`);
+    } catch (e) {
+      toast.error(`The draft is kept, but its topic choices were not saved: ${errorMessage(e)}`);
+    }
+  }
+  navigate(paths.interests);
+}
+
 /** Shown with no topic ticked: a scan searches by topics, so there is no step 4. */
 function NoTopicsChosen({ onBack, onChoose }: { onBack?: () => void; onChoose?: () => void }) {
   return (
@@ -1089,7 +1107,7 @@ function NoTopicsChosen({ onBack, onChoose }: { onBack?: () => void; onChoose?: 
       <div className="row">
         {onChoose && <Button size="sm" variant="primary" onClick={onChoose}>Choose topics</Button>}
         {onBack && <Button size="sm" icon="arrow-left" onClick={onBack}>Back</Button>}
-        <Button size="sm" variant="ghost" onClick={() => navigate(paths.interests)} title="The draft stays under Drafts">Save for later and exit</Button>
+        <Button size="sm" variant="ghost" onClick={() => void saveForLater()} title="The draft stays under Drafts">Save for later and exit</Button>
       </div>
     </Callout>
   );

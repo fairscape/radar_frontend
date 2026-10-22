@@ -119,6 +119,9 @@ export function FeedPage() {
   const triagedCount = cards.length - cards.filter((c) => stateOf(c) === null).length;
   // Counted over what the list shows: with triaged cards hidden, "All 57"
   // sat beside "12 papers to review".
+  // Counted from the cards listed: with papers past the cap not listed, a
+  // bucket can hold more than its count ("160" listed 190 once picked).
+  const countLabel = (n: number) => (data?.untriagedNotShown ? `${n}+` : n);
   const bucketCounts = {
     all: visible.length,
     high: visible.filter((c) => c.bucket === 'high').length,
@@ -236,7 +239,9 @@ export function FeedPage() {
       };
       if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); focusCard(idx + 1); return; }
       if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); focusCard(idx - 1); return; }
-      if (idx < 0) return;
+      // Acting keys need focus still in the list: after a click on Refresh
+      // or a filter, `s` saved whichever card was focused last, off screen.
+      if (idx < 0 || !t || !listRef.current?.contains(t)) return;
       const card = visible[idx];
       if (e.key === 's') { e.preventDefault(); void act(card, 'saved'); }
       else if (e.key === 'x') { e.preventDefault(); void act(card, 'dismissed'); }
@@ -298,9 +303,9 @@ export function FeedPage() {
               value={bucket}
               onChange={setBucket}
               options={[
-                { value: 'all', label: 'All', count: bucket === 'all' ? bucketCounts.all : null },
-                { value: 'high', label: 'Like your seeds', count: bucket === 'all' ? bucketCounts.high : null },
-                { value: 'medium', label: 'Above the bar', count: bucket === 'all' ? bucketCounts.medium : null },
+                { value: 'all', label: 'All', count: bucket === 'all' ? countLabel(bucketCounts.all) : null },
+                { value: 'high', label: 'Like your seeds', count: bucket === 'all' ? countLabel(bucketCounts.high) : null },
+                { value: 'medium', label: 'Above the bar', count: bucket === 'all' ? countLabel(bucketCounts.medium) : null },
                 // Not counted: "All" holds only papers above the threshold,
                 // and this filter asks the server for the ones below it.
                 { value: 'low', label: 'Below the bar', count: null },
@@ -321,9 +326,11 @@ export function FeedPage() {
             </span>
           </div>
 
-          {profFilter === 'all' && !!data?.untriagedNotShown && (
+          {!!data?.untriagedNotShown && (
             <Callout tone="info">
-              Showing each {TERMS.interest}'s top papers; at least {plural(data.untriagedNotShown, 'more paper')} to review {data.untriagedNotShown === 1 ? 'is' : 'are'} not listed. Pick one {TERMS.interest} above to see all of its papers.
+              {profFilter === 'all'
+                ? <>Showing each {TERMS.interest}'s top papers; at least {plural(data.untriagedNotShown, 'more paper')} to review {data.untriagedNotShown === 1 ? 'is' : 'are'} not listed. Pick one {TERMS.interest} above to see more of its papers.</>
+                : <>Showing the top {plural(data.cards.filter((c) => !c.state).length, 'paper')}; at least {plural(data.untriagedNotShown, 'more paper')} to review {data.untriagedNotShown === 1 ? 'is' : 'are'} not listed. Save or dismiss papers here and they come up next.</>}
             </Callout>
           )}
 

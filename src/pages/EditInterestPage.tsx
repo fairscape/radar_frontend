@@ -21,7 +21,7 @@ import { UmlsNotice } from '../ui/UmlsNotice';
 import { ProfileTopicsBox } from '../ui/ProfileTopics';
 import { errorMessage, plural } from '../lib/format';
 import { useQuery } from '../lib/query';
-import { navigate, paths } from '../lib/router';
+import { navigate, paths, setLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
@@ -30,7 +30,7 @@ import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
 import { PaperLink } from '../ui/paperLink';
 import { ResearchTopics } from '../ui/ResearchTopics';
-import { ScanDialog, SeedsTab, ThresholdTab, type Detail } from './InterestDetailPage';
+import { ScanDialog, SeedsTab, ThresholdTab, useScanBusy, type Detail } from './InterestDetailPage';
 import { AgreementMeter, verdictFor } from './WizardPage';
 import type { Profile } from '../types/radar';
 
@@ -45,25 +45,29 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
   const { data: profiles } = useProfiles();
   const { data: detail, error, refresh } = useProfileDetail(profileKey);
   const [scanOpen, setScanOpen] = useState(false);
+  const { scanBusy } = useScanBusy(profileKey);
+  // Step 2 checks the seeds as they are: moving on mid-upload checked half of them.
+  const [uploading, setUploading] = useState(false);
   const step = urlStep ?? 1;
   // The topics step is the one that does wait for its own Save: leaving it
-  // by the step list, Back or Done dropped the ticks without a word.
+  // by any route -- step list, Back, Done, the crumbs, the sidebar, the
+  // browser's Back -- would drop the ticks without a word.
   const [topicsDirty, setTopicsDirty] = useState(false);
-  const leave = async (to: () => void) => {
-    if (step === 3 && topicsDirty) {
-      const ok = await confirmDialog({
-        title: 'Leave without saving the topics?',
-        body: <p>Your topic changes are not saved; the {TERMS.interest} still searches by the saved list.</p>,
-        confirmLabel: 'Discard changes',
-        danger: true,
-      });
-      if (!ok) return;
-      setTopicsDirty(false);
-    }
-    to();
+  useEffect(() => {
+    if (step !== 3 || !topicsDirty) return;
+    setLeaveGuard(() => confirmDialog({
+      title: 'Leave without saving the topics?',
+      body: <p>Your topic changes are not saved; the {TERMS.interest} still searches by the saved list.</p>,
+      confirmLabel: 'Discard changes',
+      danger: true,
+    }));
+    return () => setLeaveGuard(null);
+  }, [step, topicsDirty]);
+  const go = (n: number) => {
+    if (uploading) { toast.info('Wait for the uploads to finish.'); return; }
+    navigate(paths.interestEdit(profileKey, n));
   };
-  const go = (n: number) => void leave(() => navigate(paths.interestEdit(profileKey, n)));
-  const done = () => void leave(() => navigate(paths.interest(profileKey)));
+  const done = () => navigate(paths.interest(profileKey));
 
   const profile: Profile | undefined = detail?.profile ?? profiles?.find((p) => p.key === profileKey);
   // A draft is edited in the wizard, which owns its unsaved choices.
@@ -96,7 +100,7 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
           <p className="page-sub">Each step changes the {TERMS.interest} as you go; there is no final save (topics have their own Save button). Use the steps on the left, or your browser's Back button, to go back.</p>
         </div>
         <div className="page-actions">
-          <Button variant="primary" icon="check" onClick={done}>Done</Button>
+          <Button variant="primary" icon="check" onClick={done} disabled={step === 1 && uploading} title={step === 1 && uploading ? 'Wait for the uploads to finish' : undefined}>Done</Button>
         </div>
       </header>
 
@@ -119,20 +123,20 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
         <div>
           {step === 1 && (
             <>
-              <SeedsTab profile={profile} detail={detail} />
-              <Foot next={() => go(2)} nextLabel="Next: check the seeds" />
+              <SeedsTab profile={profile} detail={detail} onBusy={setUploading} />
+              <Foot next={() => go(2)} nextLabel="Next: check the seeds" nextDisabled={uploading} />
             </>
           )}
           {step === 2 && <StepCheck profile={profile} back={() => go(1)} next={() => go(3)} />}
           {step === 3 && (
             <div className="stack">
-              <StepTopics profile={profile} detail={detail} back={() => go(2)} next={() => navigate(paths.interestEdit(profileKey, 4))} onDirty={setTopicsDirty} />
+              <StepTopics profile={profile} detail={detail} back={() => go(2)} next={() => navigate(paths.interestEdit(profileKey, 4), { force: true })} onDirty={setTopicsDirty} />
               <ResearchTopics profileKey={profile.key} />
             </div>
           )}
           {step === 4 && (
             <>
-              <ThresholdTab profile={profile} onScan={() => setScanOpen(true)} />
+              <ThresholdTab profile={profile} onScan={() => setScanOpen(true)} busy={scanBusy} />
               <Foot back={() => go(3)} next={done} nextLabel="Done" nextIcon="check" />
             </>
           )}

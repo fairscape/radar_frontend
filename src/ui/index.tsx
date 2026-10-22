@@ -212,7 +212,7 @@ export function Segmented<T extends string>({
 }: {
   value: T;
   onChange: (v: T) => void;
-  options: { value: T; label: ReactNode; count?: number | null }[];
+  options: { value: T; label: ReactNode; count?: number | string | null }[];
   ariaLabel: string;
   size?: 'sm' | 'md';
 }) {

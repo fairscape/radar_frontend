@@ -69,7 +69,7 @@ function Sidebar({ route, email }: { route: Route; email: string }) {
   const live = (profiles ?? []).filter((p) => !p.isDraft);
   const drafts = (profiles ?? []).filter((p) => p.isDraft);
   const counts: Partial<Record<Route['name'], number | undefined>> = {
-    interests: profiles?.length,
+    interests: profiles ? live.length : undefined,   // as the Interests page counts: drafts are listed apart
     profiles: researchers?.length,
     vault: vaultStats?.docs,
   };

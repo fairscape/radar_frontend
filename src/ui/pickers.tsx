@@ -408,7 +408,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
           {/* autoComplete off and a non-identity name: a lone text box on a
               signed-in page is what browsers fill with the user's email,
               and that is what people found in the ORCID box. */}
-          <Input value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={lookup.placeholder} disabled={running} onKeyDown={(e) => { if (e.key === 'Enter') void find.run(); }}
+          <Input value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={lookup.placeholder} disabled={running} onKeyDown={(e) => { if (e.key === 'Enter' && !find.busy) void find.run(); }}
             name={lookup.rememberAs ?? 'lookup'} autoComplete="off" spellCheck={false} data-1p-ignore data-lpignore="true" />
           <Button icon="search" onClick={() => find.run()} loading={find.busy} disabled={!key || running}>Find papers</Button>
         </div>

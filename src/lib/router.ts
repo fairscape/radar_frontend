@@ -11,16 +11,60 @@ function notify() {
   listeners.forEach((l) => l());
 }
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('popstate', notify);
+/**
+ * A page with unsaved work registers a guard; every way out of the page --
+ * in-app links, ``navigate``, the browser's Back/Forward, closing the tab --
+ * asks it first. Only one page holds unsaved work at a time.
+ */
+type LeaveGuard = () => Promise<boolean>;
+let leaveGuard: LeaveGuard | null = null;
+let shownUrl = typeof window === 'undefined' ? '/' : window.location.pathname + window.location.search;
+
+export function setLeaveGuard(guard: LeaveGuard | null): void {
+  leaveGuard = guard;
 }
 
-export function navigate(to: string, opts: { replace?: boolean } = {}): void {
+if (typeof window !== 'undefined') {
+  window.addEventListener('popstate', () => {
+    const target = window.location.pathname + window.location.search;
+    const guard = leaveGuard;
+    if (!guard || target === shownUrl) {
+      shownUrl = target;
+      notify();
+      return;
+    }
+    // Back/Forward cannot be cancelled: put the page's URL back, ask, and
+    // only then go where the button pointed.
+    window.history.pushState({}, '', shownUrl);
+    void guard().then((ok) => {
+      if (!ok) return;
+      leaveGuard = null;
+      window.history.replaceState({}, '', target);
+      shownUrl = target;
+      notify();
+    });
+  });
+  window.addEventListener('beforeunload', (e) => {
+    if (leaveGuard) e.preventDefault();
+  });
+}
+
+export function navigate(to: string, opts: { replace?: boolean; force?: boolean } = {}): void {
   if (typeof window === 'undefined') return;
   const current = window.location.pathname + window.location.search;
   if (current === to) return;
+  const guard = leaveGuard;
+  if (guard && !opts.force) {
+    void guard().then((ok) => {
+      if (!ok) return;
+      leaveGuard = null;
+      navigate(to, { ...opts, force: true });
+    });
+    return;
+  }
   if (opts.replace) window.history.replaceState({}, '', to);
   else window.history.pushState({}, '', to);
+  shownUrl = to;
   notify();
 }
 

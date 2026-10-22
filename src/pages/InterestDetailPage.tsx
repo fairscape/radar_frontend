@@ -18,7 +18,7 @@ import { uploadPdf } from '../api/endpoints/vault';
 import { daysLabel, errorMessage, fmtDateTime, fmtDuration, fmtRelative, parseServerTime, plural } from '../lib/format';
 import { startBackfill, startScan, useRunningJob, yearsLabel } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
-import { navigate, paths } from '../lib/router';
+import { navigate, paths, setLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceTag } from '../lib/topicSource';
@@ -53,6 +53,36 @@ const QUERY_KIND: Record<string, string> = {
   terms: 'the research topics',
 };
 
+/**
+ * Whether a scan of this interest is running: one this tab started, or one
+ * the server lists as unfinished.
+ */
+export function useScanBusy(profileKey: string) {
+  const tabJob = useRunningJob('scan', profileKey);
+  // A scan this tab did not start (another tab, or before this tab opened)
+  // is in the runs list as unfinished; "Scan now" answered 409 for it.
+  // A row left open by a dead thread stays unfinished until the backend
+  // restarts; the server stops counting it after SCAN_STALE_MS and would
+  // accept a scan, so this does too.
+  const { data: recentRuns, refresh: refreshRuns } = useProfileRuns(profileKey, 5);
+  const serverRunning = recentRuns?.some((r) => {
+    if (r.finished_at || !['scan', 'backfill'].includes(runKind(r.tier_used))) return false;
+    const last = r.progress_updated_at || r.started_at;
+    if (!last) return true;
+    const t = parseServerTime(last).getTime();
+    return Number.isNaN(t) || Date.now() - t < SCAN_STALE_MS;
+  }) ?? false;
+  const scanBusy = !!tabJob || serverRunning;
+  // A scan this tab did not start (another tab, before a reload) has no
+  // job to poll: re-read the runs until the server says it finished.
+  useEffect(() => {
+    if (!serverRunning || tabJob) return;
+    const t = window.setInterval(() => void refreshRuns(), 5000);
+    return () => window.clearInterval(t);
+  }, [serverRunning, tabJob, refreshRuns]);
+  return { tabJob, scanBusy };
+}
+
 export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: string; urlTab?: string | null }) {
   const { data: profiles, loading: listLoading } = useProfiles();
   const { data: detail, loading, error, refresh } = useProfileDetail(profileKey);
@@ -65,22 +95,8 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
   // find -- the picker sat folded behind a link at the bottom of a tab.
   const [addPapers, setAddPapers] = useState(0);
   const [scanOpen, setScanOpen] = useState(false);
-  const tabJob = useRunningJob('scan', profileKey);
-  // A scan this tab did not start (another tab, or before this tab opened)
-  // is in the runs list as unfinished; "Scan now" answered 409 for it.
-  // A row left open by a dead thread stays unfinished until the backend
-  // restarts; the server stops counting it after SCAN_STALE_MS and would
-  // accept a scan, so this does too.
-  const { data: recentRuns } = useProfileRuns(profileKey, 5);
-  const serverRunning = recentRuns?.some((r) => {
-    if (r.finished_at || !['scan', 'backfill'].includes(runKind(r.tier_used))) return false;
-    const last = r.progress_updated_at || r.started_at;
-    if (!last) return true;
-    const t = parseServerTime(last).getTime();
-    return Number.isNaN(t) || Date.now() - t < SCAN_STALE_MS;
-  }) ?? false;
+  const { tabJob, scanBusy } = useScanBusy(profileKey);
   const running = tabJob;
-  const scanBusy = !!tabJob || serverRunning;
   const listed = profiles?.find((p) => p.key === profileKey);
 
   // Only trust the freshly fetched detail here: right after the wizard
@@ -212,7 +228,10 @@ function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; deta
   );
 }
 
-export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile; detail: Detail; openPicker?: number }) {
+/** Interests with a seed upload running; module-wide so leaving and re-entering the tab can't start a second loop. */
+const uploadingSeeds = new Set<string>();
+
+export function SeedsTab({ profile, detail, openPicker = 0, onBusy }: { profile: Profile; detail: Detail; openPicker?: number; onBusy?: (busy: boolean) => void }) {
   const pickerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (openPicker > 0) pickerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -221,7 +240,6 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
-  const uploadingRef = useRef(false);
   const [failures, setFailures] = useState<string[]>([]);
   // Coherence only. It used to run recompute-topics too, which switches
   // every topic the new seeds bring in *on* -- widening the next scan
@@ -235,8 +253,9 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     if (!files || files.length === 0) return;
     // A second drop while a batch uploads ran a second loop: it wiped the
     // first batch's failures and ended the busy state early.
-    if (uploadingRef.current) { toast.info('Still uploading the previous files; drop these again when that finishes.'); return; }
-    uploadingRef.current = true;
+    if (uploadingSeeds.has(profile.key)) { toast.info('Still uploading the previous files; drop these again when that finishes.'); return; }
+    uploadingSeeds.add(profile.key);
+    onBusy?.(true);
     const list = Array.from(files);
     setFailures([]);
     let ok = 0;
@@ -257,7 +276,8 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
       }
     }
     setProgress(null);
-    uploadingRef.current = false;
+    uploadingSeeds.delete(profile.key);
+    onBusy?.(false);
     // Each upload re-fits the interest on the server; the coherence and
     // topic views are what still need a Recompute.
     if (ok > 0) toast.success(`${plural(ok, 'seed')} added. The papers already found were re-scored against the new seeds, so the feed is updated.`);
@@ -461,6 +481,19 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   });
   const dirty = Math.abs(value - profile.threshold) > 0.0005;
   const [exactOk, setExactOk] = useState(true);
+  // Threshold and years wait for their own Save: switching tab, Done on
+  // Edit interest, the sidebar or Back dropped a typed value unseen.
+  const unsaved = dirty || yearsDirty || !exactOk;
+  useEffect(() => {
+    if (!unsaved) return;
+    setLeaveGuard(() => confirmDialog({
+      title: 'Leave without saving?',
+      body: <p>{yearsDirty && !dirty ? 'The publication years are' : dirty && yearsDirty ? 'The threshold and the publication years are' : 'The threshold is'} not saved; the feed still uses the saved {yearsDirty && !dirty ? 'years' : 'threshold'}.</p>,
+      confirmLabel: 'Discard changes',
+      danger: true,
+    }));
+    return () => setLeaveGuard(null);
+  }, [unsaved, dirty, yearsDirty]);
   return (
     <Panel
       title="Threshold"
@@ -527,6 +560,8 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
         <Field label="Exact value" inline>
           <NumberInput min={0} max={1} step={0.001} digits={3} value={value} onChange={setValue} onValidity={setExactOk} style={{ width: 110 }} />
         </Field>
+        {/* The chart and list keep the last valid value; say so rather than show "0 of 426 would pass" for 1.5. */}
+        {!exactOk && <span className="field-error">Enter a value between 0 and 1. The counts above are for {value.toFixed(3)}.</span>}
       </div>
     </Panel>
   );
@@ -620,7 +655,12 @@ function RankRefinementTab({ profile }: { profile: Profile }) {
   );
 }
 
-export function ScanDialog({ profile, open, onClose }: { profile: Profile; open: boolean; onClose: () => void }) {
+/** Mounted only while open: a Cancel left an invalid value's "disabled" and the last error behind for the next open. */
+export function ScanDialog(props: { profile: Profile; open: boolean; onClose: () => void }) {
+  return props.open ? <ScanDialogBody {...props} /> : null;
+}
+
+function ScanDialogBody({ profile, open, onClose }: { profile: Profile; open: boolean; onClose: () => void }) {
   const [days, setDays] = useState(7);
   const [limit, setLimit] = useState(500);
   const [daysOk, setDaysOk] = useState(true);
@@ -671,7 +711,7 @@ function DeleteInterestButton({ profile, busy }: { profile: Profile; busy: boole
     try {
       await deleteProfile(profile.key);
       if (getDraft().slug === profile.key) resetDraft();
-      navigate(paths.interests, { replace: true });
+      navigate(paths.interests, { replace: true, force: true });
       // Next tick: the interest's page has unmounted by then.
       setTimeout(() => afterProfileDeleted(profile.key), 0);
       toast.success(`Deleted "${profile.name}".`);

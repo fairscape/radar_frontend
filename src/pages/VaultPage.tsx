@@ -49,9 +49,10 @@ export function VaultPage() {
         const doc = await uploadPdf(list[i], tag !== 'all' ? tag : undefined);
         if (doc.duplicate) dups.push(list[i].name);
         else ok += 1;
-        if (!doc.duplicate && tag !== 'all' && byKey[tag]?.isDraft && getDraft().slug === tag) {
+        if (tag !== 'all' && byKey[tag]?.isDraft && getDraft().slug === tag) {
           // A new seed for the draft the wizard holds: its topics, trial
-          // scan and threshold were computed without it. The in-wizard
+          // scan and threshold were computed without it. A PDF already in
+          // the vault still becomes a seed of the tagged draft. The in-wizard
           // upload does the same (invalidateDownstream).
           setDraft({ selectedTopicIds: null, dryRunJobId: null, dryRunTopics: null, threshold: null });
           invalidate(`draft/${tag}/`);
@@ -62,8 +63,8 @@ export function VaultPage() {
       }
     }
     setUploading(null);
-    if (ok) toast.success(`${plural(ok, 'PDF')} added to the ${TERMS.vault}${tag !== 'all' ? ` and tagged ${byKey[tag]?.name ?? tag}` : ''}.`);
-    if (dups.length) toast.info(`Already in your ${TERMS.vault}: ${dups.join(', ')}.${tag !== 'all' ? ` Tagged ${byKey[tag]?.name ?? tag}.` : ''}`);
+    if (ok) toast.success(`${plural(ok, 'PDF')} added to the ${TERMS.vault}${tag !== 'all' ? ` as ${ok === 1 ? 'a seed' : 'seeds'} of ${byKey[tag]?.name ?? tag}` : ''}.`);
+    if (dups.length) toast.info(`Already in your ${TERMS.vault}: ${dups.join(', ')}.${tag !== 'all' ? ` ${dups.length === 1 ? 'Now a seed' : 'Now seeds'} of ${byKey[tag]?.name ?? tag}.` : ''}`);
     noteUnmatchedUploads(unmatched, tag === 'all' ? 'vault' : byKey[tag]?.isDraft ? 'draft' : 'interest');
     for (const f of fails) toast.error(f);
   }
@@ -108,7 +109,7 @@ export function VaultPage() {
             : 'Every paper you have uploaded or imported. Seeds land here automatically, and anything here can become a seed of an interest.'}</p>
         </div>
         <div className="page-actions">
-          <Button variant="primary" icon="upload" onClick={() => inputRef.current?.click()} loading={!!uploading} title={tag !== 'all' ? `Uploads will be tagged "${byKey[tag]?.name ?? tag}"` : 'Upload PDFs'}>
+          <Button variant="primary" icon="upload" onClick={() => inputRef.current?.click()} loading={!!uploading} title={tag !== 'all' ? `Uploads become seeds of "${byKey[tag]?.name ?? tag}"` : 'Upload PDFs'}>
             {uploading ? `Uploading ${uploading.done + 1}/${uploading.total}` : tag !== 'all' ? `Upload to ${byKey[tag]?.name ?? tag}` : 'Upload PDFs'}
           </Button>
           <input ref={inputRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ''; }} />
