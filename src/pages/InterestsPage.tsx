@@ -61,7 +61,7 @@ export function InterestsPage() {
                   <HealthBadge profile={p} />
                 </div>
                 <div className="interest-card-stats">
-                  <span><b>{p.seeds}</b>seeds</span>
+                  <span><b>{p.seeds}</b>{p.seeds === 1 ? 'seed' : 'seeds'}</span>
                   <span><b>{p.threshold.toFixed(3)}</b>threshold</span>
                   <span title="0 = unrelated, 100 = near-identical seeds"><b>{p.agreement != null ? p.agreement : '—'}</b>agreement</span>
                 </div>

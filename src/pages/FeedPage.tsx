@@ -121,7 +121,11 @@ export function FeedPage() {
   // sat beside "12 papers to review".
   // Counted from the cards listed: with papers past the cap not listed, a
   // bucket can hold more than its count ("160" listed 190 once picked).
-  const countLabel = (n: number) => (data?.untriagedNotShown ? `${n}+` : n);
+  const countLabel = (n: number, b?: 'high' | 'medium') => {
+    const byBucket = data?.untriagedNotShownByBucket;
+    const capped = b && byBucket ? !!byBucket[b] : !!data?.untriagedNotShown;
+    return capped ? `${n}+` : n;
+  };
   const bucketCounts = {
     all: visible.length,
     high: visible.filter((c) => c.bucket === 'high').length,
@@ -166,6 +170,15 @@ export function FeedPage() {
   // A ref, not the ``busy`` state: two clicks in one frame both saw the
   // state before either set it.
   const inFlight = useRef(new Set<string>());
+  // A fresh read of the feed (focus, another tab's triage) is newer than
+  // what this tab did: its overrides held "Saved" over a dismiss made in
+  // another tab for good, and the undo then sent the wrong toggle.
+  useEffect(() => {
+    setOverrides((o) => {
+      const kept = Object.fromEntries(Object.entries(o).filter(([k]) => inFlight.current.has(k)));
+      return Object.keys(kept).length === Object.keys(o).length ? o : kept;
+    });
+  }, [data]);
   async function act(card: Card, target: 'saved' | 'dismissed') {
     const k = keyOf(card);
     if (inFlight.current.has(k)) return;
@@ -252,7 +265,6 @@ export function FeedPage() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const filterActive = profFilter !== 'all' || bucket !== 'all' || yearFrom != null;
   const selectedName = profFilter === 'all' ? `all ${TERMS.interests}` : byKey[profFilter]?.name ?? profFilter;
 
   return (
@@ -304,8 +316,8 @@ export function FeedPage() {
               onChange={setBucket}
               options={[
                 { value: 'all', label: 'All', count: bucket === 'all' ? countLabel(bucketCounts.all) : null },
-                { value: 'high', label: 'Like your seeds', count: bucket === 'all' ? countLabel(bucketCounts.high) : null },
-                { value: 'medium', label: 'Above the bar', count: bucket === 'all' ? countLabel(bucketCounts.medium) : null },
+                { value: 'high', label: 'Like your seeds', count: bucket === 'all' ? countLabel(bucketCounts.high, 'high') : null },
+                { value: 'medium', label: 'Above the bar', count: bucket === 'all' ? countLabel(bucketCounts.medium, 'medium') : null },
                 // Not counted: "All" holds only papers above the threshold,
                 // and this filter asks the server for the ones below it.
                 { value: 'low', label: 'Below the bar', count: null },
@@ -342,7 +354,8 @@ export function FeedPage() {
           {loading && !data && <LoadingRows rows={4} label="Loading the feed" />}
 
           {data && visible.length === 0 && !loading && scanning.length === 0 && (
-            cards.length === 0 && !filterActive ? (
+            // One interest with nothing in it yet is "no papers", not a filter to clear.
+            cards.length === 0 && bucket === 'all' && yearFrom == null ? (
               <EmptyState
                 icon="radar"
                 title="No papers yet"
@@ -420,6 +433,12 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
   const [busy, setBusy] = useState(false);
   const jobs = useJobs();
   const already = jobs.find((j) => j.kind === 'scan' && j.profileKey === key && j.status === 'running');
+  // Escape closes it, like the dialogs.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   async function go() {
     const p = profiles.find((x) => x.key === key);

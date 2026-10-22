@@ -14,7 +14,7 @@
  * already work on live interests, rather than the wizard's, which are tied
  * to a draft.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useProfileDetail, useProfiles } from '../api/hooks';
 import { previewTopics, recomputeCoherence, saveTopics } from '../api/endpoints/profiles';
 import { UmlsNotice } from '../ui/UmlsNotice';
@@ -30,7 +30,7 @@ import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
 import { PaperLink } from '../ui/paperLink';
 import { ResearchTopics } from '../ui/ResearchTopics';
-import { ScanDialog, SeedsTab, ThresholdTab, useScanBusy, type Detail } from './InterestDetailPage';
+import { ScanDialog, SeedsTab, ThresholdTab, useScanBusy, useSeedUpload, type Detail } from './InterestDetailPage';
 import { AgreementMeter, verdictFor } from './WizardPage';
 import type { Profile } from '../types/radar';
 
@@ -47,7 +47,7 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
   const [scanOpen, setScanOpen] = useState(false);
   const { scanBusy } = useScanBusy(profileKey);
   // Step 2 checks the seeds as they are: moving on mid-upload checked half of them.
-  const [uploading, setUploading] = useState(false);
+  const uploading = !!useSeedUpload(profileKey);
   const step = urlStep ?? 1;
   // The topics step is the one that does wait for its own Save: leaving it
   // by any route -- step list, Back, Done, the crumbs, the sidebar, the
@@ -123,7 +123,7 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
         <div>
           {step === 1 && (
             <>
-              <SeedsTab profile={profile} detail={detail} onBusy={setUploading} />
+              <SeedsTab profile={profile} detail={detail} />
               <Foot next={() => go(2)} nextLabel="Next: check the seeds" nextDisabled={uploading} />
             </>
           )}
@@ -227,7 +227,6 @@ function StepTopics({ profile, detail, back, next, onDirty }: { profile: Profile
   const sel = selected ?? new Set<string>();
   const saved = new Set(list.filter((t) => t.on).map((t) => t.id));
   const dirty = selected !== null && (sel.size !== saved.size || [...sel].some((id) => !saved.has(id)));
-  useEffect(() => onDirty(dirty), [dirty, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
   const nNew = list.filter((t) => t.new).length;
   // The saved list (what scans use) against the recomputed one shown here:
@@ -239,13 +238,21 @@ function StepTopics({ profile, detail, back, next, onDirty }: { profile: Profile
   const differs = list.length > 0 && (droppedOn > 0 || detail.topics.some((t) => t.on !== (saved.has(t.id))) || detail.topics.length !== list.length);
 
   // Moves on only once saved: a failed save stays here with its error.
+  // Only if still here: a user who left while it saved was dragged back.
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const save = useAction(async () => {
     const res = await saveTopics(profile.key, [...sel]);
+    toast.success(`Topics saved: ${plural(res.filter((t) => t.on).length, 'topic')} on. They apply from the next scan.`);
+    if (!mounted.current) return;
     setSelected(new Set(res.filter((t) => t.on).map((t) => t.id)));
     await topics.refresh();
-    toast.success(`Topics saved: ${plural(res.filter((t) => t.on).length, 'topic')} on. They apply from the next scan.`);
-    next();
+    if (mounted.current) next();
   });
+  // Not while the save is on its way: leaving then asked "without saving?"
+  // over a save that went through.
+  const unsaved = dirty && !save.busy;
+  useEffect(() => onDirty(unsaved), [unsaved, onDirty]);
   const toggle = (id: string) => setSelected((s) => {
     const n = new Set(s ?? []);
     if (n.has(id)) n.delete(id); else n.add(id);

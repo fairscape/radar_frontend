@@ -19,29 +19,63 @@ function notify() {
 type LeaveGuard = () => Promise<boolean>;
 let leaveGuard: LeaveGuard | null = null;
 let shownUrl = typeof window === 'undefined' ? '/' : window.location.pathname + window.location.search;
+// Each history entry this page made carries its position, so a guarded
+// Back/Forward can be undone with history.go() -- keeping the entries as
+// they were -- instead of pushing a copy of the page (which left a
+// duplicate that the next Back stopped on, and dropped Forward).
+let shownIdx = 0;
+let restoring = false;   // the popstate of our own go() back to the page
+let asking = false;
+
+function entryIdx(state: unknown): number | null {
+  const idx = (state as { idx?: unknown } | null)?.idx;
+  return typeof idx === 'number' ? idx : null;
+}
 
 export function setLeaveGuard(guard: LeaveGuard | null): void {
   leaveGuard = guard;
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('popstate', () => {
+  const start = entryIdx(window.history.state);
+  if (start === null) window.history.replaceState({ ...(window.history.state ?? {}), idx: 0 }, '');
+  shownIdx = start ?? 0;
+  window.addEventListener('popstate', (e) => {
     const target = window.location.pathname + window.location.search;
+    const idx = entryIdx(e.state);
+    if (restoring) {
+      restoring = false;
+      return;
+    }
     const guard = leaveGuard;
     if (!guard || target === shownUrl) {
       shownUrl = target;
+      if (idx !== null) shownIdx = idx;
       notify();
       return;
     }
-    // Back/Forward cannot be cancelled: put the page's URL back, ask, and
-    // only then go where the button pointed.
-    window.history.pushState({}, '', shownUrl);
+    // Back/Forward cannot be cancelled: return to the page's entry, ask,
+    // and only then go where the button pointed.
+    const delta = idx !== null ? shownIdx - idx : null;
+    if (delta) {
+      restoring = true;
+      window.history.go(delta);
+    } else {
+      window.history.pushState({ idx: shownIdx }, '', shownUrl);
+    }
+    if (asking) return;   // a second Back while the question is open
+    asking = true;
     void guard().then((ok) => {
+      asking = false;
       if (!ok) return;
       leaveGuard = null;
-      window.history.replaceState({}, '', target);
-      shownUrl = target;
-      notify();
+      if (delta) {
+        window.history.go(-delta);   // its popstate, unguarded now, shows the page
+      } else {
+        window.history.replaceState({ idx: shownIdx }, '', target);
+        shownUrl = target;
+        notify();
+      }
     });
   });
   window.addEventListener('beforeunload', (e) => {
@@ -62,8 +96,12 @@ export function navigate(to: string, opts: { replace?: boolean; force?: boolean 
     });
     return;
   }
-  if (opts.replace) window.history.replaceState({}, '', to);
-  else window.history.pushState({}, '', to);
+  if (opts.replace) {
+    window.history.replaceState({ idx: shownIdx }, '', to);
+  } else {
+    shownIdx += 1;
+    window.history.pushState({ idx: shownIdx }, '', to);
+  }
   shownUrl = to;
   notify();
 }

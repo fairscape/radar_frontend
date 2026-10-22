@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
   useSyncExternalStore,
   type ButtonHTMLAttributes,
@@ -448,6 +449,13 @@ export function Dialog({
   width?: number;
 }) {
   const id = useId();
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  // Taken while rendering the open: by the effects, an autoFocus button
+  // inside already holds the focus.
+  const before = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  if (open && !wasOpen.current && typeof document !== 'undefined') before.current = document.activeElement as HTMLElement | null;
+  wasOpen.current = open;
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -456,10 +464,39 @@ export function Dialog({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+  // Focus moves into the dialog, Tab stays in it, and closing hands focus
+  // back: it stayed on the button behind the modal, Tab walked the page
+  // underneath, and after Cancel focus was on <body>.
+  useEffect(() => {
+    if (!open) return;
+    const back = before.current;
+    const box = boxRef.current;
+    const focusables = () => Array.from(box?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? []);
+    if (box && !box.contains(document.activeElement)) {
+      const first = focusables().find((el) => !el.closest('.dialog-head')) ?? focusables()[0];
+      first?.focus();
+    }
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !box) return;
+      const els = focusables();
+      if (els.length === 0) return;
+      const first = els[0], last = els[els.length - 1];
+      if (!box.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onTab);
+    return () => {
+      document.removeEventListener('keydown', onTab);
+      if (back && back !== document.body && document.contains(back)) back.focus();
+    };
+  }, [open]);
   if (!open) return null;
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={id} style={{ width }}>
+      <div ref={boxRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={id} style={{ width }}>
         <header className="dialog-head">
           <h2 id={id} className="dialog-title">{title}</h2>
           <IconButton icon="x" label="Close" size="sm" onClick={onClose} />
@@ -516,8 +553,9 @@ export function ConfirmHost() {
       onClose={() => settle(false)}
       footer={
         <>
-          <Button onClick={() => settle(false)}>Cancel</Button>
-          <Button variant={req.danger ? 'danger' : 'primary'} onClick={() => settle(true)} autoFocus>
+          {/* Enter on a destructive question cancels: Delete then Enter deleted. */}
+          <Button onClick={() => settle(false)} autoFocus={!!req.danger}>Cancel</Button>
+          <Button variant={req.danger ? 'danger' : 'primary'} onClick={() => settle(true)} autoFocus={!req.danger}>
             {req.confirmLabel ?? 'Confirm'}
           </Button>
         </>

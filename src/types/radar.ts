@@ -140,6 +140,8 @@ export interface DailyRadarResponse {
   states: Record<string, CardState>;
   /** Papers to review the shared cap left out (at least this many). */
   untriagedNotShown?: number;
+  /** The same, by bucket, as far as the server read; a bucket missing here had none left out. */
+  untriagedNotShownByBucket?: Partial<Record<string, number>>;
 }
 
 export interface VaultStats {

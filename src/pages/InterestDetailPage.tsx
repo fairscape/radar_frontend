@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useProfileDetail, useProfileRuns, useProfiles, useResearchers } from '../api/hooks';
 import {
   afterProfileDeleted,
@@ -197,7 +197,7 @@ function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; deta
     <div className="two-col">
       <Panel title="How this interest works">
         <div className="stack" style={{ fontSize: 13.5, color: 'var(--fg-2)' }}>
-          <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> topics and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed papers. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{profile.seedSimMin.toFixed(3)}</b> or more are as close as your own seeds</>}.</p>
+          <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> topics and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{profile.seedSimMin.toFixed(3)}</b> or more are as close as your own seeds</>}.</p>
           <p>Radar does not scan on a schedule. Press Scan now to look for new papers.</p>
           <p>Saving or dismissing a paper in the feed is recorded as feedback for this {TERMS.interest} and used when it is refit.</p>
         </div>
@@ -228,10 +228,32 @@ function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; deta
   );
 }
 
-/** Interests with a seed upload running; module-wide so leaving and re-entering the tab can't start a second loop. */
-const uploadingSeeds = new Set<string>();
+/**
+ * Seed uploads running, by interest. Module-wide: the loop outlives the
+ * tab or step that started it, and one shown again must still show it
+ * busy (it read idle and let Next check half the seeds).
+ */
+type UploadProgress = { done: number; total: number; current: string };
+const seedUploads = new Map<string, UploadProgress>();
+const seedUploadListeners = new Set<() => void>();
+function setSeedUpload(key: string, p: UploadProgress | null) {
+  if (p) seedUploads.set(key, p); else seedUploads.delete(key);
+  seedUploadListeners.forEach((l) => l());
+}
+function subscribeSeedUploads(cb: () => void) {
+  seedUploadListeners.add(cb);
+  return () => { seedUploadListeners.delete(cb); };
+}
+/** The seed upload running for this interest, if any. */
+export function useSeedUpload(key: string): UploadProgress | null {
+  return useSyncExternalStore(subscribeSeedUploads, () => seedUploads.get(key) ?? null);
+}
+if (typeof window !== 'undefined') {
+  // Closing the tab drops the files not uploaded yet.
+  window.addEventListener('beforeunload', (e) => { if (seedUploads.size > 0) e.preventDefault(); });
+}
 
-export function SeedsTab({ profile, detail, openPicker = 0, onBusy }: { profile: Profile; detail: Detail; openPicker?: number; onBusy?: (busy: boolean) => void }) {
+export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile; detail: Detail; openPicker?: number }) {
   const pickerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (openPicker > 0) pickerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -239,7 +261,7 @@ export function SeedsTab({ profile, detail, openPicker = 0, onBusy }: { profile:
   const health = healthOf(profile);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+  const progress = useSeedUpload(profile.key);
   const [failures, setFailures] = useState<string[]>([]);
   // Coherence only. It used to run recompute-topics too, which switches
   // every topic the new seeds bring in *on* -- widening the next scan
@@ -253,9 +275,7 @@ export function SeedsTab({ profile, detail, openPicker = 0, onBusy }: { profile:
     if (!files || files.length === 0) return;
     // A second drop while a batch uploads ran a second loop: it wiped the
     // first batch's failures and ended the busy state early.
-    if (uploadingSeeds.has(profile.key)) { toast.info('Still uploading the previous files; drop these again when that finishes.'); return; }
-    uploadingSeeds.add(profile.key);
-    onBusy?.(true);
+    if (seedUploads.has(profile.key)) { toast.info('Still uploading the previous files; drop these again when that finishes.'); return; }
     const list = Array.from(files);
     setFailures([]);
     let ok = 0;
@@ -265,7 +285,7 @@ export function SeedsTab({ profile, detail, openPicker = 0, onBusy }: { profile:
     const had = new Set(detail.seeds.map((s) => s.id));
     const already: string[] = [];
     for (let i = 0; i < list.length; i++) {
-      setProgress({ done: i, total: list.length, current: list[i].name });
+      setSeedUpload(profile.key, { done: i, total: list.length, current: list[i].name });
       try {
         const doc = await uploadPdf(list[i], profile.key);
         if (had.has(doc.id)) { already.push(list[i].name); continue; }
@@ -275,9 +295,7 @@ export function SeedsTab({ profile, detail, openPicker = 0, onBusy }: { profile:
         setFailures((f) => [...f, `${list[i].name}: ${errorMessage(e)}`]);
       }
     }
-    setProgress(null);
-    uploadingSeeds.delete(profile.key);
-    onBusy?.(false);
+    setSeedUpload(profile.key, null);
     // Each upload re-fits the interest on the server; the coherence and
     // topic views are what still need a Recompute.
     if (ok > 0) toast.success(`${plural(ok, 'seed')} added. The papers already found were re-scored against the new seeds, so the feed is updated.`);
@@ -446,11 +464,24 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   // Saves and dismisses are where the feed's triage feeds back into scoring.
   const feedbackQ = useQuery(`profiles/${profile.key}/feedback-threshold`, () => getFeedbackThreshold(profile.key));
   const [value, setValue] = useState<number>(profile.threshold);
-  useEffect(() => setValue(profile.threshold), [profile.threshold, profile.key]);
+  // Follow a threshold saved elsewhere (another tab) only over an untouched
+  // value: a typed one was replaced without a word and Save went grey.
+  const followed = useRef({ key: profile.key, threshold: profile.threshold });
+  useEffect(() => {
+    const was = followed.current;
+    followed.current = { key: profile.key, threshold: profile.threshold };
+    setValue((v) => (was.key !== profile.key || Math.abs(v - was.threshold) <= 0.0005 ? profile.threshold : v));
+  }, [profile.threshold, profile.key]);
+  // What is saved, as far as this tab knows: set on a successful save, so
+  // the refetch of the interest is not what ends "unsaved" (until it
+  // landed, Save stayed live and leaving asked about a saved value).
+  const [savedThreshold, setSavedThreshold] = useState(profile.threshold);
+  useEffect(() => setSavedThreshold(profile.threshold), [profile.threshold, profile.key]);
   // The publication years this interest's feed draws from (null = all).
-  const savedYears: YearSpan | null = profile.yearFrom != null ? { from: profile.yearFrom, to: profile.yearTo ?? null } : null;
-  const [years, setYears] = useState<YearSpan | null>(savedYears);
-  useEffect(() => setYears(savedYears), [profile.yearFrom, profile.yearTo, profile.key]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const profileYears: YearSpan | null = profile.yearFrom != null ? { from: profile.yearFrom, to: profile.yearTo ?? null } : null;
+  const [savedYears, setSavedYears] = useState<YearSpan | null>(profileYears);
+  const [years, setYears] = useState<YearSpan | null>(profileYears);
+  useEffect(() => { setYears(profileYears); setSavedYears(profileYears); }, [profile.yearFrom, profile.yearTo, profile.key]);   // eslint-disable-line react-hooks/exhaustive-deps
   const yearsDirty = JSON.stringify(years) !== JSON.stringify(savedYears);
   const storedPapers = scoresQ.data?.papers ?? [];
   const papersInYears = storedPapers.filter((p) => inSpan(p.year, years));
@@ -465,6 +496,7 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   const needsBackfill = !!savedYears && !yearsDirty && (oldestStored == null || fetchStart(savedYears) < oldestStored);
   const saveYears = useAction(async () => {
     await updateProfileYears(profile.key, years);
+    setSavedYears(years);
     toast.success(years ? `The feed now shows papers from ${yearsLabel(years)}.` : 'The feed shows papers from any year.');
   });
   const fetchYears = useAction(async () => {
@@ -477,13 +509,16 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   const [axisLo, axisHi] = axisFor(shownScores, band, scoresQ.data?.score_range ?? null);
   const save = useAction(async () => {
     await updateProfileThreshold(profile.key, Number(value.toFixed(3)));
+    setSavedThreshold(Number(value.toFixed(3)));
     toast.success(`Threshold saved as ${value.toFixed(3)}.`);
   });
-  const dirty = Math.abs(value - profile.threshold) > 0.0005;
+  const dirty = Math.abs(value - savedThreshold) > 0.0005;
   const [exactOk, setExactOk] = useState(true);
   // Threshold and years wait for their own Save: switching tab, Done on
   // Edit interest, the sidebar or Back dropped a typed value unseen.
-  const unsaved = dirty || yearsDirty || !exactOk;
+  // An emptied or invalid box over the saved value loses nothing.
+  // Nor while a save is on its way: that asked "not saved" beside "saved".
+  const unsaved = (dirty || yearsDirty) && !save.busy && !saveYears.busy;
   useEffect(() => {
     if (!unsaved) return;
     setLeaveGuard(() => confirmDialog({
@@ -500,7 +535,7 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
       description="The similarity a paper needs to reach your feed. Scans keep every paper they find; the threshold decides which ones you see, and saving applies at once. The shaded band is where your own seed papers score; the suggested value sits just below it."
       actions={
         <>
-          <Button size="sm" variant="ghost" onClick={() => setValue(profile.threshold)} disabled={!dirty}>Reset</Button>
+          <Button size="sm" variant="ghost" onClick={() => setValue(savedThreshold)} disabled={!dirty}>Reset</Button>
           <Button size="sm" variant="primary" onClick={() => save.run()} loading={save.busy} disabled={!dirty || !exactOk} title={exactOk ? undefined : 'Enter a threshold between 0 and 1'}>Save threshold</Button>
         </>
       }

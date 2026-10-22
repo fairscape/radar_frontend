@@ -3,7 +3,7 @@ import { useDrafts, useProfiles, useResearcher, useResearchers, useVaultDocs } f
 import { uploadPdf } from '../api/endpoints/vault';
 import { ApiError } from '../api/client';
 import { createInterestFromResearcher } from '../api/endpoints/researchers';
-import { addSeeds, removeSeed as removeSeedOnServer, saveTopics } from '../api/endpoints/profiles';
+import { addSeeds, getProfileDetail, removeSeed as removeSeedOnServer, saveTopics } from '../api/endpoints/profiles';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import { YearRange } from '../ui/YearRange';
@@ -1093,7 +1093,8 @@ async function saveForLater() {
       await saveTopics(slug, ids);
       invalidate(`draft/${slug}/`);
     } catch (e) {
-      toast.error(`The draft is kept, but its topic choices were not saved: ${errorMessage(e)}`);
+      if (e instanceof ApiError && e.status === 404) toast.info('This draft is no longer there: it was saved or deleted, perhaps in another tab.');
+      else toast.error(`The draft is kept, but its topic choices were not saved: ${errorMessage(e)}`);
     }
   }
   navigate(paths.interests);
@@ -1200,10 +1201,24 @@ function StepThreshold({ state }: { state: DraftState }) {
 
   const save = useAction(async () => {
     const years = state.years;
-    const profile = await commitDraft({
-      slug, threshold: Number(value.toFixed(3)), selected_topic_ids: state.selectedTopicIds ?? [], cron: DEFAULT_CRON, tz: DEFAULT_TZ,
-      years: years ? { year_from: years.from, year_to: years.to } : null,
-    });
+    let profile;
+    try {
+      profile = await commitDraft({
+        slug, threshold: Number(value.toFixed(3)), selected_topic_ids: state.selectedTopicIds ?? [], cron: DEFAULT_CRON, tz: DEFAULT_TZ,
+        years: years ? { year_from: years.from, year_to: years.to } : null,
+      });
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 404) throw e;
+      // Saved or deleted in another tab: "draft not found" said neither.
+      const now = await getProfileDetail(slug).catch(() => null);
+      if (now && !now.profile.isDraft) {
+        toast.info(`"${now.profile.name}" was already saved, in another tab.`);
+        navigate(paths.interest(now.profile.key), { replace: true });
+        reset();
+        return;
+      }
+      throw new Error('This draft was deleted, perhaps in another tab.');
+    }
     // Leave the wizard before clearing its state, so no effect here can
     // re-adopt the interest we just committed from the ``?draft=`` URL.
     navigate(paths.interest(profile.key), { replace: true });
