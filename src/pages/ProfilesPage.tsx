@@ -80,6 +80,9 @@ export function MarkBadge({ mark }: { mark: ResearcherMark | null }) {
 /** Mark as you / following / neither. Saves on change; the list re-sorts. */
 export function MarkSelect({ r, size = 'sm' }: { r: Researcher; size?: 'sm' | 'md' }) {
   const [busy, setBusy] = useState(false);
+  // One person is the user: marking another as "You" takes the mark off
+  // the first, which the toast says rather than leaving them to notice.
+  const { data: all } = useResearchers();
   // Shown value: the choice at once (a controlled select snapped back to the
   // old mark until the list was re-read), the server's once it answers.
   const [value, setValue] = useState<string>(r.mark ?? '');
@@ -96,8 +99,9 @@ export function MarkSelect({ r, size = 'sm' }: { r: Researcher; size?: 'sm' | 'm
         setValue(mark ?? '');
         setBusy(true);
         try {
+          const previousSelf = mark === 'self' ? (all ?? []).find((o) => o.mark === 'self' && o.id !== r.id) : undefined;
           await setResearcherMark(r.id, mark);
-          toast.success(mark ? `${r.name} marked as ${MARK_LABEL[mark].toLowerCase()}.` : `Mark removed from ${r.name}.`);
+          toast.success(mark ? `${r.name} marked as ${MARK_LABEL[mark].toLowerCase()}.${previousSelf ? ` ${previousSelf.name} is no longer marked as you.` : ''}` : `Mark removed from ${r.name}.`);
         } catch (err) {
           setValue(r.mark ?? '');
           toast.error(`Couldn't save the mark: ${errorMessage(err)}`);

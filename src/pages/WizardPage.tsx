@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDrafts, useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
+import { ApiError } from '../api/client';
 import { createInterestFromResearcher } from '../api/endpoints/researchers';
 import { addSeeds, removeSeed as removeSeedOnServer } from '../api/endpoints/profiles';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
@@ -111,7 +112,12 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
         return;
       }
       resetDraft();
-      update({ slug: row.key, name: row.name, step: 1, source: 'upload' });
+      // A pasted or bookmarked ``&step=``: honoured as far as the draft
+      // allows -- the check and the topics need seeds; the threshold step
+      // needs topics chosen, which this tab does not hold yet, so step 4
+      // opens on the topics. Without this the link always landed on step 1.
+      const step = urlStep != null && row.seeds > 0 ? Math.min(Math.max(1, Math.floor(urlStep)), 3) : 1;
+      update({ slug: row.key, name: row.name, step, source: 'upload' });
       setResuming(true);
       return;
     }
@@ -140,7 +146,7 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
       }
     }
     if (!draftSlug && slug) navigate(paths.wizard(slug), { replace: true });
-  }, [draftSlug, state.slug, profiles, update]);
+  }, [draftSlug, state.slug, profiles, update, urlStep]);
 
   useEffect(() => {
     if (resuming && state.slug === draftSlug) setResuming(false);
@@ -940,7 +946,9 @@ function useSeedUmls(slug: string) {
           invalidate(`draft/${slug}/topics`);
         }
       } catch (e) {
-        if (alive) setError(errorMessage(e));
+        // The draft is gone (deleted in another tab): say so, not "profile
+        // not found for current user".
+        if (alive) setError(e instanceof ApiError && e.status === 404 ? 'This draft no longer exists: it was deleted, perhaps in another tab. Start a new interest from the Interests page.' : errorMessage(e));
       }
     }
     void poll();

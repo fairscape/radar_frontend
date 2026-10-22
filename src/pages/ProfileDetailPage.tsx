@@ -28,7 +28,11 @@ type Tab = 'suggested' | 'papers' | 'interests' | 'about';
  * preselected.
  */
 export function ProfileDetailPage({ id }: { id: number }) {
-  const { data, loading, error, refresh } = useResearcher(id);
+  // Set while Forget runs: the delete invalidates every researcher query,
+  // and this page's (the row, its works, its suggestions) refetched a row
+  // that was gone -- three 404s before the navigation away landed.
+  const [gone, setGone] = useState(false);
+  const { data, loading, error, refresh } = useResearcher(gone ? null : id);
   const [tab, setTab] = useState<Tab>('suggested');
   const running = useRunningJob('import', researcherJobKey(id));
   const r = data?.researcher;
@@ -63,15 +67,18 @@ export function ProfileDetailPage({ id }: { id: number }) {
       danger: true,
     });
     if (!ok) return;
+    setGone(true);
     try {
       await deleteResearcher(r.id);
       toast.success(`Forgot ${r.name}.`);
       navigate(paths.profiles);
     } catch (e) {
+      setGone(false);
       toast.error(`Couldn't remove the ${TERMS.profile}: ${errorMessage(e)}`);
     }
   }
 
+  if (gone) return <div className="page"><LoadingRows rows={2} label="Forgetting" /></div>;
   if (error && !data) {
     const notFound = /404|not found/i.test(errorMessage(error));
     return (

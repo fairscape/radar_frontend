@@ -208,6 +208,13 @@ function StepTopics({ profile, detail, back, next }: { profile: Profile; detail:
   const saved = new Set(list.filter((t) => t.on).map((t) => t.id));
   const dirty = selected !== null && (sel.size !== saved.size || [...sel].some((id) => !saved.has(id)));
   const nNew = list.filter((t) => t.new).length;
+  // The saved list (what scans use) against the recomputed one shown here:
+  // after the seeds changed they differ, and "8 of 18 on · 17 on now" read
+  // as the page losing ticks.
+  const savedOn = detail.topics.filter((t) => t.on).length;
+  const listIds = new Set(list.map((t) => t.id));
+  const droppedOn = detail.topics.filter((t) => t.on && !listIds.has(t.id)).length;
+  const differs = list.length > 0 && (droppedOn > 0 || detail.topics.some((t) => t.on !== (saved.has(t.id))) || detail.topics.length !== list.length);
 
   // Moves on only once saved: a failed save stays here with its error.
   const save = useAction(async () => {
@@ -252,8 +259,13 @@ function StepTopics({ profile, detail, back, next }: { profile: Profile; detail:
               Your seeds brought in {plural(nNew, 'new topic')}, marked <b>new</b>. They start off; switch on the ones you want searched.
             </Callout>
           )}
+          {differs && (
+            <Callout tone="info">
+              This list is recomputed from the current seeds; the {TERMS.interest} still searches by the list saved with it ({plural(savedOn, 'topic')} on{droppedOn > 0 ? `, ${droppedOn} of them not in this list any more` : ''}). Saving here replaces the saved list with the ticks above.
+            </Callout>
+          )}
           <div className="row spread" style={{ margin: '10px 0' }}>
-            <span className="small muted">{sel.size} of {list.length} on · {detail.topics.filter((t) => t.on).length} on now</span>
+            <span className="small muted" title={`${sel.size} ticked here; the saved list the next scan would use has ${savedOn} on.`}>{sel.size} of {list.length} on · {savedOn} on now</span>
             <div className="row">
               <Button size="sm" variant="ghost" onClick={() => setSelected(new Set(list.map((t) => t.id)))}>Select all</Button>
               <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>

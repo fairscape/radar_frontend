@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useProfiles, useResearchers, useVaultStats } from '../api/hooks';
 import { TERMS } from '../lib/terms';
 import { daysLabel } from '../lib/format';
@@ -75,14 +75,22 @@ function Sidebar({ route, email }: { route: Route; email: string }) {
   };
   const activeKey = route.name === 'interest' || route.name === 'interestEdit' ? route.key : route.name === 'wizard' ? route.draft : null;
   const navActive = (name: Route['name']) => route.name === name || (name === 'profiles' && route.name === 'profile');
+  // On a phone the sidebar is a bar and the navigation unfolds from a menu
+  // button (CSS under 760px; the button is hidden above). It folds again
+  // on every navigation.
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => { setNavOpen(false); }, [route]);
 
   return (
-    <aside className="sidebar">
-      <Link href={paths.home} className={`sidebar-brand ${route.name === 'home' ? 'active' : ''}`} title="What you can do in Radar">
-        <span className="brand-mark"><Icon name="radar" size={15} /></span>
-        <span className="brand-name">Radar</span>
-        <Icon name="help" size={14} className="brand-help" />
-      </Link>
+    <aside className={`sidebar ${navOpen ? '' : 'nav-closed'}`}>
+      <div className="sidebar-top">
+        <Link href={paths.home} className={`sidebar-brand ${route.name === 'home' ? 'active' : ''}`} title="What you can do in Radar">
+          <span className="brand-mark"><Icon name="radar" size={15} /></span>
+          <span className="brand-name">Radar</span>
+          <Icon name="help" size={14} className="brand-help" />
+        </Link>
+        <IconButton className="sidebar-menu" icon={navOpen ? 'x' : 'list'} label={navOpen ? 'Hide the menu' : 'Show the menu'} aria-expanded={navOpen} onClick={() => setNavOpen((o) => !o)} />
+      </div>
       <nav className="nav" aria-label="Main">
         {NAV.map((n) => (
           <Link key={n.name} href={n.href} className={`nav-item ${navActive(n.name) ? 'active' : ''}`} title={n.hint}>

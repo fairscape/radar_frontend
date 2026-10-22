@@ -143,14 +143,13 @@ export function NumberInput({
         const n = parse(e.target.value);
         if (n != null && inRange(n)) onChange(n);
       }}
+      title={min != null || max != null ? `${min != null && max != null ? `Between ${min} and ${max}` : min != null ? `At least ${min}` : `At most ${max}`}` : undefined}
       onBlur={(e) => {
+        // Nothing readable, or out of range: back to the last accepted
+        // value. Clamping instead turned 1.5 into 1 without a word, and 1
+        // is a threshold nothing reaches.
         const n = parse(text);
-        if (n == null) setText(show(value));
-        else if (!inRange(n)) {
-          const c = Math.max(min ?? -Infinity, Math.min(max ?? Infinity, n));
-          setText(show(c));
-          onChange(c);
-        }
+        if (n == null || !inRange(n)) setText(show(value));
         onBlur?.(e);
       }}
     />

@@ -237,10 +237,15 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     setFailures([]);
     let ok = 0;
     const unmatched: string[] = [];
+    // A PDF that is one of the seeds already: nothing is added, and the
+    // toast used to say "1 seed added" all the same.
+    const had = new Set(detail.seeds.map((s) => s.id));
+    const already: string[] = [];
     for (let i = 0; i < list.length; i++) {
       setProgress({ done: i, total: list.length, current: list[i].name });
       try {
         const doc = await uploadPdf(list[i], profile.key);
+        if (had.has(doc.id)) { already.push(list[i].name); continue; }
         if (isUnmatched(doc.id)) unmatched.push(list[i].name);
         ok += 1;
       } catch (e) {
@@ -252,6 +257,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     // Each upload re-fits the interest on the server; the coherence and
     // topic views are what still need a Recompute.
     if (ok > 0) toast.success(`${plural(ok, 'seed')} added. The papers already found were re-scored against the new seeds, so the feed is updated.`);
+    if (already.length > 0) toast.info(`Already a seed here: ${already.join(', ')}.`);
     noteUnmatchedUploads(unmatched, 'interest');
   }
 
@@ -366,7 +372,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
                     <Badge>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge>
                     {t.profile === 'interest' && t.source !== 'researcher' && <> <Badge tone="info" title={topicProfileNote(t.profile) ?? undefined}>Profile</Badge></>}
                   </td>
-                  <td className="r">{t.count}</td>
+                  <td className="r">{t.papers ?? t.count}</td>
                   <td>
                     {t.on ? <Badge tone="ok">Queried</Badge> : <Badge>Off</Badge>}
                     {t.profile === 'not_interest' && <> <Badge tone="warn" title={topicProfileNote(t.profile) ?? undefined}>Not wanted</Badge></>}
@@ -422,7 +428,8 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   const [years, setYears] = useState<YearSpan | null>(savedYears);
   useEffect(() => setYears(savedYears), [profile.yearFrom, profile.yearTo, profile.key]);   // eslint-disable-line react-hooks/exhaustive-deps
   const yearsDirty = JSON.stringify(years) !== JSON.stringify(savedYears);
-  const papersInYears = (scoresQ.data?.papers ?? []).filter((p) => inSpan(p.year, years));
+  const storedPapers = scoresQ.data?.papers ?? [];
+  const papersInYears = storedPapers.filter((p) => inSpan(p.year, years));
   const shownScores = years && scoresQ.data?.papers ? papersInYears.map((p) => p.score) : scoresQ.data?.scores ?? [];
   const oldestStored = (scoresQ.data?.papers ?? []).reduce<number | null>((m, p) => (p.year != null && (m == null || p.year < m) ? p.year : m), null);
   // Against the first year a backfill can reach: a range longer than 15
@@ -475,10 +482,15 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
       </div>
       {scoresQ.error && <ErrorBox compact message={errorMessage(scoresQ.error)} onRetry={scoresQ.refresh} />}
       {scoresQ.loading && <LoadingRows rows={3} />}
-      {scoresQ.data && scoresQ.data.scores.length === 0 && (
+      {scoresQ.data && scoresQ.data.scores.length === 0 && storedPapers.length === 0 && (
         <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Run a scan first, then come back to tune the threshold." action={<Button icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} />
       )}
-      {scoresQ.data && scoresQ.data.scores.length > 0 && (
+      {scoresQ.data && scoresQ.data.scores.length === 0 && storedPapers.length > 0 && (
+        // Papers are stored, none from the saved years: the histogram follows
+        // the years (as the feed does), the list below shows what is stored.
+        <EmptyState compact icon="radar" title={`No stored papers from ${savedYears ? yearsLabel(savedYears) : 'these years'}`} body={`${plural(storedPapers.length, 'paper')} from other years ${storedPapers.length === 1 ? 'is' : 'are'} stored and hidden from the feed by the year range. Widen the range, or fetch papers from these years.`} />
+      )}
+      {scoresQ.data && (scoresQ.data.scores.length > 0 || (years && papersInYears.length > 0)) && (
         <>
           {suggested != null && Math.abs(suggested - value) > 0.0005 && (
             <div className="row" style={{ marginBottom: 10 }}>
