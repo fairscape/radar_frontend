@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useResearcher, useResearcherSuggestions } from '../api/hooks';
+import { ApiError } from '../api/client';
 import { createInterestFromResearcher, deleteResearcher, getResearcherWorks } from '../api/endpoints/researchers';
 import { resetDraft, setDraft } from '../lib/draft';
 import { errorMessage, fmtDateTime, fmtRelative, plural } from '../lib/format';
@@ -79,8 +80,11 @@ export function ProfileDetailPage({ id }: { id: number }) {
   }
 
   if (gone) return <div className="page"><LoadingRows rows={2} label="Forgetting" /></div>;
-  if (error && !data) {
-    const notFound = /404|not found/i.test(errorMessage(error));
+  // A 404 wins over cached data: after Forget, browser Back came here with
+  // the forgotten profile still cached and showed it, buttons and all.
+  const notFoundErr = error instanceof ApiError && error.status === 404;
+  if (error && (!data || notFoundErr)) {
+    const notFound = notFoundErr || /404|not found/i.test(errorMessage(error));
     return (
       <div className="page">
         {notFound

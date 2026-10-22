@@ -447,7 +447,11 @@ function ResearcherSeedPicker({ name, preselect }: { name: string; preselect: nu
   const { update } = useDraft();
   const list = useResearchers();
   const [id, setId] = useState<number | null>(preselect);
-  const chosenId = id ?? (list.data && list.data.length > 0 ? list.data[0].id : null);
+  // A preselected id that is not in the list (a forgotten profile, from a
+  // stale page) is not chosen: the select showed another person while the
+  // papers below were the forgotten one's.
+  const known = id != null && (!list.data || list.data.some((r) => r.id === id)) ? id : null;
+  const chosenId = known ?? (list.data && list.data.length > 0 ? list.data[0].id : null);
   const detail = useResearcher(chosenId);
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const papers = detail.data?.papers ?? [];
@@ -623,7 +627,11 @@ function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid
 function AddFromResearcher({ slug, seedIds, onAdded }: { slug: string; seedIds: Set<string>; onAdded: () => void }) {
   const list = useResearchers();
   const [id, setId] = useState<number | null>(null);
-  const chosenId = id ?? (list.data && list.data.length > 0 ? list.data[0].id : null);
+  // A preselected id that is not in the list (a forgotten profile, from a
+  // stale page) is not chosen: the select showed another person while the
+  // papers below were the forgotten one's.
+  const known = id != null && (!list.data || list.data.some((r) => r.id === id)) ? id : null;
+  const chosenId = known ?? (list.data && list.data.length > 0 ? list.data[0].id : null);
   const detail = useResearcher(chosenId);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   useEffect(() => { setPicked(new Set()); }, [chosenId]);

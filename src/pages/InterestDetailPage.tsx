@@ -430,7 +430,10 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   const yearsDirty = JSON.stringify(years) !== JSON.stringify(savedYears);
   const storedPapers = scoresQ.data?.papers ?? [];
   const papersInYears = storedPapers.filter((p) => inSpan(p.year, years));
-  const shownScores = years && scoresQ.data?.papers ? papersInYears.map((p) => p.score) : scoresQ.data?.scores ?? [];
+  // From the paper list whenever there is one: the server's ``scores`` are
+  // filtered by the *saved* years, so a range only tried here (above all
+  // "Any year") drew the saved range's histogram, or none.
+  const shownScores = scoresQ.data?.papers ? papersInYears.map((p) => p.score) : scoresQ.data?.scores ?? [];
   const oldestStored = (scoresQ.data?.papers ?? []).reduce<number | null>((m, p) => (p.year != null && (m == null || p.year < m) ? p.year : m), null);
   // Against the first year a backfill can reach: a range longer than 15
   // years fetches only its last 15, so comparing with ``from`` kept the
@@ -453,6 +456,7 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
     toast.success(`Threshold saved as ${value.toFixed(3)}.`);
   });
   const dirty = Math.abs(value - profile.threshold) > 0.0005;
+  const [exactOk, setExactOk] = useState(true);
   return (
     <Panel
       title="Threshold"
@@ -460,7 +464,7 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
       actions={
         <>
           <Button size="sm" variant="ghost" onClick={() => setValue(profile.threshold)} disabled={!dirty}>Reset</Button>
-          <Button size="sm" variant="primary" onClick={() => save.run()} loading={save.busy} disabled={!dirty}>Save threshold</Button>
+          <Button size="sm" variant="primary" onClick={() => save.run()} loading={save.busy} disabled={!dirty || !exactOk} title={exactOk ? undefined : 'Enter a threshold between 0 and 1'}>Save threshold</Button>
         </>
       }
     >
@@ -485,12 +489,11 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
       {scoresQ.data && scoresQ.data.scores.length === 0 && storedPapers.length === 0 && (
         <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Run a scan first, then come back to tune the threshold." action={<Button icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} />
       )}
-      {scoresQ.data && scoresQ.data.scores.length === 0 && storedPapers.length > 0 && (
-        // Papers are stored, none from the saved years: the histogram follows
-        // the years (as the feed does), the list below shows what is stored.
-        <EmptyState compact icon="radar" title={`No stored papers from ${savedYears ? yearsLabel(savedYears) : 'these years'}`} body={`${plural(storedPapers.length, 'paper')} from other years ${storedPapers.length === 1 ? 'is' : 'are'} stored and hidden from the feed by the year range. Widen the range, or fetch papers from these years.`} />
+      {scoresQ.data && shownScores.length === 0 && storedPapers.length > 0 && (
+        // Papers are stored, none from the years chosen above.
+        <EmptyState compact icon="radar" title={`No stored papers from ${years ? yearsLabel(years) : 'these years'}`} body={`${plural(storedPapers.length, 'paper')} from other years ${storedPapers.length === 1 ? 'is' : 'are'} stored${yearsDirty ? ' outside this range' : ' and hidden from the feed by the year range'}. Widen the range, or fetch papers from these years.`} />
       )}
-      {scoresQ.data && (scoresQ.data.scores.length > 0 || (years && papersInYears.length > 0)) && (
+      {scoresQ.data && shownScores.length > 0 && (
         <>
           {suggested != null && Math.abs(suggested - value) > 0.0005 && (
             <div className="row" style={{ marginBottom: 10 }}>
@@ -518,7 +521,7 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
       )}
       <div className="row" style={{ marginTop: 12 }}>
         <Field label="Exact value" inline>
-          <NumberInput min={0} max={1} step={0.001} digits={3} value={value} onChange={setValue} style={{ width: 110 }} />
+          <NumberInput min={0} max={1} step={0.001} digits={3} value={value} onChange={setValue} onValidity={setExactOk} style={{ width: 110 }} />
         </Field>
       </div>
     </Panel>
@@ -616,6 +619,8 @@ function RankRefinementTab({ profile }: { profile: Profile }) {
 export function ScanDialog({ profile, open, onClose }: { profile: Profile; open: boolean; onClose: () => void }) {
   const [days, setDays] = useState(7);
   const [limit, setLimit] = useState(500);
+  const [daysOk, setDaysOk] = useState(true);
+  const [limitOk, setLimitOk] = useState(true);
   const go = useAction(async () => {
     await startScan(profile, { days, limit });
     invalidate(`profiles/${profile.key}/runs`);
@@ -627,13 +632,13 @@ export function ScanDialog({ profile, open, onClose }: { profile: Profile; open:
       open={open}
       title={`Scan "${profile.name}" now`}
       onClose={onClose}
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" icon="play" onClick={() => go.run()} loading={go.busy}>Start scan</Button></>}
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" icon="play" onClick={() => go.run()} loading={go.busy} disabled={!daysOk || !limitOk} title={daysOk && limitOk ? undefined : 'Days 1–365, papers 1–5000'}>Start scan</Button></>}
     >
       <div className="stack">
         <p>Radar will query OpenAlex for recent papers on this {TERMS.interest}'s topics, score them, and add the results to your feed. This usually takes a few minutes.</p>
         <div className="row" style={{ gap: 12 }}>
-          <Field label="Look back (days)"><NumberInput integer min={1} max={365} value={days} onChange={setDays} /></Field>
-          <Field label="Max papers to fetch"><NumberInput integer min={1} max={5000} step={50} value={limit} onChange={setLimit} /></Field>
+          <Field label="Look back (days)"><NumberInput integer min={1} max={365} value={days} onChange={setDays} onValidity={setDaysOk} /></Field>
+          <Field label="Max papers to fetch"><NumberInput integer min={1} max={5000} step={50} value={limit} onChange={setLimit} onValidity={setLimitOk} /></Field>
         </div>
         {go.error && <ErrorBox compact message={go.error} />}
         <Callout tone="info">You can leave this page; progress shows at the top of every screen.</Callout>

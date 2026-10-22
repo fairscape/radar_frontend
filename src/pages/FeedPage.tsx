@@ -381,6 +381,8 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
   const [key, setKey] = useState(defaultKey);
   const [days, setDays] = useState(7);
   const [limit, setLimit] = useState(500);
+  const [daysOk, setDaysOk] = useState(true);
+  const [limitOk, setLimitOk] = useState(true);
   const [busy, setBusy] = useState(false);
   const jobs = useJobs();
   const already = jobs.find((j) => j.kind === 'scan' && j.profileKey === key && j.status === 'running');
@@ -408,13 +410,13 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
         </Select>
       </Field>
       <Field label="Look back (days)">
-        <NumberInput integer min={1} max={365} value={days} onChange={setDays} />
+        <NumberInput integer min={1} max={365} value={days} onChange={setDays} onValidity={setDaysOk} />
       </Field>
       <Field label="Max papers to fetch">
-        <NumberInput integer min={1} max={5000} step={50} value={limit} onChange={setLimit} />
+        <NumberInput integer min={1} max={5000} step={50} value={limit} onChange={setLimit} onValidity={setLimitOk} />
       </Field>
       <div className="row">
-        <Button variant="primary" icon="play" onClick={go} loading={busy} disabled={!!already} title={already ? 'A scan is already running for this interest' : undefined}>
+        <Button variant="primary" icon="play" onClick={go} loading={busy} disabled={!!already || !daysOk || !limitOk} title={already ? 'A scan is already running for this interest' : !daysOk || !limitOk ? 'Days 1–365, papers 1–5000' : undefined}>
           {already ? 'Already running' : 'Start scan'}
         </Button>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>

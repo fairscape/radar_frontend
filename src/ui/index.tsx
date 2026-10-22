@@ -105,6 +105,7 @@ export function NumberInput({
   digits,
   className,
   onBlur,
+  onValidity,
   ...rest
 }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max' | 'type'> & {
   value: number;
@@ -114,12 +115,21 @@ export function NumberInput({
   integer?: boolean;
   /** Decimals to show a value set from outside (a slider) with. */
   digits?: number;
+  /** Whether the text typed is a number in range. While it is not, the
+   * parent still holds the last value that was -- for "1.5" that is the
+   * prefix "1", for "400" days it is 40 -- so a Save or Start button must
+   * be disabled, or it submits a number the user never entered. */
+  onValidity?: (ok: boolean) => void;
 }) {
   const show = (v: number) => (digits != null ? String(Number(v.toFixed(digits))) : String(v));
   const [text, setText] = useState(show(value));
   // Follow outside changes (a slider, Reset) unless the text already means it.
   useEffect(() => {
-    setText((t) => (t.trim() !== '' && Number(t) === value ? t : show(value)));
+    setText((t) => {
+      if (t.trim() !== '' && Number(t) === value) return t;
+      onValidity?.(true);   // replaced by the outside value, which is valid
+      return show(value);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
   const parse = (t: string): number | null => {
@@ -141,7 +151,9 @@ export function NumberInput({
       onChange={(e) => {
         setText(e.target.value);
         const n = parse(e.target.value);
-        if (n != null && inRange(n)) onChange(n);
+        const ok = n != null && inRange(n);
+        onValidity?.(ok);
+        if (ok) onChange(n);
       }}
       title={min != null || max != null ? `${min != null && max != null ? `Between ${min} and ${max}` : min != null ? `At least ${min}` : `At most ${max}`}` : undefined}
       onBlur={(e) => {
@@ -149,7 +161,7 @@ export function NumberInput({
         // value. Clamping instead turned 1.5 into 1 without a word, and 1
         // is a threshold nothing reaches.
         const n = parse(text);
-        if (n == null || !inRange(n)) setText(show(value));
+        if (n == null || !inRange(n)) { setText(show(value)); onValidity?.(true); }
         onBlur?.(e);
       }}
     />
