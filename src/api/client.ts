@@ -59,6 +59,20 @@ export function onSessionLost(cb: () => void): () => void {
   return () => { sessionLostListeners.delete(cb); };
 }
 
+const writeRejectedListeners = new Set<() => void>();
+
+/**
+ * Called when a write is refused for the state it found: 404 (deleted in
+ * another tab), 409 (busy, or changed meanwhile), 400 (e.g. "not a seed",
+ * removed in another tab). The page that sent it was showing state the
+ * server no longer has -- a deleted interest stayed usable, a seed list
+ * stayed one long (round 19) -- so ``App`` re-reads what is on screen.
+ */
+export function onWriteRejected(cb: () => void): () => void {
+  writeRejectedListeners.add(cb);
+  return () => { writeRejectedListeners.delete(cb); };
+}
+
 function looksLikeLoginPage(resp: Response, body: unknown): boolean {
   if (typeof body !== 'string') return false;
   const ct = resp.headers.get('content-type') ?? '';
@@ -83,6 +97,9 @@ async function request<T>(
   });
   const body = await parseBody(resp);
   if (!resp.ok) {
+    if ((init.method ?? 'GET') !== 'GET' && [400, 404, 409].includes(resp.status)) {
+      writeRejectedListeners.forEach((cb) => cb());
+    }
     throw new ApiError(
       `${init.method ?? 'GET'} ${path} failed (${resp.status})`,
       resp.status,

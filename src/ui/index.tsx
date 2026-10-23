@@ -10,13 +10,14 @@ import {
   useState,
   useSyncExternalStore,
   type ButtonHTMLAttributes,
+  type MouseEvent as ReactMouseEvent,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
 import { Icon, type IconName } from './Icon';
-import { dismissToast, useToasts } from '../lib/toast';
+import { dismissToast, toast, useToasts } from '../lib/toast';
 import { errorMessage, swatchFor } from '../lib/format';
 
 export { Icon } from './Icon';
@@ -32,6 +33,19 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
   icon?: IconName;
   iconRight?: IconName;
+  /** Act on every click of a quick series too (a stepper). */
+  repeat?: boolean;
+}
+
+/**
+ * The second click of a double click is dropped. A button whose click takes
+ * its row away (Save or Dismiss on a feed card, striking a topic) used to
+ * have that click land on the row moved up under it: two papers triaged
+ * for one (round 19). ``detail`` counts the clicks of one quick series.
+ */
+function firstClickOnly<E extends ReactMouseEvent<HTMLButtonElement>>(onClick: ((e: E) => void) | undefined, repeat?: boolean) {
+  if (!onClick || repeat) return onClick;
+  return (e: E) => { if (e.detail < 2) onClick(e); };
 }
 
 export function Button({
@@ -44,6 +58,8 @@ export function Button({
   children,
   disabled,
   type = 'button',
+  repeat,
+  onClick,
   ...rest
 }: ButtonProps) {
   const cls = ['btn', `btn-${variant}`, `btn-${size}`, loading ? 'is-loading' : '', className ?? '']
@@ -51,7 +67,7 @@ export function Button({
     .join(' ');
   const iconSize = size === 'sm' ? 14 : 16;
   return (
-    <button type={type} className={cls} disabled={disabled || loading} aria-busy={loading || undefined} {...rest}>
+    <button type={type} className={cls} disabled={disabled || loading} aria-busy={loading || undefined} onClick={firstClickOnly(onClick, repeat)} {...rest}>
       {loading ? <Spinner size={iconSize} /> : icon ? <Icon name={icon} size={iconSize} /> : null}
       {children != null && <span className="btn-label">{children}</span>}
       {iconRight && !loading && <Icon name={iconRight} size={iconSize} />}
@@ -64,14 +80,17 @@ export function IconButton({
   label,
   size = 'md',
   className,
+  repeat,
+  onClick,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; label: string; size?: 'sm' | 'md' }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; label: string; size?: 'sm' | 'md'; repeat?: boolean }) {
   return (
     <button
       type="button"
       className={`icon-btn icon-btn-${size} ${className ?? ''}`}
       aria-label={label}
       title={label}
+      onClick={firstClickOnly(onClick, repeat)}
       {...rest}
     >
       <Icon name={icon} size={size === 'sm' ? 14 : 16} />
@@ -601,9 +620,29 @@ export function Toaster() {
 // --- Misc hooks -------------------------------------------------------------
 
 /** Track an async action's busy + error state for one control. */
+/**
+ * Clear an action's error once what it acted on is edited: the error of a
+ * failed save stayed under a value changed since, and after a Reset to the
+ * saved one (only Settings cleared its own).
+ */
+export function useClearOnChange(action: { clearError: () => void }, deps: unknown[]): void {
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    action.clearError();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+
 export function useAction<A extends unknown[]>(fn: (...args: A) => Promise<void>) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // An action that fails after its page is gone -- Save, then a sidebar
+  // link while it is on its way (no guard asks then) -- set an error no
+  // one would see: the change was lost without a word (round 19). It
+  // comes up as a toast instead.
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const run = useCallback(
     async (...args: A) => {
       setBusy(true);
@@ -611,7 +650,8 @@ export function useAction<A extends unknown[]>(fn: (...args: A) => Promise<void>
       try {
         await fn(...args);
       } catch (e) {
-        setError(errorMessage(e));
+        if (mounted.current) setError(errorMessage(e));
+        else toast.error(`Couldn't finish what you started on the page you left: ${errorMessage(e)}`);
       } finally {
         setBusy(false);
       }

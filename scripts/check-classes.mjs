@@ -17,7 +17,7 @@ const RULES = [
   {
     name: 'score shown rounded to nearest',
     why: 'a score beside a bar must be shown rounded down: use fmtScore (lib/format.ts)',
-    re: /\b(score|similarity|centroidCos|score_blended|score_raw)\b[\w?.)\]! ]*\)?\.toFixed\(/,
+    re: /\b(score|similarity|centroidCos|score_blended|score_raw|coh|seedSimMin|seedSimMax|seed_similarity\.(?:min|max)|band\.(?:min|max))\b[\w?.)\]! ]*\)?\.toFixed\(/,
     allow: [/VaultPage\.tsx/, /^src\/mock\//],  // chat-retrieval scores, mock data: no bar beside them
   },
   {
@@ -25,6 +25,12 @@ const RULES = [
     why: 'a number before a noun needs its singular too: use plural() (lib/format.ts)',
     re: /\{[^{}]*\b(n_\w+|\w*[cC]ount|\w*\.length|n)\}\s*(?:(?:new|more|saved|unmatched|other)\s+)?(papers|seeds|topics|interests|profiles|researchers|scans|drafts|cards|docs|groups|pages)\b/,
     allow: [],
+  },
+  {
+    name: 'navigation past every leave guard',
+    why: "force skips all registered guards, other panels' too: pass past: ['<your guard>'] (lib/router.ts)",
+    re: /force:\s*true/,
+    allow: [/^src\/lib\/router\.ts$/],
   },
 ];
 
@@ -49,11 +55,28 @@ for (const file of walk(ROOT)) {
     }
   });
 }
+// An action's error, shown, is cleared once its input is edited
+// (useClearOnChange, or clearError on edit): failed-save errors stayed
+// under values changed since (round 19). An action with no input says so.
+for (const file of walk(ROOT)) {
+  const rel = path.relative(path.join(ROOT, '..'), file);
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  const src = lines.join('\n');
+  lines.forEach((line, i) => {
+    const m = /const (\w+) = useAction\(/.exec(line);
+    if (!m || /check-classes-ok:/.test(lines[i - 1] ?? '')) return;
+    const n = m[1];
+    if (!src.includes(`${n}.error`)) return;
+    if (src.includes(`useClearOnChange(${n},`) || src.includes(`${n}.clearError()`)) return;
+    problems.push(`${rel}:${i + 1}: action error never cleared -- useClearOnChange(${n}, [its inputs]), or a check-classes-ok comment if it has none`);
+  });
+}
+
 // Every write in src/api/endpoints refreshes what it changed (invalidate,
 // markStale or setQueryData), or says where that happens / why nothing is
 // cached: stale lists after a write were found one at a time (rounds 14-18).
 const WRITE = /\bapi(Post|Put|Patch|Delete|PostMultipart)\b/;
-const REFRESH = /\b(invalidate|invalidateExact|invalidateUnshown|markStale|setQueryData)\(/;
+const REFRESH = /\b(invalidate|invalidateExact|invalidateUnshown|invalidateWhere|markStale|setQueryData)\(/;
 const NO_REFRESH = {
   getDraftCoherence: 'computes and returns; the wizard holds the result',
   startSeedUmls: 'starts a job; its status is polled',

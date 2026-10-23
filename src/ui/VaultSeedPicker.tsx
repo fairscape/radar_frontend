@@ -20,7 +20,7 @@ import { useVaultDocs } from '../api/hooks';
 import { errorMessage, plural } from '../lib/format';
 import { toast } from '../lib/toast';
 import type { VaultDoc } from '../types/radar';
-import { Button, ErrorBox, Input, LoadingRows, useAction } from './index';
+import { Button, ErrorBox, Input, LoadingRows, useAction, useClearOnChange } from './index';
 import { PaperTitle } from './pickers';
 
 export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded, openSignal = 0, bare = false }: {
@@ -70,6 +70,7 @@ export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded
       toast.success(`Added ${plural(ids.length, 'paper')} from your Vault.${res.rescored ? ` The ${plural(res.rescored, 'paper')} already found were re-scored against the new seeds.` : ''}`);
     }
   });
+  useClearOnChange(attach, [chosen]);
 
   if (!open) {
     return (

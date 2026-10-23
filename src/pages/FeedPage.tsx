@@ -26,11 +26,26 @@ const PUBLISHED_SINCE = [
 
 export function FeedPage() {
   const path = usePath();
-  const initialInterest = useMemo(() => new URLSearchParams(path.split('?')[1] ?? '').get('interest') ?? 'all', [path]);
-  const [profFilter, setProfFilter] = useState<string>(initialInterest);
-  const [bucket, setBucket] = useState<BucketFilter>('all');
+  // The filters live in the URL: kept in state, a reload or Back from a
+  // paper's interest reset them to All (round 19).
+  const params = useMemo(() => new URLSearchParams(path.split('?')[1] ?? ''), [path]);
+  const profFilter = params.get('interest') ?? 'all';
+  const rawBucket = params.get('bucket');
+  const bucket: BucketFilter = rawBucket === 'high' || rawBucket === 'medium' || rawBucket === 'low' ? rawBucket : 'all';
   // "Published since" (a year), on top of each interest's own years.
-  const [yearFrom, setYearFrom] = useState<number | null>(null);
+  const yearFrom = Number(params.get('since')) || null;
+  const setFilters = (patch: { interest?: string; bucket?: BucketFilter; since?: number | null }) => {
+    const q = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v == null || v === 'all') q.delete(k);
+      else q.set(k, String(v));
+    }
+    const qs = q.toString();
+    navigate(`${path.split('?')[0] || paths.feed}${qs ? `?${qs}` : ''}`, { replace: true });
+  };
+  const setProfFilter = (v: string) => setFilters({ interest: v });
+  const setBucket = (v: BucketFilter) => setFilters({ bucket: v });
+  const setYearFrom = (v: number | null) => setFilters({ since: v });
   const [showTriaged, setShowTriaged] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [focused, setFocused] = useState<string | null>(null);
@@ -40,7 +55,6 @@ export function FeedPage() {
   const [scanOpen, setScanOpen] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => setProfFilter(initialInterest), [initialInterest]);
 
   const { data: profiles, loading: profilesLoading, fetching: profilesFetching, error: profilesError, refresh: refreshProfiles } = useProfiles();
   const live = useMemo(() => (profiles ?? []).filter((p) => !p.isDraft), [profiles]);
@@ -117,6 +131,9 @@ export function FeedPage() {
   };
   const visible = showTriaged ? cards : cards.filter((c) => stateOf(c) === null);
   const triagedCount = cards.length - cards.filter((c) => stateOf(c) === null).length;
+  // The papers left to review, with this page's own Save/Dismiss counted:
+  // the cap notice read the server's list and stayed at 200 beside "198".
+  const toReview = visible.length - (showTriaged ? triagedCount : 0);
   // Counted over what the list shows: with triaged cards hidden, "All 57"
   // sat beside "12 papers to review".
   // Counted from the cards listed: with papers past the cap not listed, a
@@ -336,7 +353,7 @@ export function FeedPage() {
             </label>
             <span className="spacer" />
             <span className="feed-summary">
-              {plural(visible.length - (showTriaged ? triagedCount : 0), 'paper')} to review
+              {plural(toReview, 'paper')} to review
               {data?.candidatesScored ? ` · ${data.candidatesScored.toLocaleString()} scored in the last scan` : ''}
             </span>
           </div>
@@ -345,7 +362,7 @@ export function FeedPage() {
             <Callout tone="info">
               {profFilter === 'all'
                 ? <>Showing each {TERMS.interest}'s top papers; at least {plural(data.untriagedNotShown, 'more paper')} to review {data.untriagedNotShown === 1 ? 'is' : 'are'} not listed. Pick one {TERMS.interest} above to see more of its papers.</>
-                : <>Showing the top {plural(data.cards.filter((c) => !c.state).length, 'paper')}; at least {plural(data.untriagedNotShown, 'more paper')} to review {data.untriagedNotShown === 1 ? 'is' : 'are'} not listed. Save or dismiss papers here and they come up next.</>}
+                : <>Showing the top {plural(toReview, 'paper')}; at least {plural(data.untriagedNotShown, 'more paper')} to review {data.untriagedNotShown === 1 ? 'is' : 'are'} not listed. Save or dismiss papers here and they come up next.</>}
             </Callout>
           )}
 
@@ -366,7 +383,7 @@ export function FeedPage() {
                 action={<Button variant="primary" icon="play" onClick={() => setScanOpen(true)}>Scan now</Button>}
               />
             ) : cards.length === 0 ? (
-              <EmptyState icon="search" title="Nothing matches these filters" action={<Button onClick={() => { setProfFilter('all'); setBucket('all'); setYearFrom(null); }}>Clear filters</Button>} />
+              <EmptyState icon="search" title="Nothing matches these filters" action={<Button onClick={() => setFilters({ interest: 'all', bucket: 'all', since: null })}>Clear filters</Button>} />
             ) : (
               <EmptyState icon="check" title="All caught up" body="Every paper here has been saved or dismissed." action={<Button onClick={() => setShowTriaged(true)}>Show them anyway</Button>} />
             )

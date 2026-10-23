@@ -107,6 +107,24 @@ export function setDraft(p: Partial<DraftState>): void {
   set((s) => ({ ...s, ...p }));
 }
 
+/**
+ * Writes for one draft only: each is dropped once the wizard holds another.
+ * For anything written after an ``await`` -- an upload, a seed removal, a
+ * trial starting: by the time it answered the user could have opened another
+ * draft, and the write landed in that one (its ticks reset, another draft's
+ * paper among its seeds).
+ */
+export function forDraft(slug: string | null) {
+  const mine = () => current.slug === slug;
+  return {
+    update: (p: Partial<DraftState>) => { if (mine()) set((s) => ({ ...s, ...p })); },
+    addSeed: (doc: VaultDoc) => {
+      if (mine()) set((s) => (s.seeds.some((d) => d.id === doc.id) ? s : { ...s, seeds: [...s.seeds, doc] }));
+    },
+    removeSeed: (id: string) => { if (mine()) set((s) => ({ ...s, seeds: s.seeds.filter((d) => d.id !== id) })); },
+  };
+}
+
 export function useDraft() {
   const state = useSyncExternalStore(
     (cb) => {

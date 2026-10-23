@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useProfileDetail, useProfileRuns, useProfiles, useResearchers } from '../api/hooks';
 import {
   afterProfileDeleted,
@@ -15,7 +15,7 @@ import {
   type GatherRunStatus,
 } from '../api/endpoints/profiles';
 import { uploadPdf } from '../api/endpoints/vault';
-import { daysLabel, errorMessage, fmtDateTime, fmtDuration, fmtRelative, parseServerTime, plural } from '../lib/format';
+import { daysLabel, errorMessage, fmtDateTime, fmtDuration, fmtRelative, fmtScore, parseServerTime, plural } from '../lib/format';
 import { startBackfill, startScan, useRunningJob, yearsLabel } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths, addLeaveGuard } from '../lib/router';
@@ -25,7 +25,7 @@ import { topicProfileNote, topicSourceTag } from '../lib/topicSource';
 import { isUnmatched, noteUnmatchedUploads } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { Profile } from '../types/radar';
-import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, IconButton, LoadingRows, NumberInput, Panel, Stat, Tabs, confirmDialog, useAction } from '../ui';
+import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, IconButton, LoadingRows, NumberInput, Panel, Stat, Tabs, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { PaperTitle } from '../ui/pickers';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
@@ -153,7 +153,7 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
 
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         <Stat label="Seed papers" value={profile.seeds} sub={profile.seeds < 5 ? 'Fewer than 5 is thin' : undefined} />
-        <Stat label="Threshold" value={profile.threshold.toFixed(3)} sub={profile.seedSimMin != null ? `your seeds score ${profile.seedSimMin.toFixed(3)}+` : 'minimum similarity to count'} />
+        <Stat label="Threshold" value={profile.threshold.toFixed(3)} sub={profile.seedSimMin != null ? `your seeds score ${fmtScore(profile.seedSimMin)}+` : 'minimum similarity to count'} />
         <Stat label="Seed agreement" value={profile.agreement != null ? `${profile.agreement}/100` : '—'} sub={health.label} tone={profile.agreement != null ? agreementTone(profile.agreement) : undefined} />
         <Stat label="Saved · dismissed" value={`${profile.saves30} · ${profile.dismisses30}`} sub="last 30 days" />
       </div>
@@ -197,7 +197,7 @@ function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; deta
     <div className="two-col">
       <Panel title="How this interest works">
         <div className="stack" style={{ fontSize: 13.5, color: 'var(--fg-2)' }}>
-          <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> {detail.topics.filter((t) => t.on).length === 1 ? 'topic' : 'topics'} and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{profile.seedSimMin.toFixed(3)}</b> or more are as close as your own seeds</>}.</p>
+          <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> {detail.topics.filter((t) => t.on).length === 1 ? 'topic' : 'topics'} and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{fmtScore(profile.seedSimMin)}</b> or more are as close as your own seeds</>}.</p>
           <p>Radar does not scan on a schedule. Press Scan now to look for new papers.</p>
           <p>Saving or dismissing a paper in the feed is recorded as feedback for this {TERMS.interest} and used when it is refit.</p>
         </div>
@@ -270,6 +270,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     await recomputeCoherence(profile.key);
     toast.success('Coherence recomputed.');
   });
+  useClearOnChange(recompute, [detail.seeds.length]);
 
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -337,7 +338,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
             <span className="truncate"><PaperTitle title={s.title} id={s.id} /></span>
             <span className="muted mono small">{s.year || ''}</span>
             <span className="mono small" title="How similar this seed is to the other seeds (leave-one-out). The lowest values are the least typical papers." style={{ color: s.coh > 0 && profile.seedSimMin != null && s.coh <= profile.seedSimMin + 1e-6 && profile.seedSimMax != null && profile.seedSimMax - profile.seedSimMin > 0.02 ? 'var(--warn)' : 'var(--fg-3)' }}>
-              {s.coh > 0 ? s.coh.toFixed(3) : '—'}
+              {s.coh > 0 ? fmtScore(s.coh) : '—'}
             </span>
             <IconButton icon="trash" size="sm" label={`Remove "${s.title || s.id}" from the seeds`} disabled={removing !== null || !!progress || detail.seeds.length <= 1} onClick={() => void remove(s.id, s.title)} />
           </div>
@@ -376,7 +377,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
                 <span>median pairwise cosine <b className="mono">{profile.coherence.toFixed(3)}</b></span>
                 <span>range <b className="mono">{detail.coherenceStats.min.toFixed(2)}–{detail.coherenceStats.max.toFixed(2)}</b></span>
                 <span>{((detail.seeds.length * (detail.seeds.length - 1)) / 2).toLocaleString()} pairs</span>
-                {profile.seedSimMin != null && profile.seedSimMax != null && <span>each seed vs the others <b className="mono">{profile.seedSimMin.toFixed(3)}–{profile.seedSimMax.toFixed(3)}</b></span>}
+                {profile.seedSimMin != null && profile.seedSimMax != null && <span>each seed vs the others <b className="mono">{fmtScore(profile.seedSimMin)}–{fmtScore(profile.seedSimMax)}</b></span>}
               </div>
               <CoherenceHistogram bins={detail.coherenceBins} />
             </details>
@@ -463,14 +464,18 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   const scoresQ = useQuery(`profiles/${profile.key}/scores`, () => candidateScores(profile.key), { once: true });
   // Saves and dismisses are where the feed's triage feeds back into scoring.
   const feedbackQ = useQuery(`profiles/${profile.key}/feedback-threshold`, () => getFeedbackThreshold(profile.key));
-  const [value, setValue] = useState<number>(profile.threshold);
+  const [value, setExact] = useState<number>(profile.threshold);
+  // On the 3-place grid the saved bar is on, however it is set: a typed
+  // 0.9005 was compared to the scores as itself and saved as 0.901, so the
+  // list and counts here disagreed with the feed (round 19).
+  const setValue = useCallback((v: number) => setExact(Number(v.toFixed(3))), []);
   // Follow a threshold saved elsewhere (another tab) only over an untouched
   // value: a typed one was replaced without a word and Save went grey.
   const followed = useRef({ key: profile.key, threshold: profile.threshold });
   useEffect(() => {
     const was = followed.current;
     followed.current = { key: profile.key, threshold: profile.threshold };
-    setValue((v) => (was.key !== profile.key || Math.abs(v - was.threshold) <= 0.0005 ? profile.threshold : v));
+    setExact((v) => (was.key !== profile.key || v === was.threshold ? profile.threshold : v));
   }, [profile.threshold, profile.key]);
   // What is saved, as far as this tab knows: set on a successful save, so
   // the refetch of the interest is not what ends "unsaved" (until it
@@ -499,11 +504,13 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
     setSavedYears(years);
     toast.success(years ? `The feed now shows papers from ${yearsLabel(years)}.` : 'The feed shows papers from any year.');
   });
+  useClearOnChange(saveYears, [years]);
   const fetchYears = useAction(async () => {
     if (!savedYears) return;
     await startBackfill({ key: profile.key, name: profile.name }, savedYears);
     toast.info(`Fetching papers from ${yearsLabel(savedYears)}. They appear here and in the feed when the run finishes.`);
   });
+  useClearOnChange(fetchYears, [savedYears]);
   const band = scoresQ.data?.seed_similarity ?? (profile.seedSimMin != null && profile.seedSimMax != null ? { min: profile.seedSimMin, median: (profile.seedSimMin + profile.seedSimMax) / 2, max: profile.seedSimMax } : null);
   const suggested = scoresQ.data?.suggested_threshold ?? null;
   const [axisLo, axisHi] = axisFor(shownScores, band, scoresQ.data?.score_range ?? null);
@@ -512,7 +519,8 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
     setSavedThreshold(Number(value.toFixed(3)));
     toast.success(`Threshold saved as ${value.toFixed(3)}.`);
   });
-  const dirty = Math.abs(value - savedThreshold) > 0.0005;
+  useClearOnChange(save, [value]);
+  const dirty = value !== savedThreshold;
   const [exactOk, setExactOk] = useState(true);
   // Threshold and years wait for their own Save: switching tab, Done on
   // Edit interest, the sidebar or Back dropped a typed value unseen.
@@ -707,6 +715,7 @@ function ScanDialogBody({ profile, open, onClose }: { profile: Profile; open: bo
     toast.info(`Scanning "${profile.name}" for papers from the last ${daysLabel(days)}.`);
     onClose();
   });
+  useClearOnChange(go, [days, limit]);
   return (
     <Dialog
       open={open}
@@ -747,6 +756,7 @@ function DeleteInterestButton({ profile, busy }: { profile: Profile; busy: boole
     try {
       await deleteProfile(profile.key);
       if (getDraft().slug === profile.key) resetDraft();
+      // check-classes-ok: the interest is gone, nothing left to keep
       navigate(paths.interests, { replace: true, force: true });
       // Next tick: the interest's page has unmounted by then.
       setTimeout(() => afterProfileDeleted(profile.key), 0);

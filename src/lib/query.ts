@@ -154,6 +154,13 @@ export function invalidateExact(...keys: string[]): void {
   }
 }
 
+/** As ``invalidate``, for every key ``match`` accepts. */
+export function invalidateWhere(match: (key: string) => boolean): void {
+  for (const [key, entry] of cache) {
+    if (match(key)) invalidateEntry(key, entry);
+  }
+}
+
 /**
  * Forget everything: another person signed in on this browser. Entries a
  * mounted component still holds are emptied and refetched rather than

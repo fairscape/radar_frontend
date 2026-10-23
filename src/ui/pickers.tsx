@@ -14,7 +14,7 @@ import { plural } from '../lib/format';
 import { getUserEmail } from '../lib/userEmail';
 import type { Job } from '../lib/jobs';
 import type { OrcidWork, ProsopiaWork } from '../types/prosopia';
-import { Button, EmptyState, ErrorBox, Field, Input, useAction } from './index';
+import { Button, EmptyState, ErrorBox, Field, Input, useAction, useClearOnChange } from './index';
 import { JobProgress } from './domain';
 import { paperHref, PaperLink } from './paperLink';
 export { paperHref, PaperLink };
@@ -380,6 +380,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
     setListing({ forRaw: raw.trim(), ...res });
     setPicked(new Set(defaultPicks(res.works).map((w) => w.id)));
   });
+  useClearOnChange(find, [raw]);
   const go = useAction(async () => {
     if (!listing || picked.size === 0) return;
     // Intersected with the listing, not filtered by duplicate_of: a
@@ -399,6 +400,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
     }
     onStarted?.(j, listing);
   });
+  useClearOnChange(go, [picked]);
 
   const current = listing && listing.forRaw === raw.trim() ? listing : null;
   return (

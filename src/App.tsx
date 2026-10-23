@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ApiError, onSessionLost } from './api/client';
+import { ApiError, onSessionLost, onWriteRejected } from './api/client';
+import { invalidate } from './lib/query';
 import { getMe } from './api/endpoints/users';
 import { useThemeEffect } from './lib/theme';
 import { forgetSessionState, getUserEmail, setUserEmail, useUserEmail } from './lib/userEmail';
@@ -135,6 +136,10 @@ export function App() {
     attempt.current += 1;        // a resolve still in flight must not land afterwards
     setGate({ k: 'anonymous' });
   }), []);
+  // A write refused for the state it found: what is on screen is out of
+  // date (another tab), so all of it is re-read. Mounted entries refetch;
+  // the rest are forgotten (see invalidate).
+  useEffect(() => onWriteRejected(() => invalidate('')), []);
 
   let body: ReactNode;
   if (gate.k === 'ready') {

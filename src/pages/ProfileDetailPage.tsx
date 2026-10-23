@@ -11,7 +11,7 @@ import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { Profile } from '../types/radar';
 import type { ResearcherPaper, SuggestedInterest } from '../types/researchers';
-import { Badge, Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, Stat, Swatch, Tabs, confirmDialog, useAction } from '../ui';
+import { Badge, Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, Stat, Swatch, Tabs, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { Link } from '../ui/Link';
 import { HealthBadge, JobProgress, agreementTone } from '../ui/domain';
 import { PaperLink, PaperPickList, defaultPicks, orcidPickWorks, prosopiaPickWorks, type PickWork } from '../ui/pickers';
@@ -285,6 +285,7 @@ function SuggestionCard({ suggestion: s, researcherId, researcherName, byId }: {
     setDraft({ slug: res.draft.slug, name: res.draft.name, source: 'profile', researcher: { id: researcherId, name: researcherName, nSeeds: res.n_seeds }, step: 1 });
     navigate(paths.wizard(res.draft.slug));
   });
+  useClearOnChange(create, [name, picked]);
   const tone = agreementTone(s.agreement);
   return (
     <Panel
@@ -339,6 +340,7 @@ function NewPapersPanel({ researcher: r, onClose }: { researcher: Researcher; on
     toast.success(`Importing ${plural(ids.length, 'new paper')} for ${r.name}.`);
     onClose();
   });
+  useClearOnChange(add, [picked]);
   return (
     <Panel
       title="New papers"

@@ -1,6 +1,6 @@
 /** Stored researcher profiles: ``/api/researchers``. */
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../client';
-import { invalidate, invalidateExact, markStale, setQueryData } from '../../lib/query';
+import { invalidate, invalidateExact, markStale, setQueryData, invalidateWhere } from '../../lib/query';
 import type {
   Researcher,
   ResearcherDetail,
@@ -46,6 +46,9 @@ export async function setResearcherMark(id: number, mark: ResearcherMark | null)
   setQueryData<ResearcherDetail>(`researchers/${id}`, (prev) => (prev ? { ...prev, researcher: res } : prev!));
   markStale(`researchers/${id}`);
   invalidateExact('researchers');
+  // Marking one "You" unmarks the one before: its open detail page (any
+  // researcher's, but not their works lists) is re-read too.
+  invalidateWhere((k) => /^researchers\/\d+$/.test(k) && k !== `researchers/${id}`);
   return res;
 }
 

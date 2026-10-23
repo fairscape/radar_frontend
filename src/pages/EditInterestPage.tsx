@@ -25,7 +25,7 @@ import { navigate, paths, addLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
-import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, confirmDialog, useAction } from '../ui';
+import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
 import { PaperLink } from '../ui/paperLink';
@@ -60,7 +60,7 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
       body: <p>Your topic changes are not saved; the {TERMS.interest} still searches by the saved list.</p>,
       confirmLabel: 'Discard changes',
       danger: true,
-    }));
+    }), 'edit-topics');
     return stop;
   }, [step, topicsDirty]);
   const go = (n: number) => {
@@ -130,7 +130,7 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
           {step === 2 && <StepCheck profile={profile} back={() => go(1)} next={() => go(3)} />}
           {step === 3 && (
             <div className="stack">
-              <StepTopics profile={profile} detail={detail} back={() => go(2)} next={() => navigate(paths.interestEdit(profileKey, 4), { force: true })} onDirty={setTopicsDirty} />
+              <StepTopics profile={profile} detail={detail} back={() => go(2)} next={() => navigate(paths.interestEdit(profileKey, 4), { past: ['edit-topics'] })} onDirty={setTopicsDirty} />
               <ResearchTopics profileKey={profile.key} />
             </div>
           )}
@@ -249,6 +249,7 @@ function StepTopics({ profile, detail, back, next, onDirty }: { profile: Profile
     await topics.refresh();
     if (mounted.current) next();
   });
+  useClearOnChange(save, [selected]);
   // Not while the save is on its way: leaving then asked "without saving?"
   // over a save that went through.
   const unsaved = dirty && !save.busy;

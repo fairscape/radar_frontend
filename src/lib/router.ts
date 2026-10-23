@@ -18,10 +18,13 @@ function notify() {
  * topic ticks and its Research topics panel); each is asked in turn.
  */
 type LeaveGuard = () => Promise<boolean>;
-const guards = new Set<LeaveGuard>();
-function currentGuard(): LeaveGuard | null {
-  if (guards.size === 0) return null;
-  const list = [...guards];
+// Named, so a page that has just saved can leave past its own guard only:
+// ``force`` skipped every guard, and Edit interest's "Save topics and
+// continue" dropped an unsaved Research topics edit without asking.
+const guards = new Map<LeaveGuard, string | undefined>();
+function currentGuard(skip: string[] = []): LeaveGuard | null {
+  const list = [...guards].filter(([, name]) => !name || !skip.includes(name)).map(([g]) => g);
+  if (list.length === 0) return null;
   return async () => {
     for (const g of list) if (!(await g())) return false;
     return true;
@@ -42,8 +45,8 @@ function entryIdx(state: unknown): number | null {
 }
 
 /** Ask ``guard`` before leaving the page; returns the function that stops asking. */
-export function addLeaveGuard(guard: LeaveGuard): () => void {
-  guards.add(guard);
+export function addLeaveGuard(guard: LeaveGuard, name?: string): () => void {
+  guards.set(guard, name);
   return () => { guards.delete(guard); };
 }
 
@@ -94,11 +97,15 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export function navigate(to: string, opts: { replace?: boolean; force?: boolean } = {}): void {
+/**
+ * ``force``: past every guard (the page's object is gone, nothing to keep).
+ * ``past``: past the guards of these names only (what the caller just saved).
+ */
+export function navigate(to: string, opts: { replace?: boolean; force?: boolean; past?: string[] } = {}): void {
   if (typeof window === 'undefined') return;
   const current = window.location.pathname + window.location.search;
   if (current === to) return;
-  const guard = currentGuard();
+  const guard = currentGuard(opts.past);
   if (guard && !opts.force) {
     void guard().then((ok) => {
       if (!ok) return;

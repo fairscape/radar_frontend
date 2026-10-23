@@ -1,7 +1,7 @@
 /** Draft-interest (wizard) endpoints. Shapes mirror ``rag_lib/api/schemas.py``. */
 import type { Card, CoherenceLabel, Profile, SeedSimilarity, SweepRow, Topic, VaultDoc, YearSpan } from '../../types/radar';
 import { apiDelete, apiGet, apiPost } from '../client';
-import { invalidate } from '../../lib/query';
+import { invalidate, invalidateUnshown } from '../../lib/query';
 import type { GatherRunStatus } from './profiles';
 
 export interface Draft {
@@ -130,7 +130,10 @@ export function getDraftDryRunStatus(slug: string, runId: number): Promise<Draft
 export async function commitDraft(body: CommitDraftRequest): Promise<Profile> {
   const res = await apiPost<Profile>('/api/profiles', body);
   // 'researchers': a researcher's page lists its interests, this one as a draft until now.
-  invalidate('profiles', 'vault', 'radar', 'researchers', `draft/${body.slug}/`);
+  invalidate('profiles', 'vault', 'radar', 'researchers');
+  // The draft's own reads are forgotten, not re-read: the draft is gone, and
+  // the wizard still mounted on it 404'd re-reading its topics (round 19).
+  invalidateUnshown(`draft/${body.slug}/`);
   return res;
 }
 

@@ -21,7 +21,7 @@ import {
   type SeedUmlsStatus,
   type DraftDryRun,
 } from '../api/endpoints/wizard';
-import { getDraft, isSeedSource, resetDraft, useDraft, type DraftState, type SeedSource } from '../lib/draft';
+import { forDraft, getDraft, isSeedSource, resetDraft, useDraft, type DraftState, type SeedSource } from '../lib/draft';
 import { errorMessage, fmtRelative, fmtScore, plural } from '../lib/format';
 import { findJob, startBackfill, startDryRun, startImport, startOrcidImport, startScan, trackImport, useJob, yearsLabel, type Job } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
@@ -32,7 +32,7 @@ import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topic
 import { isUnmatched, noteUnmatchedImport, noteUnmatchedUploads } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { ProsopiaImportResult } from '../types/prosopia';
-import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Select, confirmDialog, useAction } from '../ui';
+import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Select, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, JobProgress, ThresholdHistogram, agreementTone, axisFor } from '../ui/domain';
 import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP, PaperLink, PaperPickList, PaperTitle, papersOf, type Lookup, type PickWork } from '../ui/pickers';
@@ -349,16 +349,18 @@ function UnfinishedDrafts() {
 }
 
 function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselectResearcher: number | null }) {
-  const { update, addSeed } = useDraft();
+  const { update } = useDraft();
   const [name, setName] = useState(state.name);
   const importJob = useJob(state.importJobId);
   const create = useAction(async () => {
     if (!name.trim()) throw new Error('Give it a name first.');
+    const before = getDraft().slug;
     const d = await createDraft(name.trim());
     // A name already in use gets a " (2)": say so, it is easy to miss.
     if (d.name !== name.trim()) toast.info(`You already have one called "${name.trim()}"; this one is "${d.name}".`);
-    update({ slug: d.slug, name: d.name, source: 'upload' });
+    forDraft(before).update({ slug: d.slug, name: d.name, source: 'upload' });
   });
+  useClearOnChange(create, [name]);
 
   // When an import finishes, record its result and continue. Once per
   // import: the update makes a new ``state.prosopia`` object, and an effect
@@ -416,7 +418,7 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
       </Panel>
     );
   }
-  return <SeedUploader state={state} addSeed={addSeed} />;
+  return <SeedUploader state={state} />;
 }
 
 /**
@@ -446,7 +448,6 @@ function WorkPicker({ name, lookup, start }: { name: string; lookup: Lookup; sta
  * one request and the wizard continues to the seed list at once.
  */
 function ResearcherSeedPicker({ name, preselect }: { name: string; preselect: number | null }) {
-  const { update } = useDraft();
   const list = useResearchers();
   const [id, setId] = useState<number | null>(preselect);
   // A preselected id that is not in the list (a forgotten profile, from a
@@ -466,10 +467,12 @@ function ResearcherSeedPicker({ name, preselect }: { name: string; preselect: nu
 
   const create = useAction(async () => {
     if (chosenId == null || current.size === 0 || !finalName.trim()) return;
+    const before = getDraft().slug;
     const res = await createInterestFromResearcher(chosenId, { name: finalName.trim(), openalex_ids: Array.from(current) });
-    update({ slug: res.draft.slug, name: res.draft.name, source: 'profile', researcher: { id: chosenId, name: researcher?.name ?? '', nSeeds: res.n_seeds }, prosopia: null, importJobId: null });
+    forDraft(before).update({ slug: res.draft.slug, name: res.draft.name, source: 'profile', researcher: { id: chosenId, name: researcher?.name ?? '', nSeeds: res.n_seeds }, prosopia: null, importJobId: null });
     toast.success(`Draft created with ${plural(res.n_seeds, 'seed')}.`);
   });
+  useClearOnChange(create, [id, picked, name]);
 
   if (list.error && !list.data) return <ErrorBox compact message={errorMessage(list.error)} onRetry={list.refresh} />;
   if (list.loading && !list.data) return <LoadingRows rows={2} />;
@@ -510,7 +513,6 @@ function ResearcherSeedPicker({ name, preselect }: { name: string; preselect: nu
  * so their choices are cleared and recomputed on the way forward.
  */
 function useRemoveSeed(slug: string) {
-  const { update, removeSeed } = useDraft();
   const [busyId, setBusyId] = useState<string | null>(null);
   async function remove(id: string, title: string) {
     const ok = await confirmDialog({
@@ -523,8 +525,8 @@ function useRemoveSeed(slug: string) {
     setBusyId(id);
     try {
       await removeSeedOnServer(slug, id);
-      removeSeed(id);
-      update({ selectedTopicIds: null, dryRunJobId: null, threshold: null });
+      forDraft(slug).removeSeed(id);
+      forDraft(slug).update({ selectedTopicIds: null, dryRunJobId: null, threshold: null });
       toast.success('Seed removed.');
       return true;
     } catch (e) {
@@ -650,6 +652,7 @@ function AddFromResearcher({ slug, seedIds, onAdded }: { slug: string; seedIds: 
     toast.success(`Added ${plural(res.attached, 'paper')} from ${researcher?.name ?? `the ${TERMS.profile}`}.`);
     onAdded();
   });
+  useClearOnChange(add, [id, picked]);
 
   if (list.error && !list.data) return <ErrorBox compact message={errorMessage(list.error)} onRetry={list.refresh} />;
   if (list.loading && !list.data) return <LoadingRows rows={2} />;
@@ -679,7 +682,7 @@ function AddFromResearcher({ slug, seedIds, onAdded }: { slug: string; seedIds: 
   );
 }
 
-function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: import('../types/radar').VaultDoc) => void }) {
+function SeedUploader({ state }: { state: DraftState }) {
   const { update } = useDraft();
   const slug = state.slug!;
   const docs = useVaultDocs(slug);
@@ -709,8 +712,9 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
   // stay fresh for 15 s, and the upload route does not touch them, so
   // back-upload-forward inside that window showed the old seeds' coherence
   // and step 3 re-picked topics from the old seeds' list.
+  // For this draft only: it runs after an upload or an add has answered.
   const invalidateDownstream = () => {
-    update({ selectedTopicIds: null, dryRunJobId: null, threshold: null });
+    forDraft(slug).update({ selectedTopicIds: null, dryRunJobId: null, threshold: null });
     invalidate(`draft/${slug}/`);
   };
   // Back to the source picker. The draft on the server is thrown away
@@ -746,7 +750,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
       setProgress({ done: i, total: list.length, current: list[i].name });
       try {
         const doc = await uploadPdf(list[i], slug);
-        addSeed(doc);
+        forDraft(slug).addSeed(doc);
         if (isUnmatched(doc.id)) unmatched.push(list[i].name);
         added += 1;
       } catch (e) {
@@ -800,7 +804,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
         // Same bookkeeping as an upload: the local seed list (step 2's
         // spinner reads its length, and it survives a reload) and the
         // results computed from the old seed set.
-        onVaultAdded={(docs) => { docs.forEach(addSeed); invalidateDownstream(); }}
+        onVaultAdded={(docs) => { docs.forEach(forDraft(slug).addSeed); invalidateDownstream(); }}
         onImported={() => { invalidateDownstream(); invalidate(`vault/docs?tag=${slug}`); void docs.refresh(); }}
       />
 
@@ -839,7 +843,7 @@ function SeedUploader({ state, addSeed }: { state: DraftState; addSeed: (d: impo
 function StepCheck({ state }: { state: DraftState }) {
   const { update } = useDraft();
   const slug = state.slug!;
-  const coh = useQuery(`draft/${slug}/coherence`, () => getDraftCoherence(slug));
+  const coh = useQuery(`draft/${slug}/coherence`, () => getDraftCoherence(slug), { once: true });  // a POST that recomputes: not again on every window focus
   const c = coh.data;
   const verdict = c ? verdictFor(c) : null;
   const removal = useRemoveSeed(slug);
@@ -883,7 +887,7 @@ function StepCheck({ state }: { state: DraftState }) {
                   <span>median pairwise cosine <b className="mono">{c.median.toFixed(3)}</b></span>
                   <span>spread (IQR) <b className="mono">{c.iqr.toFixed(3)}</b></span>
                   <span>{plural(c.n, 'seed')} · {((c.n * (c.n - 1)) / 2).toLocaleString()} pairs</span>
-                  {c.seed_similarity && <span>each seed vs the others <b className="mono">{c.seed_similarity.min.toFixed(3)}–{c.seed_similarity.max.toFixed(3)}</b></span>}
+                  {c.seed_similarity && <span>each seed vs the others <b className="mono">{fmtScore(c.seed_similarity.min)}–{fmtScore(c.seed_similarity.max)}</b></span>}
                 </div>
                 <CoherenceHistogram bins={c.bins} />
               </details>
@@ -1165,13 +1169,13 @@ function StepThreshold({ state }: { state: DraftState }) {
       const j = await startDryRun(slug, state.name, 30, years, state.selectedTopicIds);
       // A new trial, a new suggestion: the threshold picked against the old
       // one would otherwise stick (the fill-in below only fills a blank).
-      update({ dryRunJobId: j.id, dryRunTopics: topicsKey, threshold: null });
+      forDraft(slug).update({ dryRunJobId: j.id, dryRunTopics: topicsKey, threshold: null });
     } catch (e) {
       setKickError(errorMessage(e));
       // The old trial (other years, or other topics) must not stand in for
       // the one that failed to start: Save would commit the new years with
       // a threshold set on it.
-      update({ dryRunJobId: null, threshold: null });
+      forDraft(slug).update({ dryRunJobId: null, threshold: null });
     } finally {
       kicking.current = false;
       const next = pendingKick.current;
@@ -1243,6 +1247,7 @@ function StepThreshold({ state }: { state: DraftState }) {
       toast.error(`Saved, but the first scan didn't start: ${errorMessage(e)}`);
     }
   });
+  useClearOnChange(save, [value]);
 
   if (needsTopics) {
     return (
@@ -1282,7 +1287,7 @@ function StepThreshold({ state }: { state: DraftState }) {
         <div className="stack" style={{ gap: 16 }}>
           <Callout tone="info">
             <b>{passing}</b> of <b>{scores.length}</b> {state.years ? 'sampled ' : ''}papers from {period} ({scores.length ? Math.round((100 * passing) / scores.length) : 0}%) would have reached your feed at <b className="mono">{value.toFixed(3)}</b>.
-            {band && <> Your own seeds score <b className="mono">{band.min.toFixed(3)}–{band.max.toFixed(3)}</b>; papers above <b className="mono">{band.min.toFixed(3)}</b> are as close as your seeds.</>}
+            {band && <> Your own seeds score <b className="mono">{fmtScore(band.min)}–{fmtScore(band.max)}</b>; papers above <b className="mono">{fmtScore(band.min)}</b> are as close as your seeds.</>}
             {suggested != null && Math.abs(value - suggested) > 0.0005 && (
               <> <Button size="sm" variant="ghost" onClick={() => update({ threshold: suggested })}>Use suggested {suggested.toFixed(3)}</Button></>
             )}

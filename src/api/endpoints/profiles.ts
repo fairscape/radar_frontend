@@ -5,7 +5,7 @@
  * every mounted view refreshes.
  */
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../client';
-import { invalidate } from '../../lib/query';
+import { invalidate, invalidateWhere, markStale, setQueryData } from '../../lib/query';
 import type { YearSpan } from '../../types/radar';
 import type {
   FeedbackEvent,
@@ -176,9 +176,13 @@ export function generateTerms(key: string, apiKey: string | null): Promise<Inter
 export async function saveTerms(key: string, terms: InterestTerm[], removed: InterestTerm[], notInterests: string[], from?: InterestTerms, edited = true): Promise<InterestTerms> {
   const provenance = from ? { source: from.source, model: from.model, generated_at: from.generated_at, seed_hash: from.seed_hash, usage: from.usage } : {};
   const res = await apiPut<InterestTerms>(`/api/profiles/${enc(key)}/terms`, { terms, removed, not_interests: notInterests, ...provenance, edited });
-  // The whole interest: in topic mode the terms are the reranker's queries
-  // (Rank refinement lists them).
-  invalidate(`profiles/${key}/`);
+  // The saved list is shown at once: re-read, the editor sat "unsaved"
+  // (and its leave guard asked) until the answer came back.
+  setQueryData<InterestTerms>(`profiles/${key}/terms`, () => res);
+  markStale(`profiles/${key}/terms`);
+  // The rest of the interest: in topic mode the terms are the reranker's
+  // queries (Rank refinement lists them).
+  invalidateWhere((k) => k.startsWith(`profiles/${key}/`) && k !== `profiles/${key}/terms`);
   return res;
 }
 

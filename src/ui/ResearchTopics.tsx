@@ -61,16 +61,17 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
 
   // As the threshold: a preview (perhaps a paid LLM run) or struck-out and
   // added topics were dropped without a word on leaving.
-  const unsaved = (!!preview || editedSincePreviewOrSave) && !saving;
+  // A topic typed but not yet added counts too.
+  const unsaved = (!!preview || editedSincePreviewOrSave || adding.trim() !== '') && !saving;
   useEffect(() => {
     if (!unsaved) return;
     return addLeaveGuard(() => confirmDialog({
       title: 'Leave without saving the research topics?',
-      body: <p>{preview ? 'The generated topics are' : 'Your changes to the research topics are'} not saved.</p>,
+      body: <p>{preview ? 'The generated topics are' : editedSincePreviewOrSave ? 'Your changes to the research topics are' : `"${adding.trim()}" is typed but not added, and is`} not saved.</p>,
       confirmLabel: 'Discard changes',
       danger: true,
     }));
-  }, [unsaved, preview]);
+  }, [unsaved, preview, editedSincePreviewOrSave, adding]);
 
   async function save() {
     setSaving(true);
@@ -153,6 +154,16 @@ function GenerateDialog({ open, profileKey, onClose, onGenerated }: { open: bool
   const [error, setError] = useState<string | null>(null);
   // Cleared whenever the dialog closes, however it closes.
   useEffect(() => { if (!open) { setApiKey(''); setError(null); } }, [open]);
+  // A run in progress (perhaps a paid LLM call) was lost unseen on leaving.
+  useEffect(() => {
+    if (!busy) return;
+    return addLeaveGuard(() => confirmDialog({
+      title: 'Leave while the topics are generating?',
+      body: <p>The run goes on, but its topics are not kept.</p>,
+      confirmLabel: 'Leave',
+      danger: true,
+    }), 'generate-topics');
+  }, [busy]);
 
   async function run() {
     const sent = apiKey.trim();
