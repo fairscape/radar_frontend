@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/app.css';
+import './styles/prosopia-signin.css';
 
 async function boot() {
   // The mock must wrap ``fetch`` before any module that talks to the API

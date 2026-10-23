@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { reorderResearchers, setResearcherMark } from '../api/endpoints/researchers';
-import { useResearchers } from '../api/hooks';
+import { useMyProsopia, useResearchers } from '../api/hooks';
 import { errorMessage, fmtRelative } from '../lib/format';
 import { invalidateExact } from '../lib/query';
 import { researcherJobKey, startResearcherImport, useJob, useJobs, type Job } from '../lib/jobs';
@@ -11,6 +11,7 @@ import type { Researcher, ResearcherMark } from '../types/researchers';
 import { Badge, Button, EmptyState, ErrorBox, Icon, IconButton, LoadingRows, Panel, Segmented, Select, Spinner } from '../ui';
 import { Link } from '../ui/Link';
 import { JobProgress } from '../ui/domain';
+import { MyProsopiaCard } from '../ui/MyProsopiaCard';
 import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP } from '../ui/pickers';
 
 /**
@@ -41,6 +42,8 @@ export function ProfilesPage() {
           <p className="page-sub">A {TERMS.profile} is a researcher and their papers, saved once. Build as many {TERMS.interests} from a {TERMS.profile} as you like; the papers are already matched and embedded, so each one takes seconds.</p>
         </div>
       </header>
+
+      <MyProsopiaCard />
 
       {error && !researchers && <ErrorBox message={errorMessage(error)} onRetry={refresh} />}
       {loading && !researchers && <LoadingRows rows={3} />}
@@ -287,6 +290,8 @@ function ImportPanel() {
     setRound((n) => n + 1);
   }, [job]);
   const lookup = source === 'orcid' ? ORCID_LOOKUP : PROSOPIA_LOOKUP;
+  // The card above covers the signed-in person's own profile.
+  const mine = !!useMyProsopia().data?.profile;
   return (
     <Panel title={`Add a ${TERMS.profile}`} description={`Look a researcher up, untick any papers that should not count, and save. BioXplorer matches each paper on OpenAlex and embeds it in the background; that is the slow part, and it happens once.`}>
       <div className="stack" style={{ gap: 14 }}>
@@ -301,7 +306,7 @@ function ImportPanel() {
         )}
         <div>
           <div className="field-label" style={{ marginBottom: 8 }}>Look up by</div>
-          <Segmented value={source} onChange={(v) => { setSource(v); setRound((n) => n + 1); }} ariaLabel="Where to look the researcher up" options={[{ value: 'orcid', label: 'ORCID' }, { value: 'prosopia', label: 'Prosopia profile' }]} />
+          <Segmented value={source} onChange={(v) => { setSource(v); setRound((n) => n + 1); }} ariaLabel="Where to look the researcher up" options={[{ value: 'orcid', label: 'ORCID' }, { value: 'prosopia', label: mine ? "Someone else's Prosopia profile" : 'Prosopia profile' }]} />
         </div>
         <LookupPicker
           key={`${source}:${round}`}
