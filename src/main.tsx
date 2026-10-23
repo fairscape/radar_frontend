@@ -10,6 +10,8 @@ async function boot() {
     const { installMock } = await import('./mock/install');
     installMock();
   }
+  const { installRepeatClickGuard } = await import('./lib/clicks');
+  installRepeatClickGuard();
   const { App } = await import('./App');
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

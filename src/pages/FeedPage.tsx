@@ -5,7 +5,7 @@ import { addSeeds } from '../api/endpoints/profiles';
 import { daysLabel, errorMessage, fmtRelative, fmtScore, fmtSigned, plural } from '../lib/format';
 import { invalidate, invalidateUnshown } from '../lib/query';
 import { startScan, useJobs } from '../lib/jobs';
-import { navigate, paths, usePath } from '../lib/router';
+import { navigate, paths, useSearchParam } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { Bucket, Card, CardState, Profile } from '../types/radar';
@@ -25,27 +25,18 @@ const PUBLISHED_SINCE = [
 ];
 
 export function FeedPage() {
-  const path = usePath();
   // The filters live in the URL: kept in state, a reload or Back from a
   // paper's interest reset them to All (round 19).
-  const params = useMemo(() => new URLSearchParams(path.split('?')[1] ?? ''), [path]);
-  const profFilter = params.get('interest') ?? 'all';
-  const rawBucket = params.get('bucket');
-  const bucket: BucketFilter = rawBucket === 'high' || rawBucket === 'medium' || rawBucket === 'low' ? rawBucket : 'all';
+  const [interestParam, setInterestParam] = useSearchParam('interest');
+  const [bucketParam, setBucketParam] = useSearchParam('bucket');
+  const [sinceParam, setSinceParam] = useSearchParam('since');
+  const profFilter = interestParam ?? 'all';
+  const bucket: BucketFilter = bucketParam === 'high' || bucketParam === 'medium' || bucketParam === 'low' ? bucketParam : 'all';
   // "Published since" (a year), on top of each interest's own years.
-  const yearFrom = Number(params.get('since')) || null;
-  const setFilters = (patch: { interest?: string; bucket?: BucketFilter; since?: number | null }) => {
-    const q = new URLSearchParams(params);
-    for (const [k, v] of Object.entries(patch)) {
-      if (v == null || v === 'all') q.delete(k);
-      else q.set(k, String(v));
-    }
-    const qs = q.toString();
-    navigate(`${path.split('?')[0] || paths.feed}${qs ? `?${qs}` : ''}`, { replace: true });
-  };
-  const setProfFilter = (v: string) => setFilters({ interest: v });
-  const setBucket = (v: BucketFilter) => setFilters({ bucket: v });
-  const setYearFrom = (v: number | null) => setFilters({ since: v });
+  const yearFrom = Number(sinceParam) || null;
+  const setProfFilter = (v: string) => setInterestParam(v === 'all' ? null : v);
+  const setBucket = (v: BucketFilter) => setBucketParam(v === 'all' ? null : v);
+  const setYearFrom = (v: number | null) => setSinceParam(v == null ? null : String(v));
   const [showTriaged, setShowTriaged] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [focused, setFocused] = useState<string | null>(null);
@@ -383,7 +374,7 @@ export function FeedPage() {
                 action={<Button variant="primary" icon="play" onClick={() => setScanOpen(true)}>Scan now</Button>}
               />
             ) : cards.length === 0 ? (
-              <EmptyState icon="search" title="Nothing matches these filters" action={<Button onClick={() => setFilters({ interest: 'all', bucket: 'all', since: null })}>Clear filters</Button>} />
+              <EmptyState icon="search" title="Nothing matches these filters" action={<Button onClick={() => { setProfFilter('all'); setBucket('all'); setYearFrom(null); }}>Clear filters</Button>} />
             ) : (
               <EmptyState icon="check" title="All caught up" body="Every paper here has been saved or dismissed." action={<Button onClick={() => setShowTriaged(true)}>Show them anyway</Button>} />
             )

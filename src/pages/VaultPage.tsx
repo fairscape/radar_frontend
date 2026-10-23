@@ -6,6 +6,7 @@ import { getDraft, setDraft } from '../lib/draft';
 import { errorMessage, fmtDate, fmtRelative, plural } from '../lib/format';
 import { invalidate, setQueryData } from '../lib/query';
 import { TERMS } from '../lib/terms';
+import { useSearchParam } from '../lib/router';
 import { toast } from '../lib/toast';
 import { isUnmatched, noteUnmatchedUploads } from '../lib/unmatched';
 import { CHAT_ENABLED } from '../lib/features';
@@ -16,7 +17,9 @@ import { keys } from '../api/hooks';
 import { PaperLink } from '../ui/pickers';
 
 export function VaultPage() {
-  const [tag, setTag] = useState('all');
+  const [tagParam, setTagParam] = useSearchParam('interest');
+  const tag = tagParam ?? 'all';
+  const setTag = (t: string) => setTagParam(t === 'all' ? null : t);
   const [search, setSearch] = useState('');
   const [activeDoc, setActiveDoc] = useState<string | null>(null);
   const { data: profiles } = useProfiles();

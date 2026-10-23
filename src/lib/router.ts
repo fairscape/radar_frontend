@@ -4,7 +4,7 @@
  * Routes are matched by ``matchRoute`` into a discriminated union so
  * pages get typed params without a dependency.
  */
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 const listeners = new Set<() => void>();
 function notify() {
@@ -191,6 +191,25 @@ export function useRoute(): Route {
 
 export function usePath(): string {
   return useSyncExternalStore(subscribe, snapshot, () => '/');
+}
+
+/**
+ * A page setting kept in the URL's query (a tab, a filter): in component
+ * state, a reload or Back to the page reset it (round 19). Set in place
+ * (replace), so Back leaves the page rather than stepping through filters;
+ * null removes it. Several sets in a row each start from the current URL.
+ */
+export function useSearchParam(name: string): [string | null, (v: string | null) => void] {
+  const path = usePath();
+  const value = new URLSearchParams(path.split('?')[1] ?? '').get(name);
+  const set = useCallback((v: string | null) => {
+    const q = new URLSearchParams(window.location.search);
+    if (v == null) q.delete(name);
+    else q.set(name, v);
+    const qs = q.toString();
+    navigate(`${window.location.pathname}${qs ? `?${qs}` : ''}`, { replace: true });
+  }, [name]);
+  return [value, set];
 }
 
 export const paths = {

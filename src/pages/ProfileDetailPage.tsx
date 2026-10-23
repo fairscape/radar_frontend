@@ -5,7 +5,7 @@ import { createInterestFromResearcher, deleteResearcher, getResearcherWorks } fr
 import { resetDraft, setDraft } from '../lib/draft';
 import { errorMessage, fmtDateTime, fmtRelative, plural } from '../lib/format';
 import { researcherJobKey, startResearcherImport, useRunningJob } from '../lib/jobs';
-import { navigate, paths } from '../lib/router';
+import { navigate, paths, useSearchParam } from '../lib/router';
 import { useQuery } from '../lib/query';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
@@ -14,7 +14,7 @@ import type { ResearcherPaper, SuggestedInterest } from '../types/researchers';
 import { Badge, Button, Callout, EmptyState, ErrorBox, Field, Icon, Input, LoadingRows, Panel, Stat, Swatch, Tabs, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { Link } from '../ui/Link';
 import { HealthBadge, JobProgress, agreementTone } from '../ui/domain';
-import { PaperLink, PaperPickList, defaultPicks, orcidPickWorks, prosopiaPickWorks, type PickWork } from '../ui/pickers';
+import { PaperLink, PaperPickList, TRUNCATED_NOTE, defaultPicks, orcidPickWorks, prosopiaPickWorks, type PickWork } from '../ui/pickers';
 import type { OrcidWork, ProsopiaWork } from '../types/prosopia';
 import type { Researcher } from '../types/researchers';
 import { TopicChips } from '../ui/ProfileTopics';
@@ -34,7 +34,9 @@ export function ProfileDetailPage({ id }: { id: number }) {
   // that was gone -- three 404s before the navigation away landed.
   const [gone, setGone] = useState(false);
   const { data, loading, error, refresh } = useResearcher(gone ? null : id);
-  const [tab, setTab] = useState<Tab>('suggested');
+  const [tabParam, setTabParam] = useSearchParam('tab');
+  const tab: Tab = tabParam === 'papers' || tabParam === 'interests' || tabParam === 'about' ? tabParam : 'suggested';
+  const setTab = (t: Tab) => setTabParam(t === 'suggested' ? null : t);
   const running = useRunningJob('import', researcherJobKey(id));
   const r = data?.researcher;
 
@@ -349,6 +351,7 @@ function NewPapersPanel({ researcher: r, onClose }: { researcher: Researcher; on
     >
       {q.error && <ErrorBox compact title="Couldn't read the source" message={errorMessage(q.error)} onRetry={q.refresh} />}
       {!q.data && q.loading && <LoadingRows rows={3} />}
+      {q.data?.truncated && <Callout tone="info">{TRUNCATED_NOTE(q.data.works.length)}</Callout>}
       {q.data && fresh.length === 0 && (
         <EmptyState compact icon="check" title="Nothing new" body={`All ${plural(q.data.works.length, 'paper')} on the source are already saved.`} />
       )}

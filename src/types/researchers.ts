@@ -143,6 +143,8 @@ export interface ResearcherWorks {
   /** ``OrcidWork`` or ``ProsopiaWork`` items, by ``source``. */
   works: unknown[];
   saved_ids: string[];
+  /** More works than listed; the newest are. */
+  truncated?: boolean;
 }
 
 export interface ResearcherSuggestions {

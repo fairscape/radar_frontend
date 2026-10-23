@@ -65,6 +65,8 @@ export interface OrcidWorksResponse {
   /** Read off the works' authorships; null when OpenAlex has none for this ORCID. */
   name: string | null;
   works: OrcidWork[];
+  /** More works than listed; the newest are. */
+  truncated?: boolean;
 }
 
 export interface OrcidImportRequest {

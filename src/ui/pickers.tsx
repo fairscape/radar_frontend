@@ -14,7 +14,7 @@ import { plural } from '../lib/format';
 import { getUserEmail } from '../lib/userEmail';
 import type { Job } from '../lib/jobs';
 import type { OrcidWork, ProsopiaWork } from '../types/prosopia';
-import { Button, EmptyState, ErrorBox, Field, Input, useAction, useClearOnChange } from './index';
+import { Button, Callout, EmptyState, ErrorBox, Field, Input, useAction, useClearOnChange } from './index';
 import { JobProgress } from './domain';
 import { paperHref, PaperLink } from './paperLink';
 export { paperHref, PaperLink };
@@ -115,7 +115,8 @@ export interface Lookup {
   /** The key to look up, or null when the text is not usable yet. */
   parse: (raw: string) => string | null;
   parseError: string;
-  find: (key: string) => Promise<{ key: string; name: string | null; works: PickWork[] }>;
+  /** ``truncated``: the source has more works than it listed (the newest are listed). */
+  find: (key: string) => Promise<{ key: string; name: string | null; works: PickWork[]; truncated?: boolean }>;
   emptyTitle: string;
   emptyBody: string;
   /** localStorage key for the last key this browser looked up, if remembered. */
@@ -136,11 +137,15 @@ export const ORCID_LOOKUP: Lookup = {
   parseError: 'That does not look like an ORCID (0000-0000-0000-0000).',
   find: async (orcid) => {
     const r = await fetchOrcidWorks(orcid);
-    return { key: r.orcid, name: r.name, works: orcidPickWorks(r.works) };
+    return { key: r.orcid, name: r.name, works: orcidPickWorks(r.works), truncated: r.truncated };
   },
   emptyTitle: 'No papers on OpenAlex for this ORCID',
   emptyBody: 'OpenAlex has no works with this ORCID on an authorship. Check the iD, or upload PDFs instead.',
 };
+
+/** Said wherever a works listing was cut at the server's cap. */
+export const TRUNCATED_NOTE = (n: number) =>
+  `This author has more works on OpenAlex than Radar lists: these are the newest ${n.toLocaleString()}. Older papers can be added as PDFs.`;
 
 /** An ORCID works listing as pick-list rows (also used by "check for new papers"). */
 export function orcidPickWorks(works: OrcidWork[]): PickWork[] {
@@ -368,7 +373,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
   onStarted?: (job: Job, listing: { key: string; name: string | null; works: PickWork[] }) => void;
 }) {
   const [raw, setRaw] = useState(() => initialRaw || recall(lookup.rememberAs));
-  const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[] } | null>(null);
+  const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[]; truncated?: boolean } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const key = lookup.parse(raw);
   const running = job?.status === 'running';
@@ -421,6 +426,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
       )}
       {current && current.works.length > 0 && (
         <div className="stack" style={{ gap: 8 }}>
+          {current.truncated && <Callout tone="info">{TRUNCATED_NOTE(current.works.length)}</Callout>}
           <PaperPickList works={current.works} picked={picked} onChange={setPicked} disabled={running} head={current.name} ariaLabel="Papers to import" />
           {job && running && <JobProgress job={job} />}
           {job?.status === 'error' && <ErrorBox compact title="Import failed" message={job.error} />}

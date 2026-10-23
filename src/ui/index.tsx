@@ -10,7 +10,6 @@ import {
   useState,
   useSyncExternalStore,
   type ButtonHTMLAttributes,
-  type MouseEvent as ReactMouseEvent,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
@@ -33,19 +32,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
   icon?: IconName;
   iconRight?: IconName;
-  /** Act on every click of a quick series too (a stepper). */
+  /** Act on every click of a quick series too (a stepper); see lib/clicks. */
   repeat?: boolean;
-}
-
-/**
- * The second click of a double click is dropped. A button whose click takes
- * its row away (Save or Dismiss on a feed card, striking a topic) used to
- * have that click land on the row moved up under it: two papers triaged
- * for one (round 19). ``detail`` counts the clicks of one quick series.
- */
-function firstClickOnly<E extends ReactMouseEvent<HTMLButtonElement>>(onClick: ((e: E) => void) | undefined, repeat?: boolean) {
-  if (!onClick || repeat) return onClick;
-  return (e: E) => { if (e.detail < 2) onClick(e); };
 }
 
 export function Button({
@@ -59,7 +47,6 @@ export function Button({
   disabled,
   type = 'button',
   repeat,
-  onClick,
   ...rest
 }: ButtonProps) {
   const cls = ['btn', `btn-${variant}`, `btn-${size}`, loading ? 'is-loading' : '', className ?? '']
@@ -67,7 +54,7 @@ export function Button({
     .join(' ');
   const iconSize = size === 'sm' ? 14 : 16;
   return (
-    <button type={type} className={cls} disabled={disabled || loading} aria-busy={loading || undefined} onClick={firstClickOnly(onClick, repeat)} {...rest}>
+    <button type={type} className={cls} disabled={disabled || loading} aria-busy={loading || undefined} data-repeat={repeat || undefined} {...rest}>
       {loading ? <Spinner size={iconSize} /> : icon ? <Icon name={icon} size={iconSize} /> : null}
       {children != null && <span className="btn-label">{children}</span>}
       {iconRight && !loading && <Icon name={iconRight} size={iconSize} />}
@@ -81,7 +68,6 @@ export function IconButton({
   size = 'md',
   className,
   repeat,
-  onClick,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; label: string; size?: 'sm' | 'md'; repeat?: boolean }) {
   return (
@@ -90,7 +76,7 @@ export function IconButton({
       className={`icon-btn icon-btn-${size} ${className ?? ''}`}
       aria-label={label}
       title={label}
-      onClick={firstClickOnly(onClick, repeat)}
+      data-repeat={repeat || undefined}
       {...rest}
     >
       <Icon name={icon} size={size === 'sm' ? 14 : 16} />
