@@ -13,8 +13,9 @@ import { useEffect, useState } from 'react';
 import { generateTerms, getTerms, saveTerms, type InterestTerm, type InterestTerms } from '../api/endpoints/profiles';
 import { errorMessage, fmtRelative } from '../lib/format';
 import { useQuery } from '../lib/query';
+import { addLeaveGuard } from '../lib/router';
 import { toast } from '../lib/toast';
-import { Badge, Button, Callout, Dialog, ErrorBox, Field, Icon, Input, LoadingRows, Panel } from './index';
+import { Badge, Button, Callout, Dialog, ErrorBox, Field, Icon, Input, LoadingRows, Panel, confirmDialog } from './index';
 
 const SOURCE_LABEL: Record<string, string> = {
   prosopia: 'from the Prosopia profile',
@@ -57,6 +58,19 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
     else if (!list.some((t) => t.label.toLowerCase() === label.toLowerCase())) setTerms([...list, { label }]);
     setAdding('');
   };
+
+  // As the threshold: a preview (perhaps a paid LLM run) or struck-out and
+  // added topics were dropped without a word on leaving.
+  const unsaved = (!!preview || editedSincePreviewOrSave) && !saving;
+  useEffect(() => {
+    if (!unsaved) return;
+    return addLeaveGuard(() => confirmDialog({
+      title: 'Leave without saving the research topics?',
+      body: <p>{preview ? 'The generated topics are' : 'Your changes to the research topics are'} not saved.</p>,
+      confirmLabel: 'Discard changes',
+      danger: true,
+    }));
+  }, [unsaved, preview]);
 
   async function save() {
     setSaving(true);

@@ -542,6 +542,15 @@ export function ConfirmHost() {
   const settle = useCallback((ok: boolean) => {
     const r = pending;
     pending = null;
+    // A double click's second click landed on whatever lay under the
+    // closed dialog (an interest card, which then opened): swallowed. Only
+    // that one (detail 2): a quick next click elsewhere is the user's.
+    const swallow = (e: MouseEvent) => {
+      window.removeEventListener('click', swallow, { capture: true });
+      if (e.detail >= 2) { e.stopPropagation(); e.preventDefault(); }
+    };
+    window.addEventListener('click', swallow, { capture: true });
+    setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 600);
     confirmListeners.forEach((l) => l());
     r?.resolve(ok);
   }, []);

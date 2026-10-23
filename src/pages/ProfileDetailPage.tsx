@@ -319,7 +319,8 @@ function SuggestionCard({ suggestion: s, researcherId, researcherName, byId }: {
  * seeds: a new paper becomes a seed through the interest's Seeds step.
  */
 function NewPapersPanel({ researcher: r, onClose }: { researcher: Researcher; onClose: () => void }) {
-  const q = useQuery(`researchers/${r.id}/works`, () => getResearcherWorks(r.id));
+  // Once: for an ORCID profile each read lists the works from OpenAlex again.
+  const q = useQuery(`researchers/${r.id}/works`, () => getResearcherWorks(r.id), { once: true });
   const fresh: PickWork[] = q.data
     ? (q.data.source === 'orcid' ? orcidPickWorks(q.data.works as OrcidWork[]) : prosopiaPickWorks(q.data.works as ProsopiaWork[]))
         .filter((w) => !q.data!.saved_ids.includes(w.id))

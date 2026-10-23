@@ -138,6 +138,14 @@ export function invalidate(...prefixes: string[]): void {
   }
 }
 
+/** As ``invalidate``, for the entries no component is showing: they refetch when next shown. */
+export function invalidateUnshown(...prefixes: string[]): void {
+  for (const [key, entry] of cache) {
+    if (entry.subs.size > 0 || !prefixes.some((p) => key === p || key.startsWith(p))) continue;
+    invalidateEntry(key, entry);
+  }
+}
+
 /** As ``invalidate``, for exactly these keys: nothing that merely starts with them. */
 export function invalidateExact(...keys: string[]): void {
   for (const [key, entry] of cache) {

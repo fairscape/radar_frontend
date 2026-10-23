@@ -257,7 +257,7 @@ function ResearcherCard({ r, running }: { r: Researcher; running: boolean }) {
         <Badge tone={r.source === 'prosopia' ? 'info' : 'neutral'}>{r.source === 'prosopia' ? 'Prosopia' : 'ORCID'}</Badge>
       </div>
       <div className="interest-card-stats">
-        <span><b>{r.n_papers}</b>papers</span>
+        <span><b>{r.n_papers}</b>{r.n_papers === 1 ? 'paper' : 'papers'}</span>
         <span><b>{r.n_interests}</b>{r.n_interests === 1 ? TERMS.interest : TERMS.interests}</span>
       </div>
       <div className="interest-card-foot">

@@ -3,7 +3,7 @@ import { useDailyRadar, useProfiles } from '../api/hooks';
 import { dismissCard, saveCard } from '../api/endpoints/radar';
 import { addSeeds } from '../api/endpoints/profiles';
 import { daysLabel, errorMessage, fmtRelative, fmtSigned, plural } from '../lib/format';
-import { invalidate } from '../lib/query';
+import { invalidate, invalidateUnshown } from '../lib/query';
 import { startScan, useJobs } from '../lib/jobs';
 import { navigate, paths, usePath } from '../lib/router';
 import { TERMS } from '../lib/terms';
@@ -207,6 +207,9 @@ export function FeedPage() {
       triaged.current = true;
       // 'vault' too: a saved paper is listed in the Vault under its interest.
       invalidate('profiles', 'vault');
+      // The feed's other views (one interest, another bucket) still held the
+      // card's old state, and the switch to one showed it unsaved again.
+      invalidateUnshown('radar');
     } catch (e) {
       setOverrides((o) => ({ ...o, [k]: prev }));
       toast.error(`Couldn't ${target === 'saved' ? 'save' : 'dismiss'} "${card.title.slice(0, 60)}": ${errorMessage(e)}`);
@@ -333,7 +336,7 @@ export function FeedPage() {
             </label>
             <span className="spacer" />
             <span className="feed-summary">
-              {visible.length} {visible.length === 1 ? 'paper' : 'papers'} to review
+              {plural(visible.length - (showTriaged ? triagedCount : 0), 'paper')} to review
               {data?.candidatesScored ? ` · ${data.candidatesScored.toLocaleString()} scored in the last scan` : ''}
             </span>
           </div>

@@ -482,7 +482,7 @@ function ResearcherSeedPicker({ name, preselect }: { name: string; preselect: nu
     <div className="stack">
       <Field label={TERMS.Profile} hint={`Whose papers to start from. Manage these under ${TERMS.Profiles}.`}>
         <Select value={chosenId ?? ''} onChange={(e) => setId(Number(e.target.value))}>
-          {(list.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name} · {r.n_papers} papers{r.importing ? ' (importing…)' : ''}</option>)}
+          {(list.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name} · {plural(r.n_papers, 'paper')}{r.importing ? ' (importing…)' : ''}</option>)}
         </Select>
       </Field>
       {detail.error && !detail.data && <ErrorBox compact message={errorMessage(detail.error)} onRetry={detail.refresh} />}
@@ -659,7 +659,7 @@ function AddFromResearcher({ slug, seedIds, onAdded }: { slug: string; seedIds: 
   return (
     <div className="stack" style={{ gap: 8 }}>
       <Select value={chosenId ?? ''} onChange={(e) => setId(Number(e.target.value))} aria-label={`Saved researcher ${TERMS.profile}`}>
-        {(list.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name} · {r.n_papers} papers{r.importing ? ' (importing…)' : ''}</option>)}
+        {(list.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name} · {plural(r.n_papers, 'paper')}{r.importing ? ' (importing…)' : ''}</option>)}
       </Select>
       {detail.error && !detail.data && <ErrorBox compact message={errorMessage(detail.error)} onRetry={detail.refresh} />}
       {detail.loading && !detail.data && <LoadingRows rows={3} />}
@@ -1088,7 +1088,13 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
  */
 async function saveForLater() {
   const { slug, selectedTopicIds: ids } = getDraft();
-  if (slug && ids && ids.length > 0) {
+  if (!slug) {
+    // Before the first seed nothing exists on the server: leaving dropped
+    // the name typed so far without a word.
+    toast.info('Nothing to save yet: a draft is made once it has seed papers.');
+    return;
+  }
+  if (ids && ids.length > 0) {
     try {
       await saveTopics(slug, ids);
       invalidate(`draft/${slug}/`);

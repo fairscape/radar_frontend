@@ -135,6 +135,7 @@ export async function commitDraft(body: CommitDraftRequest): Promise<Profile> {
 
 export async function deleteDraft(slug: string): Promise<{ ok: boolean }> {
   const res = await apiDelete<{ ok: boolean }>(`/api/profiles/draft/${enc(slug)}`);
-  invalidate('profiles', 'vault');
+  // 'researchers': a researcher's interests (and their count) list drafts.
+  invalidate('profiles', 'vault', 'researchers');
   return res;
 }

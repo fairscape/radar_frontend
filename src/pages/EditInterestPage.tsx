@@ -21,7 +21,7 @@ import { UmlsNotice } from '../ui/UmlsNotice';
 import { ProfileTopicsBox } from '../ui/ProfileTopics';
 import { errorMessage, plural } from '../lib/format';
 import { useQuery } from '../lib/query';
-import { navigate, paths, setLeaveGuard } from '../lib/router';
+import { navigate, paths, addLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
@@ -55,13 +55,13 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
   const [topicsDirty, setTopicsDirty] = useState(false);
   useEffect(() => {
     if (step !== 3 || !topicsDirty) return;
-    setLeaveGuard(() => confirmDialog({
+    const stop = addLeaveGuard(() => confirmDialog({
       title: 'Leave without saving the topics?',
       body: <p>Your topic changes are not saved; the {TERMS.interest} still searches by the saved list.</p>,
       confirmLabel: 'Discard changes',
       danger: true,
     }));
-    return () => setLeaveGuard(null);
+    return stop;
   }, [step, topicsDirty]);
   const go = (n: number) => {
     if (uploading) { toast.info('Wait for the uploads to finish.'); return; }

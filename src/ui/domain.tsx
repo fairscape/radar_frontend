@@ -306,7 +306,7 @@ export function RerankerBumpChart({ candidates, n }: { candidates: RerankerCandi
       </div>
       {candidates.length > MAX_SHOW && (
         <div style={{ textAlign: 'center', marginTop: 8 }}>
-          <Button size="sm" onClick={() => setShowAll((v) => !v)}>{showAll ? `Show top ${MAX_SHOW}` : `Show all ${candidates.length}`}</Button>
+          <Button size="sm" onClick={() => setShowAll((v) => !v)}>{showAll ? `Show top ${MAX_SHOW}` : candidates.length < n ? `Show ${candidates.length} of ${n}` : `Show all ${n}`}</Button>
         </div>
       )}
     </div>

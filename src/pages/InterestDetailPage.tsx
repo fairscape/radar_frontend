@@ -18,7 +18,7 @@ import { uploadPdf } from '../api/endpoints/vault';
 import { daysLabel, errorMessage, fmtDateTime, fmtDuration, fmtRelative, parseServerTime, plural } from '../lib/format';
 import { startBackfill, startScan, useRunningJob, yearsLabel } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
-import { navigate, paths, setLeaveGuard } from '../lib/router';
+import { navigate, paths, addLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceTag } from '../lib/topicSource';
@@ -197,7 +197,7 @@ function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; deta
     <div className="two-col">
       <Panel title="How this interest works">
         <div className="stack" style={{ fontSize: 13.5, color: 'var(--fg-2)' }}>
-          <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> topics and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{profile.seedSimMin.toFixed(3)}</b> or more are as close as your own seeds</>}.</p>
+          <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> {detail.topics.filter((t) => t.on).length === 1 ? 'topic' : 'topics'} and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{profile.seedSimMin.toFixed(3)}</b> or more are as close as your own seeds</>}.</p>
           <p>Radar does not scan on a schedule. Press Scan now to look for new papers.</p>
           <p>Saving or dismissing a paper in the feed is recorded as feedback for this {TERMS.interest} and used when it is refit.</p>
         </div>
@@ -521,13 +521,13 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   const unsaved = (dirty || yearsDirty) && !save.busy && !saveYears.busy;
   useEffect(() => {
     if (!unsaved) return;
-    setLeaveGuard(() => confirmDialog({
+    const stop = addLeaveGuard(() => confirmDialog({
       title: 'Leave without saving?',
       body: <p>{yearsDirty && !dirty ? 'The publication years are' : dirty && yearsDirty ? 'The threshold and the publication years are' : 'The threshold is'} not saved; the feed still uses the saved {yearsDirty && !dirty ? 'years' : 'threshold'}.</p>,
       confirmLabel: 'Discard changes',
       danger: true,
     }));
-    return () => setLeaveGuard(null);
+    return stop;
   }, [unsaved, dirty, yearsDirty]);
   return (
     <Panel
@@ -654,7 +654,8 @@ function queryTitle(q: string): string {
 }
 
 function RankRefinementTab({ profile }: { profile: Profile }) {
-  const rr = useQuery(`profiles/${profile.key}/reranker`, () => getRerankerComparison(profile.key));
+  // The server's most (500): its default 50 left "Show all" short of the reranked count.
+  const rr = useQuery(`profiles/${profile.key}/reranker`, () => getRerankerComparison(profile.key, 500));
   return (
     <Panel title="Reranker comparison" description="How the second-stage reranker reordered the selector's ranking. Empty unless a reranker is enabled on the backend.">
       {rr.error && <ErrorBox compact message={errorMessage(rr.error)} onRetry={rr.refresh} />}

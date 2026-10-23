@@ -16,7 +16,7 @@ import { getDraftDryRunStatus, startDraftDryRun, type DraftDryRun } from '../api
 import type { ProsopiaImportResult } from '../types/prosopia';
 import type { YearSpan } from '../types/radar';
 import { ApiError } from '../api/client';
-import { errorMessage, parseServerTime } from './format';
+import { errorMessage, parseServerTime, plural } from './format';
 import { invalidate } from './query';
 import { toast } from './toast';
 
@@ -243,7 +243,7 @@ async function pollOne(job: Job) {
         result: null,
       });
       invalidate('radar', 'profiles');
-      toast.success(`Scan of "${job.profileName}" finished: ${fresh} new papers.`);
+      toast.success(`Scan of "${job.profileName}" finished: ${plural(fresh, 'new paper')}.`);
       return;
     }
     if (job.kind === 'dryrun') {
@@ -273,12 +273,12 @@ async function pollOne(job: Job) {
     const result = status.result;
     const n = typeof result?.drafted === 'number' ? result.drafted : undefined;
     finish(job, {
-      summary: n != null ? `${n} ${job.researcherId != null ? 'papers' : 'seeds'} imported` : 'Import finished',
+      summary: n != null ? `${plural(n, job.researcherId != null ? 'paper' : 'seed')} imported` : 'Import finished',
       result: result ?? null,
       profileName: job.researcherId != null ? job.profileName : ((result?.name as string | undefined) ?? job.profileName),
     });
     invalidate('profiles', 'vault', 'researchers');
-    if (job.researcherId != null) toast.success(`Profile "${job.profileName}" imported${n != null ? `: ${n} papers` : ''}.`);
+    if (job.researcherId != null) toast.success(`Profile "${job.profileName}" imported${n != null ? `: ${plural(n, 'paper')}` : ''}.`);
   } catch (e) {
     if (gen !== generation) return;
     // A trial scan of a draft since saved or deleted: the draft's status

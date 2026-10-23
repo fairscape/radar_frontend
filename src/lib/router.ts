@@ -14,10 +14,19 @@ function notify() {
 /**
  * A page with unsaved work registers a guard; every way out of the page --
  * in-app links, ``navigate``, the browser's Back/Forward, closing the tab --
- * asks it first. Only one page holds unsaved work at a time.
+ * asks it first. Several can hold unsaved work at once (Edit interest's
+ * topic ticks and its Research topics panel); each is asked in turn.
  */
 type LeaveGuard = () => Promise<boolean>;
-let leaveGuard: LeaveGuard | null = null;
+const guards = new Set<LeaveGuard>();
+function currentGuard(): LeaveGuard | null {
+  if (guards.size === 0) return null;
+  const list = [...guards];
+  return async () => {
+    for (const g of list) if (!(await g())) return false;
+    return true;
+  };
+}
 let shownUrl = typeof window === 'undefined' ? '/' : window.location.pathname + window.location.search;
 // Each history entry this page made carries its position, so a guarded
 // Back/Forward can be undone with history.go() -- keeping the entries as
@@ -32,8 +41,10 @@ function entryIdx(state: unknown): number | null {
   return typeof idx === 'number' ? idx : null;
 }
 
-export function setLeaveGuard(guard: LeaveGuard | null): void {
-  leaveGuard = guard;
+/** Ask ``guard`` before leaving the page; returns the function that stops asking. */
+export function addLeaveGuard(guard: LeaveGuard): () => void {
+  guards.add(guard);
+  return () => { guards.delete(guard); };
 }
 
 if (typeof window !== 'undefined') {
@@ -47,7 +58,7 @@ if (typeof window !== 'undefined') {
       restoring = false;
       return;
     }
-    const guard = leaveGuard;
+    const guard = currentGuard();
     if (!guard || target === shownUrl) {
       shownUrl = target;
       if (idx !== null) shownIdx = idx;
@@ -68,7 +79,7 @@ if (typeof window !== 'undefined') {
     void guard().then((ok) => {
       asking = false;
       if (!ok) return;
-      leaveGuard = null;
+      guards.clear();
       if (delta) {
         window.history.go(-delta);   // its popstate, unguarded now, shows the page
       } else {
@@ -79,7 +90,7 @@ if (typeof window !== 'undefined') {
     });
   });
   window.addEventListener('beforeunload', (e) => {
-    if (leaveGuard) e.preventDefault();
+    if (guards.size > 0) e.preventDefault();
   });
 }
 
@@ -87,11 +98,11 @@ export function navigate(to: string, opts: { replace?: boolean; force?: boolean 
   if (typeof window === 'undefined') return;
   const current = window.location.pathname + window.location.search;
   if (current === to) return;
-  const guard = leaveGuard;
+  const guard = currentGuard();
   if (guard && !opts.force) {
     void guard().then((ok) => {
       if (!ok) return;
-      leaveGuard = null;
+      guards.clear();
       navigate(to, { ...opts, force: true });
     });
     return;
