@@ -3,9 +3,10 @@
  *
  * This used to *be* the identity: whatever was typed into the login box
  * landed here and went out as ``X-User-Email``. It no longer decides
- * anything. Cloudflare Access verifies the person in front of the app and
- * the reverse proxy overwrites that header with the address it verified,
- * so a value invented here reaches a backend that ignores it.
+ * anything. Either Cloudflare Access verifies the person and the reverse
+ * proxy overwrites that header, or (a sign-in button, Prosopia or Google) the
+ * backend signs the person in through Prosopia and reads a session cookie
+ * instead of the header. Either way a value invented here is ignored.
  *
  * What it is now is a display cache, written only by ``App`` from what
  * ``GET /api/users/me`` returned, so the sidebar can paint an address on
@@ -18,12 +19,22 @@ import { useSyncExternalStore } from 'react';
 import { resetDraft } from './draft';
 import { resetJobs } from './jobs';
 import { clearQueryCache } from './query';
+import type { SignInProvider } from '../api/endpoints/auth';
 
 const KEY = 'userEmail';
 const EVENT = 'radar:user-email-changed';
 
 /** Cloudflare Access ends the session here. The app has none of its own. */
 export const ACCESS_LOGOUT_PATH = '/cdn-cgi/access/logout';
+/** The backend ends a sign-in-button session here (clears its cookie). */
+export const SESSION_LOGOUT_PATH = '/auth/logout';
+
+let signedInWith: SignInProvider | null = null;
+
+/** Set once by ``App`` from ``GET /auth/config``: who issued the session cookie. */
+export function setSignedInWith(p: SignInProvider | null): void {
+  signedInWith = p;
+}
 
 export function getUserEmail(): string | null {
   try {
@@ -93,10 +104,11 @@ export function forgetSessionState(): void {
 /**
  * Sign out for real.
  *
- * Clearing the cached address alone leaves the Access session intact, so
- * the next request carries the same verified identity and the user appears
- * to sign out and then finds themselves signed in as the same person.
- * Hand off to Access and let it drop the session.
+ * Clearing the cached address alone leaves the real session intact (the
+ * Access session, or the backend's Prosopia cookie), so the next request
+ * carries the same identity and the user appears to sign out and then
+ * finds themselves signed in as the same person. Hand off to whichever
+ * holds the session and let it drop it.
  */
 export function signOut(): void {
   // Read before clearUserEmail(): afterwards there is no one to clear for.
@@ -110,6 +122,12 @@ export function signOut(): void {
     if (who) for (const p of PERSON_LOCAL_PREFIXES) window.localStorage.removeItem(`${p}:${who.toLowerCase()}`);
   } catch {
     // Storage blocked. Nothing was written either, so nothing leaks.
+  }
+  if (signedInWith) {
+    // The session is the backend's cookie. This does not sign the person
+    // out of Prosopia or Google, so the next sign-in may go straight through.
+    window.location.href = SESSION_LOGOUT_PATH;
+    return;
   }
   if (import.meta.env.DEV) {
     // Nothing in front of the dev server to log out of.

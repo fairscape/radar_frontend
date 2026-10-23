@@ -17,6 +17,11 @@ export default defineConfig(({ mode }) => {
           target: backend,
           timeout: 600000,
         },
+        // Sign-in routes. Proxied, not cross-origin, so the session cookie
+        // the backend sets is first-party to the dev server.
+        '/auth': {
+          target: backend,
+        },
       },
     },
   };

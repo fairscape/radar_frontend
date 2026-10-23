@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, onSessionLost, onWriteRejected } from './api/client';
 import { invalidate } from './lib/query';
+import { getAuthConfig, SIGN_IN_PROVIDERS, type SignInProvider } from './api/endpoints/auth';
 import { getMe } from './api/endpoints/users';
 import { useThemeEffect } from './lib/theme';
-import { forgetSessionState, getUserEmail, setUserEmail, useUserEmail } from './lib/userEmail';
+import { forgetSessionState, getUserEmail, setSignedInWith, setUserEmail, useUserEmail } from './lib/userEmail';
 import { useRoute } from './lib/router';
 import { TERMS } from './lib/terms';
 import { LoginPage } from './pages/LoginPage';
@@ -20,6 +21,10 @@ import { Button, ConfirmHost, Spinner, Toaster } from './ui';
  * showed the first address beside the second person's data, and the app's
  * own "sign out" cleared the cache while leaving the Access session
  * attached to the very next request.
+ *
+ * With sign-in buttons on (``GET /auth/config``: Prosopia, Google), the
+ * backend holds the session in a cookie instead and the anonymous gate
+ * shows those buttons in every build.
  *
  * ``GET /api/users/me`` is the only source now. It also still does what
  * the previous warm-up call did: the backend creates the user row on first
@@ -60,6 +65,9 @@ export function App() {
   useThemeEffect();
   const route = useRoute();
   const [gate, setGate] = useState<Gate>({ k: 'loading' });
+  // undefined until /auth/config answers, so the anonymous gate does not
+  // flash the wrong login page first.
+  const [providers, setProviders] = useState<SignInProvider[] | undefined>(undefined);
   // Subscribed for one reason: in dev the manual LoginPage writes the cache
   // and dispatches a change, and that has to re-run the resolve or the form
   // stays on screen forever. In production nothing writes the cache except
@@ -141,10 +149,24 @@ export function App() {
   // the rest are forgotten (see invalidate).
   useEffect(() => onWriteRejected(() => invalidate('')), []);
 
+  // A backend without the /auth routes behind a proxy that serves the SPA
+  // for unknown paths answers with HTML, so only known provider names
+  // count; anything else, failures included, means the header model.
+  useEffect(() => {
+    const known = (v: unknown): v is SignInProvider => SIGN_IN_PROVIDERS.includes(v as SignInProvider);
+    getAuthConfig()
+      .then((c) => {
+        setSignedInWith(known(c?.signed_in_with) ? c.signed_in_with : null);
+        return Array.isArray(c?.providers) ? c.providers.filter(known) : [];
+      })
+      .catch(() => [])
+      .then(setProviders);
+  }, []);
+
   let body: ReactNode;
   if (gate.k === 'ready') {
     body = <Shell route={route} email={gate.email} />;
-  } else if (gate.k === 'loading') {
+  } else if (gate.k === 'loading' || (gate.k === 'anonymous' && providers === undefined)) {
     // Deliberately no address here. Painting the cached one would disclose
     // the previous person's on a shared browser -- A's session lapses
     // without a Sign out, B opens the app, and it greets B by A's address
@@ -160,7 +182,7 @@ export function App() {
     // Dev has no Access in front of it, so the manual gate is the only way
     // in there. A build behind the proxy reaches this only when the session
     // expired mid-visit, and reloading sends the browser to Access.
-    body = import.meta.env.DEV ? <LoginPage /> : (
+    body = providers?.length ? <LoginPage providers={providers} /> : import.meta.env.DEV ? <LoginPage /> : (
       <Splash>
         <h2 style={{ margin: 0 }}>Session expired</h2>
         <p style={{ color: 'var(--fg-3)', margin: 0 }}>Sign in again to continue.</p>
