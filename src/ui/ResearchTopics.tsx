@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react';
 import { generateTerms, getTerms, saveTerms, type InterestTerm, type InterestTerms } from '../api/endpoints/profiles';
-import { errorMessage, fmtRelative } from '../lib/format';
+import { errorMessage, fmtRelative, plural } from '../lib/format';
 import { useQuery } from '../lib/query';
 import { addLeaveGuard } from '../lib/router';
 import { toast } from '../lib/toast';
@@ -162,7 +162,7 @@ function GenerateDialog({ open, profileKey, onClose, onGenerated }: { open: bool
     try {
       const res = await generateTerms(profileKey, sent || null);
       onGenerated(res);
-      toast.info(`Generated ${res.terms.length} topics. Review them, then Save.`);
+      toast.info(`Generated ${plural(res.terms.length, 'topic')}. Review them, then Save.`);
       onClose();
     } catch (e) {
       setError(errorMessage(e));

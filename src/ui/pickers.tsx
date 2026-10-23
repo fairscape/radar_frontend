@@ -241,7 +241,7 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
   return (
     <div className="stack" style={{ gap: 8 }}>
       <div className="pick-head">
-        <span className="field-label">{head ? `${head} · ` : ''}{picked.size} of {works.length} papers selected</span>
+        <span className="field-label">{head ? `${head} · ` : ''}{picked.size} of {plural(works.length, 'paper')} selected</span>
         <span className="row" style={{ gap: 6 }}>
           <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set([
             ...shown.map((w) => w.id),

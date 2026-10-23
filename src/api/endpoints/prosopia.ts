@@ -11,7 +11,8 @@ import type {
 
 export async function startProsopiaImport(body: ProsopiaImportRequest): Promise<ProsopiaImportStart> {
   const res = await apiPost<ProsopiaImportStart>('/api/import/prosopia', body);
-  invalidate('profiles');
+  // 'researchers': the import records the person at once, listed "importing".
+  invalidate('profiles', 'researchers');
   return res;
 }
 
@@ -26,7 +27,7 @@ export function fetchOrcidWorks(orcid: string): Promise<OrcidWorksResponse> {
 /** Starts an import; the run is polled through ``getProsopiaImportStatus`` like any import. */
 export async function startOrcidImport(body: OrcidImportRequest): Promise<ProsopiaImportStart> {
   const res = await apiPost<ProsopiaImportStart>('/api/import/orcid', body);
-  invalidate('profiles');
+  invalidate('profiles', 'researchers');
   return res;
 }
 

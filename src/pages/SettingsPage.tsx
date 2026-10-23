@@ -3,9 +3,10 @@ import { useBackendHealth } from '../api/hooks';
 import { getMe, updateMe, type User } from '../api/endpoints/users';
 import { errorMessage } from '../lib/format';
 import { setThemePref, useTheme, type ThemePref } from '../lib/theme';
+import { addLeaveGuard } from '../lib/router';
 import { toast } from '../lib/toast';
 import { EMAIL_RE, signOut as endSession } from '../lib/userEmail';
-import { Badge, Button, ErrorBox, Field, Input, LoadingRows, Panel, Segmented, useAction } from '../ui';
+import { Badge, Button, ErrorBox, Field, Input, LoadingRows, Panel, Segmented, confirmDialog, useAction } from '../ui';
 
 export function SettingsPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -41,6 +42,17 @@ export function SettingsPage() {
   }
 
   const dirty = !!user && mailto.trim() !== (user.mailto ?? user.email);
+  // As every page with typed, unsaved work: leaving asks first.
+  const unsaved = dirty && !save.busy;
+  useEffect(() => {
+    if (!unsaved) return;
+    return addLeaveGuard(() => confirmDialog({
+      title: 'Leave without saving?',
+      body: <p>The contact email is not saved.</p>,
+      confirmLabel: 'Discard changes',
+      danger: true,
+    }));
+  }, [unsaved]);
 
   return (
     <div className="page page-narrow">

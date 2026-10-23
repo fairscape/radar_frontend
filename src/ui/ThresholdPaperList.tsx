@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { DryRunPaper } from '../api/endpoints/wizard';
 import { PaperLink } from './paperLink';
+import { fmtScore } from '../lib/format';
 
 /**
  * Papers best first, with a line where the threshold falls -- wizard step 4
@@ -23,7 +24,7 @@ export function ThresholdPaperList({ papers, value, label }: { papers: DryRunPap
   }, [passing]);
   const row = (p: DryRunPaper, i: number) => (
     <div className={`preview-row ${p.score >= value ? '' : 'below'}`} key={p.id || i}>
-      <span className="sc">{p.score.toFixed(3)}</span>
+      <span className="sc">{fmtScore(p.score)}</span>
       <span>
         <div><PaperLink title={p.title} id={p.id} /></div>
         <div className="v">{[p.venue, p.year].filter(Boolean).join(' · ') || '—'}</div>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDailyRadar, useProfiles } from '../api/hooks';
 import { dismissCard, saveCard } from '../api/endpoints/radar';
 import { addSeeds } from '../api/endpoints/profiles';
-import { daysLabel, errorMessage, fmtRelative, fmtSigned, plural } from '../lib/format';
+import { daysLabel, errorMessage, fmtRelative, fmtScore, fmtSigned, plural } from '../lib/format';
 import { invalidate, invalidateUnshown } from '../lib/query';
 import { startScan, useJobs } from '../lib/jobs';
 import { navigate, paths, usePath } from '../lib/router';
@@ -503,7 +503,7 @@ function PaperCard({
       onFocus={onFocus}
       aria-label={card.title}
     >
-      <div className="paper-score" title={similarity != null ? `Similarity to the seed papers: ${similarity.toFixed(3)}. ${below ? "Below this interest's threshold, so not ranked in its pool." : `Rank: top ${Math.max(1, Math.round(100 - card.score * 100))}% of this interest's pool.`}` : `Rank percentile ${card.score.toFixed(2)}`}>
+      <div className="paper-score" title={similarity != null ? `Similarity to the seed papers: ${fmtScore(similarity)}. ${below ? "Below this interest's threshold, so not ranked in its pool." : `Rank: top ${Math.max(1, Math.round(100 - card.score * 100))}% of this interest's pool.`}` : `Rank percentile ${Math.round(card.score * 100)}`}>
         <ScoreValue score={similarity ?? card.score} />
         {delta != null && (
           // The number alone: " vs bar" made it ~90px of unbreakable mono,

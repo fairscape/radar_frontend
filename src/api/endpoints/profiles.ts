@@ -115,7 +115,8 @@ export async function getProfileDetail(key: string): Promise<ProfileDetail | nul
 
 export async function updateProfileThreshold(key: string, threshold: number): Promise<Profile> {
   const res = await apiPatch<Profile>(`/api/profiles/${enc(key)}`, { threshold });
-  invalidate('profiles', 'radar');
+  // 'researchers': a researcher's page lists the interests built from them.
+  invalidate('profiles', 'radar', 'researchers');
   return res;
 }
 
@@ -127,7 +128,8 @@ export async function recomputeCoherence(key: string): Promise<DraftCoherence> {
 
 export async function recomputeTopics(key: string): Promise<Topic[]> {
   const res = await apiPost<Topic[]>(`/api/profiles/${enc(key)}/recompute-topics`);
-  invalidate('profiles');
+  // `draft/<key>/`: Edit interest's topic step reads the list under that prefix.
+  invalidate('profiles', `draft/${key}/`);
   return res;
 }
 
@@ -174,7 +176,9 @@ export function generateTerms(key: string, apiKey: string | null): Promise<Inter
 export async function saveTerms(key: string, terms: InterestTerm[], removed: InterestTerm[], notInterests: string[], from?: InterestTerms, edited = true): Promise<InterestTerms> {
   const provenance = from ? { source: from.source, model: from.model, generated_at: from.generated_at, seed_hash: from.seed_hash, usage: from.usage } : {};
   const res = await apiPut<InterestTerms>(`/api/profiles/${enc(key)}/terms`, { terms, removed, not_interests: notInterests, ...provenance, edited });
-  invalidate(`profiles/${key}/terms`);
+  // The whole interest: in topic mode the terms are the reranker's queries
+  // (Rank refinement lists them).
+  invalidate(`profiles/${key}/`);
   return res;
 }
 
@@ -190,14 +194,14 @@ export function getResearcherTopics(key: string): Promise<ProfileResearcherTopic
  */
 export async function setResearcherTopics(key: string, enabled: boolean): Promise<Topic[]> {
   const res = await apiPut<Topic[]>(`/api/profiles/${enc(key)}/researcher-topics`, { enabled });
-  invalidate(`profiles/${key}/researcher-topics`, `draft/${key}/topics`, `draft/${key}/edit-topics`, `profiles/${key}/detail`);
+  invalidate('profiles', `draft/${key}/`);
   return res;
 }
 
 /** Switch a saved interest's topics: exactly ``selectedIds`` on (409 if none). */
 export async function saveTopics(key: string, selectedIds: string[]): Promise<Topic[]> {
   const res = await apiPut<Topic[]>(`/api/profiles/${enc(key)}/topics`, { selected_topic_ids: selectedIds });
-  invalidate('profiles');
+  invalidate('profiles', `draft/${key}/`);
   return res;
 }
 
@@ -216,7 +220,7 @@ export async function refitProfile(key: string): Promise<{ ok: true; key: string
  */
 export async function addSeeds(key: string, openalexIds: string[]): Promise<{ attached: number; rejected: string[]; rescored?: number | null }> {
   const res = await apiPost<{ attached: number; rejected: string[]; rescored?: number | null }>(`/api/profiles/${enc(key)}/seeds`, { openalex_ids: openalexIds });
-  invalidate('profiles', 'vault', 'radar', `draft/${key}/`);
+  invalidate('profiles', 'vault', 'radar', 'researchers', `draft/${key}/`);
   return res;
 }
 
@@ -228,7 +232,7 @@ export async function addSeeds(key: string, openalexIds: string[]): Promise<{ at
  */
 export async function removeSeed(key: string, openalexId: string): Promise<{ ok: boolean }> {
   const res = await apiDelete<{ ok: boolean }>(`/api/profiles/${enc(key)}/seeds?openalex_id=${enc(openalexId)}`);
-  invalidate('profiles', 'vault', 'radar', `draft/${key}/`);
+  invalidate('profiles', 'vault', 'radar', 'researchers', `draft/${key}/`);
   return res;
 }
 
@@ -269,7 +273,7 @@ export function backfill(key: string, years: YearSpan): Promise<{ ok: true; run_
 /** Set the years an interest's feed draws from; null clears the range. */
 export async function updateProfileYears(key: string, years: YearSpan | null): Promise<Profile> {
   const res = await apiPatch<Profile>(`/api/profiles/${enc(key)}`, { years: years ? { year_from: years.from, year_to: years.to } : { year_from: null, year_to: null } });
-  invalidate('profiles', 'radar');
+  invalidate('profiles', 'radar', 'researchers');
   return res;
 }
 

@@ -22,7 +22,7 @@ import {
   type DraftDryRun,
 } from '../api/endpoints/wizard';
 import { getDraft, isSeedSource, resetDraft, useDraft, type DraftState, type SeedSource } from '../lib/draft';
-import { errorMessage, fmtRelative, plural } from '../lib/format';
+import { errorMessage, fmtRelative, fmtScore, plural } from '../lib/format';
 import { findJob, startBackfill, startDryRun, startImport, startOrcidImport, startScan, trackImport, useJob, yearsLabel, type Job } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
@@ -1295,7 +1295,7 @@ function StepThreshold({ state }: { state: DraftState }) {
               <div className="field-label" style={{ marginBottom: 6 }}>Top matches from the trial scan</div>
               {result.preview.slice(0, 8).map((c, i) => (
                 <div className="preview-row" key={c.id || i} style={{ opacity: (c.similarity ?? c.score) >= value ? 1 : 0.5 }}>
-                  <span className="sc">{(c.similarity ?? c.score).toFixed(3)}</span>
+                  <span className="sc">{fmtScore(c.similarity ?? c.score)}</span>
                   <span>
                     <div><PaperLink title={c.title} id={c.openalex} doi={c.doi} /></div>
                     <div className="v">{c.venue || '—'}{(c.similarity ?? c.score) < value ? ' · below threshold' : ''}</div>

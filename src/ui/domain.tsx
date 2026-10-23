@@ -6,7 +6,7 @@ import { kindLabel, stepLabel, type Job, jobEstimate, fmtSeconds } from '../lib/
 import { paths } from '../lib/router';
 import { Link } from './Link';
 import { PaperLink } from './paperLink';
-import { fmtDuration } from '../lib/format';
+import { fmtDuration, fmtScore } from '../lib/format';
 
 /**
  * Plain-language reading of how well an interest's seeds agree.
@@ -103,7 +103,7 @@ export function JobProgress({ job, compact }: { job: Job; compact?: boolean }) {
 }
 
 export function ScoreValue({ score }: { score: number }) {
-  return <span className="score-value">{score.toFixed(3)}</span>;
+  return <span className="score-value">{fmtScore(score)}</span>;
 }
 
 // --- Threshold histogram ------------------------------------------------------
@@ -276,7 +276,7 @@ export function RerankerBumpChart({ candidates, n }: { candidates: RerankerCandi
     <div className={`rr-row ${hovered === c.openalex_id ? 'hl' : ''}`} onMouseEnter={() => setHovered(c.openalex_id)} onMouseLeave={() => setHovered(null)}>
       <span className="rank">{rank}</span>
       <span className="ttl" title={c.title}><PaperLink title={c.title} id={c.openalex_id} /></span>
-      <span className="sc">{score.toFixed(3)}</span>
+      <span className="sc">{fmtScore(score)}</span>
       <span className={`rr-delta ${cls(delta(c))}`}>{fmt(delta(c))}</span>
     </div>
   );

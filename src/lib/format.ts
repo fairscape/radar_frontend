@@ -91,6 +91,17 @@ export function fmtDuration(startIso: string, endIso: string | null): string {
 }
 
 /**
+ * A similarity as shown beside a bar: 3 places, rounded *down*. Bars (a
+ * threshold, the seed band's floor) are on the 3-place grid (backend
+ * ``calibration``), so a score shown at or over a bar is one the server
+ * lets past it. ``toFixed`` rounds to nearest: 0.8996 read "0.900" beside a
+ * 0.900 bar, and the paper was left out.
+ */
+export function fmtScore(x: number): string {
+  return (Math.floor(x * 1000 + 1e-9) / 1000).toFixed(3);
+}
+
+/**
  * A signed difference (``+0.012`` / ``-0.004``). One that rounds to zero
  * gets more digits instead of a "-0.000" that reads as no difference while
  * the card is in fact below the bar.

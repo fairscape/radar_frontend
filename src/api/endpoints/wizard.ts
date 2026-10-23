@@ -129,7 +129,8 @@ export function getDraftDryRunStatus(slug: string, runId: number): Promise<Draft
 
 export async function commitDraft(body: CommitDraftRequest): Promise<Profile> {
   const res = await apiPost<Profile>('/api/profiles', body);
-  invalidate('profiles', 'vault', 'radar');
+  // 'researchers': a researcher's page lists its interests, this one as a draft until now.
+  invalidate('profiles', 'vault', 'radar', 'researchers', `draft/${body.slug}/`);
   return res;
 }
 

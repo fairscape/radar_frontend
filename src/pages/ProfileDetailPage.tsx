@@ -258,7 +258,8 @@ function SuggestedTab({ researcherId, researcherName, papers, importing }: { res
       <p className="small muted" style={{ margin: 0 }}>
         {data.suggestions.length === 1
           ? (data.note ?? 'One group covers these papers.')
-          : `${data.suggestions.length} groups found in ${data.n_grouped} of ${data.n_embedded} papers${leftOut > 0 ? `; ${plural(leftOut, 'paper')} fit no group and ${leftOut === 1 ? 'is' : 'are'} left out` : ''}. Each is a starting point: untick what does not belong, then create it and the wizard checks the agreement.`}
+          // check-classes-ok: two or more groups in this branch
+          : `${data.suggestions.length} groups found in ${data.n_grouped} of ${plural(data.n_embedded, 'paper')}${leftOut > 0 ? `; ${plural(leftOut, 'paper')} fit no group and ${leftOut === 1 ? 'is' : 'are'} left out` : ''}. Each is a starting point: untick what does not belong, then create it and the wizard checks the agreement.`}
         {data.note && data.suggestions.length > 1 && <> {data.note}</>}
       </p>
       {data.suggestions.map((s, i) => <SuggestionCard key={`${s.name}-${i}`} suggestion={s} researcherId={researcherId} researcherName={researcherName} byId={byId} />)}
