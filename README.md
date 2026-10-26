@@ -34,7 +34,8 @@ Long-running work (scans, trial scans, imports) is tracked in
 
 ## Install
 
-Requires Node 18+.
+To deploy RADAR (backend and frontend together) on a machine of your
+own, follow `DEPLOY.md` in radar_backend. For development: Node 18+.
 
 ```sh
 npm install
@@ -59,7 +60,8 @@ npm run build        # tsc -b && vite build → dist/
 npm run preview
 ```
 
-`Dockerfile` + `nginx.conf` produce the production container.
+`dist/` is served by a reverse proxy that also forwards `/api` to the
+backend; radar_backend's `DEPLOY.md` has Caddy and nginx examples.
 
 ## Layout
 
