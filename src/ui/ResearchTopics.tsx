@@ -10,12 +10,12 @@
  * POST body, and is cleared as soon as it is sent or the dialog closes.
  */
 import { useEffect, useState } from 'react';
-import { generateTerms, getTerms, saveTerms, type InterestTerm, type InterestTerms } from '../api/endpoints/profiles';
+import { generateTerms, getTerms, mapLlmTopics, saveTerms, type InterestTerm, type InterestTerms } from '../api/endpoints/profiles';
 import { errorMessage, fmtRelative, plural } from '../lib/format';
 import { useQuery } from '../lib/query';
 import { addLeaveGuard } from '../lib/router';
 import { toast } from '../lib/toast';
-import { Badge, Button, Callout, Dialog, ErrorBox, Field, Icon, Input, LoadingRows, Panel, confirmDialog } from './index';
+import { Badge, Button, Callout, Dialog, ErrorBox, Field, Icon, Input, LoadingRows, Panel, confirmDialog, useAction, useClearOnChange } from './index';
 
 const SOURCE_LABEL: Record<string, string> = {
   prosopia: 'from the Prosopia profile',
@@ -73,6 +73,17 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
     }));
   }, [unsaved, preview, editedSincePreviewOrSave, adding]);
 
+  // Only a saved list Claude generated; edits are saved first, so what is
+  // mapped is what is shown.
+  const canMap = !!q.data && !preview && !editedSincePreviewOrSave && q.data.source === 'rp-sdk-llm' && list.length > 0;
+  const mapTopics = useAction(async () => {
+    const res = await mapLlmTopics(profileKey);
+    toast.success(res.added.length
+      ? `Added ${plural(res.added.length, 'LLM topic')}, switched off: ${res.added.map((t) => t.name).join(' · ')}. Switch on the ones to search by in the topic list.`
+      : 'No new topics: the nearest OpenAlex topics are already in the list.');
+  });
+  useClearOnChange(mapTopics, [labels(list)]);
+
   async function save() {
     setSaving(true);
     try {
@@ -116,6 +127,16 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
         </div>
       )}
       {!preview && d?.stale && <Callout tone="warn">The seeds changed since these were generated. Regenerate to match them.</Callout>}
+      {canMap && (
+        <div className="row-wrap small" style={{ gap: 8, margin: '8px 0' }}>
+          <Button size="sm" icon="plus" loading={mapTopics.busy} onClick={() => void mapTopics.run()}
+            title="Find the OpenAlex topics nearest these research topics and add them to the topic list, switched off. No LLM call is made.">
+            Map to OpenAlex topics
+          </Button>
+          <span className="muted">Adds them to the topic list as LLM topics, switched off: a scan searches by one once you switch it on.</span>
+        </div>
+      )}
+      {mapTopics.error && <ErrorBox compact message={mapTopics.error} />}
       {(list.length > 0 || removed.length > 0) && (
         <div className="topics" style={{ marginTop: 8 }}>
           {list.map((t, i) => (

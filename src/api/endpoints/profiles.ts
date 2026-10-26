@@ -327,3 +327,21 @@ export async function updateSchedule(
   invalidate('profiles');
   return res;
 }
+
+/** ``POST /api/profiles/{key}/llm-topics``: the OpenAlex topics added (off) and the list now. */
+export interface LlmTopicsResult {
+  added: Topic[];
+  topics: Topic[];
+  n_labels: number;
+}
+
+/**
+ * Map the interest's saved Claude research topics to OpenAlex topics; the
+ * new ones join the topic list as LLM topics, switched off. No LLM call.
+ */
+export async function mapLlmTopics(key: string): Promise<LlmTopicsResult> {
+  const res = await apiPost<LlmTopicsResult>(`/api/profiles/${enc(key)}/llm-topics`);
+  // The topic lists (detail, Edit interest step 3) read them.
+  invalidate(`profiles/${key}/`);
+  return res;
+}

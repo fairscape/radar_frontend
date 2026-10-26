@@ -21,7 +21,7 @@ import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths, addLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
-import { topicProfileNote, topicSourceTag } from '../lib/topicSource';
+import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
 import { isUnmatched, noteUnmatchedUploads } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { Profile } from '../types/radar';
@@ -412,7 +412,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
                 <tr key={t.id} style={{ opacity: t.on ? 1 : 0.6 }}>
                   <td>{t.profile === 'not_interest' ? <s>{t.name}</s> : t.name} <span className="muted mono small">{t.id}</span></td>
                   <td>
-                    <Badge>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge>
+                    <Badge title={topicSourceLabel(t.source, t.llm_label)}>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge>
                     {t.profile === 'interest' && t.source !== 'researcher' && <> <Badge tone="info" title={topicProfileNote(t.profile) ?? undefined}>Profile</Badge></>}
                   </td>
                   <td className="r">{t.papers ?? t.count}</td>

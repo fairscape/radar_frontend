@@ -96,6 +96,8 @@ export interface Topic {
   new?: boolean | null;
   /** What the researcher's profile says about it, once its topics are applied: wanted or not. */
   profile?: 'interest' | 'not_interest' | null;
+  /** ``source: llm``: the research topic it was mapped from. */
+  llm_label?: string | null;
 }
 
 export interface SweepRow {
