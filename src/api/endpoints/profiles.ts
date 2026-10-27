@@ -17,7 +17,7 @@ import type {
   Topic,
   TopicYieldResponse,
 } from '../../types/radar';
-import type { ProfileResearcherTopics } from '../../types/researchers';
+import type { NotInterestChoice, ProfileResearcherTopics } from '../../types/researchers';
 import type { DraftCoherence, DryRunPaper } from './wizard';
 
 export type { DraftCoherence } from './wizard';
@@ -198,6 +198,17 @@ export function getResearcherTopics(key: string): Promise<ProfileResearcherTopic
  */
 export async function setResearcherTopics(key: string, enabled: boolean): Promise<Topic[]> {
   const res = await apiPut<Topic[]>(`/api/profiles/${enc(key)}/researcher-topics`, { enabled });
+  invalidate('profiles', `draft/${key}/`);
+  return res;
+}
+
+/**
+ * What one topic the researcher's profile does not want does on this
+ * interest: filtered out, kept as the other sources have it, or added as a
+ * topic. The profile's topics must be applied. Returns the new list.
+ */
+export async function setNotInterestChoice(key: string, topicId: string, choice: NotInterestChoice): Promise<Topic[]> {
+  const res = await apiPut<Topic[]>(`/api/profiles/${enc(key)}/researcher-topics/not-interest`, { topic_id: topicId, choice });
   invalidate('profiles', `draft/${key}/`);
   return res;
 }

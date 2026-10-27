@@ -46,6 +46,27 @@ export interface ResearcherTopic {
   method: 'declared' | 'inferred' | 'label' | string;
   /** The text concept this topic was matched from (method ``label``). */
   label: string | null;
+  /** How close the label's nearest topic is (method ``label``). */
+  similarity?: number | null;
+}
+
+/** What one not-wanted topic does on an interest: filtered out, kept as the other sources have it, or added. */
+export type NotInterestChoice = 'filter' | 'keep' | 'add';
+
+/** One topic the researcher's profile does not want, as the topic step lists it. */
+export interface NotInterestTopic {
+  id: string;
+  name: string;
+  method: string;
+  label: string | null;
+  weight: number | null;
+  similarity: number | null;
+  /** Other sources listing the same topic: ``openalex`` (a seed), ``umls``, ``pdf_content``, ``llm``, ``adopted``, ``profile_interest``. */
+  overlap: string[];
+  /** Recorded once the profile is applied; before that, the default (``keep`` when it overlaps, else ``filter``). */
+  choice: NotInterestChoice;
+  in_list: boolean;
+  on: boolean | null;
 }
 
 /** What a researcher's profile says they do and do not want; empty for an ORCID-only one. */
@@ -58,6 +79,8 @@ export interface ResearcherTopics {
   unwanted_labels: string[];
   /** The labels could not be mapped to topics just now (the mapper is down); the lists hold only the topics the profile asserts outright. */
   labels_unmapped: boolean;
+  /** ``unwanted`` with each topic's choice on this interest (an interest's view only). */
+  not_interest?: NotInterestTopic[];
 }
 
 /** ``GET /api/profiles/{key}/researcher-topics``: the profile topics an interest can take from its researcher. */

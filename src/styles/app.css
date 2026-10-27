@@ -786,3 +786,16 @@ a.interest-card:hover { border-color: var(--accent-line); text-decoration: none;
 .profile-topic-list li { font-size: 12.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--fg-2); background: var(--bg-panel); }
 .profile-topic-list li.off { border-style: dashed; color: var(--fg-3); }
 .profile-topic-list li .lbl { color: var(--fg-4); margin-left: 4px; }
+.not-interest { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--line); }
+.not-interest-head { font-size: 13px; margin-bottom: 4px; }
+.not-interest ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.not-interest li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "tick what act" "tick note act"; column-gap: 10px; align-items: center; padding: 5px 8px; border-radius: 8px; background: var(--bg-panel); border: 1px solid var(--line); font-size: 13px; }
+.not-interest li.filtered .ni-what { text-decoration: line-through; color: var(--fg-3); }
+.not-interest li.unmatched { grid-template-areas: "what" "note"; grid-template-columns: minmax(0, 1fr); color: var(--fg-3); border-style: dashed; }
+.not-interest .ni-tick { grid-area: tick; display: flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.not-interest .ni-what { grid-area: what; min-width: 0; overflow-wrap: anywhere; }
+.not-interest .ni-note { grid-area: note; color: var(--fg-2); }
+.not-interest .ni-act { grid-area: act; }
+@media (max-width: 560px) {
+  .not-interest li { grid-template-columns: minmax(0, 1fr); grid-template-areas: "what" "note" "tick" "act"; row-gap: 3px; }
+}

@@ -62,6 +62,8 @@ interface MockProfile {
   researcherTopics?: boolean;
   /** on/off of the marked topics before the profile was applied, restored on remove. */
   topicsBeforeProfile?: Record<string, boolean>;
+  /** What each not-wanted topic does: filter | keep | add (as the server's ``not_interest_choices``). */
+  notInterestChoices?: Record<string, 'filter' | 'keep' | 'add'>;
   threshold: number;
   coherence: number;
   seeds: { id: string; title: string; year: number; coh: number }[];
@@ -739,14 +741,50 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     ids.forEach((id, i) => { const r = st.researchers.find((x) => x.id === id); if (r) r.position = i; });
     return json(sortedResearchers(st).map((r) => toResearcher(st, r)));
   }
-  m = path.match(/^\/api\/profiles\/([^/]+)\/researcher-topics$/);
+  m = path.match(/^\/api\/profiles\/([^/]+)\/researcher-topics(\/not-interest)?$/);
   if (m) {
     const slug = decodeURIComponent(m[1]);
     const p = findProfile(slug);
     if (!p) return err(404, `profile '${slug}' not found`);
     const r = st.researchers.find((x) => x.id === p.researcher_id) ?? null;
     const topics = r ? mockResearcherTopics(r) : mockResearcherTopics({ source: 'orcid' } as MockResearcher);
-    if (method === 'GET') return json({ researcher_id: r?.id ?? null, researcher_name: r?.name ?? null, applied: !!p.researcherTopics && !!r, topics });
+    // Overlap and the default choice, as rag_lib/researcher_topics.py.
+    const overlapOf = (id: string) => [
+      ...(p.topics.some((t) => t.id === id && t.source !== 'researcher') ? ['openalex'] : []),
+      ...(topics.wanted.some((w) => w.id === id) ? ['profile_interest'] : []),
+    ];
+    const choiceOf = (id: string) => p.notInterestChoices?.[id] ?? (overlapOf(id).length ? 'keep' : 'filter');
+    if (m[2]) {
+      if (method !== 'PUT') return err(405, 'method not allowed');
+      const id = String(body?.topic_id ?? '');
+      const choice = String(body?.choice ?? '');
+      if (!['filter', 'keep', 'add'].includes(choice)) return err(422, 'choice must be filter, keep or add');
+      if (!p.researcherTopics) return err(400, "apply the profile's topics before choosing what to do with the ones it does not want");
+      if (!topics.unwanted.some((u) => u.id === id)) return err(400, `${id} is not a topic the researcher's profile does not want`);
+      const t = p.topics.find((x) => x.id === id);
+      const u = topics.unwanted.find((x) => x.id === id)!;
+      if (choice === 'add') {
+        if (t) { t.on = true; t.profile = 'interest'; } else p.topics.push({ id, name: u.name, count: 0, on: true, source: 'researcher', profile: 'interest' });
+      } else {
+        p.topics = p.topics.filter((x) => !(x.id === id && x.source === 'researcher'));
+        const left = p.topics.find((x) => x.id === id);
+        if (left) {
+          left.profile = choice === 'filter' ? 'not_interest' : null;
+          left.on = choice === 'filter' ? false : (p.topicsBeforeProfile?.[id] ?? true);
+        }
+      }
+      if (p.topics.length > 0 && !p.topics.some((x) => x.on)) return err(409, 'the profile would switch every topic off: a scan searches by them');
+      p.notInterestChoices = { ...(p.notInterestChoices ?? {}), [id]: choice as 'filter' | 'keep' | 'add' };
+      return json(p.topics);
+    }
+    if (method === 'GET') {
+      const not_interest = topics.available ? topics.unwanted.map((u) => {
+        const t = p.topics.find((x) => x.id === u.id);
+        return { id: u.id, name: u.name, method: u.method, label: u.label, weight: u.weight, similarity: u.method === 'label' ? 0.86 : null,
+          overlap: overlapOf(u.id), choice: choiceOf(u.id), in_list: !!t, on: t ? t.on : null };
+      }) : [];
+      return json({ researcher_id: r?.id ?? null, researcher_name: r?.name ?? null, applied: !!p.researcherTopics && !!r, topics: { ...topics, not_interest } });
+    }
     if (method === 'PUT') {
       const enabled = !!body?.enabled;
       if (enabled && !topics.available) return err(400, 'this interest was not built from a researcher whose profile lists topics');
@@ -759,10 +797,17 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
           const have = next.find((t) => t.id === w.id);
           if (have) { remembered[w.id] = have.on; have.on = true; have.profile = 'interest'; } else next.push({ id: w.id, name: w.name, count: 0, on: true, source: 'researcher', profile: 'interest' });
         }
+        const choices = { ...(p.notInterestChoices ?? {}) };
         for (const u of topics.unwanted) {
+          const choice = choices[u.id] ?? choiceOf(u.id);
+          choices[u.id] = choice;
           const have = next.find((t) => t.id === u.id);
-          if (have) { remembered[u.id] = have.on; have.on = false; have.profile = 'not_interest'; }
+          if (choice === 'filter' && have) { remembered[u.id] = have.on; have.on = false; have.profile = 'not_interest'; }
+          if (choice === 'add') {
+            if (have) { remembered[u.id] = have.on; have.on = true; have.profile = 'interest'; } else next.push({ id: u.id, name: u.name, count: 0, on: true, source: 'researcher', profile: 'interest' });
+          }
         }
+        p.notInterestChoices = choices;
         if (next.length > 0 && !next.some((t) => t.on)) return err(409, 'the profile would switch every topic off: a scan searches by them');
         p.topics = next;
         p.topicsBeforeProfile = remembered;
@@ -848,6 +893,7 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
         const before = p.topicsBeforeProfile ?? {};
         p.topics = p.topics.filter((t) => t.source !== 'researcher').map((t) => ({ ...t, profile: null, on: t.id in before ? before[t.id] : t.on }));
         p.topicsBeforeProfile = undefined;
+        p.notInterestChoices = undefined;
         p.researcherTopics = false;
       }
       return json({ ok: true });
