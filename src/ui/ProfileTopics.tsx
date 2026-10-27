@@ -58,6 +58,9 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
   if (!d || d.researcher_id == null || (!d.topics.available && !d.applied)) return null;
   const t = d.topics;
   const who = d.researcher_name ?? `this ${TERMS.profile}`;
+  // A wanted topic the user filters out (a not-wanted label matched it too) is off.
+  const filteredIds = new Set((t.not_interest ?? []).filter((r) => r.choice === 'filter').map((r) => r.id));
+  const wantedOn = t.wanted.filter((x) => !filteredIds.has(x.id)).length;
   if (d.applied && !t.available) {
     return (
       <Callout tone="warn" title={`Using ${who}'s profile topics`} icon="user">
@@ -72,11 +75,11 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
     <Callout tone={d.applied ? 'ok' : 'info'} title={d.applied ? `Using ${who}'s profile topics` : `${who}'s profile lists research interests`} icon="user">
       <p style={{ margin: '0 0 6px' }}>
         {d.applied
-          ? <>The {plural(t.wanted.length, 'topic')} the profile wants {t.wanted.length === 1 ? 'is' : 'are'} on. They follow the profile: a change there shows up here on the next recompute. Removing them puts the other topics back as they were.</>
+          ? <>The {plural(wantedOn, 'topic')} the profile wants {wantedOn === 1 ? 'is' : 'are'} on{wantedOn < t.wanted.length ? ` (${t.wanted.length - wantedOn} filtered out below)` : ''}. They follow the profile: a change there shows up here on the next recompute. Removing them puts the other topics back as they were.</>
           : <>The profile declares {plural(t.wanted.length, 'wanted topic')}{t.unwanted.length > 0 ? ` and ${plural(t.unwanted.length, 'topic')} it does not want` : ''}. Apply them and Radar adds the wanted ones to this list, switched on{t.unwanted.length > 0 ? ', and filters out the not-wanted ones ticked below' : ''}.</>}
         {saved && <> <b>This is saved straight away</b>, unlike the ticks below, and applies from the next scan.</>}
       </p>
-      <TopicChips topics={{ ...t, unwanted: [], unwanted_labels: [] }} />
+      <TopicChips topics={{ ...t, unwanted: [], unwanted_labels: [], unmatched_labels: [] }} offIds={filteredIds} />
       <NotInterestList topics={t} applied={d.applied} busy={choose.busy || toggle.busy} onChoose={(row, c) => choose.run(row, c)} />
       {t.labels_unmapped && <p className="small muted" style={{ margin: '6px 0 0' }}>The profile's text concepts could not be matched to topics just now (the topic mapper is unavailable); the ones matched before stay in the list.</p>}
       <div className="row" style={{ marginTop: 10 }}>
@@ -109,8 +112,9 @@ function NotInterestList({ topics: t, applied, busy, onChoose }: {
   onChoose: (row: NotInterestTopic, choice: NotInterestChoice) => void;
 }) {
   const rows = t.not_interest ?? [];
-  const matched = new Set(rows.map((r) => (r.label ?? '').toLowerCase()).filter(Boolean));
-  const unmatched = t.unwanted_labels.filter((l) => !matched.has(l.toLowerCase()) && !rows.some((r) => r.name.toLowerCase() === l.toLowerCase()));
+  // From the server, which knows what each label matched; none is known
+  // while the mapper is down (the note under the list says so).
+  const unmatched = t.labels_unmapped ? [] : (t.unmatched_labels ?? []);
   if (rows.length === 0 && unmatched.length === 0) return null;
   return (
     <div className="not-interest" aria-label="Not interested">
@@ -121,8 +125,9 @@ function NotInterestList({ topics: t, applied, busy, onChoose }: {
       <ul>
         {rows.map((r) => {
           const filtered = r.choice === 'filter';
+          // Struck through only while it is off: the user may have switched it back on by hand.
           return (
-            <li key={r.id} className={filtered ? 'filtered' : undefined}>
+            <li key={r.id} className={filtered && r.on !== true ? 'filtered' : undefined}>
               <label className="ni-tick" title={applied ? undefined : 'Apply the profile first'}>
                 <input type="checkbox" checked={filtered} disabled={!applied || busy}
                   onChange={(e) => onChoose(r, e.target.checked ? 'filter' : 'keep')} />
@@ -140,11 +145,12 @@ function NotInterestList({ topics: t, applied, busy, onChoose }: {
                   : <span className="muted">No other source lists it</span>}
                 {r.choice === 'add' && <> · <b>added as a topic</b></>}
                 {r.choice === 'keep' && r.in_list && <span className="muted"> · in the list, {r.on ? 'on' : 'off'}</span>}
+                {filtered && r.on === true && <span className="muted"> · switched back on in the list</span>}
               </span>
               <span className="ni-act">
                 {r.choice === 'add'
                   ? <Button size="sm" variant="ghost" disabled={!applied || busy} onClick={() => onChoose(r, r.overlap.length > 0 ? 'keep' : 'filter')}>Undo add</Button>
-                  : r.choice === 'keep' && !(r.in_list && r.on)
+                  : !(r.in_list && r.on)
                     ? <Button size="sm" variant="ghost" icon="plus" disabled={!applied || busy} onClick={() => onChoose(r, 'add')}>Add as topic</Button>
                     : null}
               </span>
@@ -163,7 +169,8 @@ function NotInterestList({ topics: t, applied, busy, onChoose }: {
 }
 
 /** The wanted topics as chips, the unwanted ones dashed, the unmapped words greyed. */
-export function TopicChips({ topics: t, compact = false }: { topics: ResearcherTopics; compact?: boolean }) {
+export function TopicChips({ topics: t, compact = false, offIds }: { topics: ResearcherTopics; compact?: boolean; offIds?: Set<string> }) {
+  const unmatched = t.labels_unmapped ? [] : (t.unmatched_labels ?? []);
   const chip = (x: ResearcherTopic, off: boolean) => (
     <li key={`${off ? 'off' : 'on'}-${x.id}`} className={off ? 'off' : undefined} title={`${x.id} · ${methodLabel(x)}`}>
       {off ? <s>{x.name}</s> : x.name}
@@ -173,12 +180,12 @@ export function TopicChips({ topics: t, compact = false }: { topics: ResearcherT
   return (
     <>
       {t.wanted.length > 0 && (
-        <ul className="profile-topic-list" aria-label="Wanted topics">{t.wanted.map((x) => chip(x, false))}</ul>
+        <ul className="profile-topic-list" aria-label="Wanted topics">{t.wanted.map((x) => chip(x, offIds?.has(x.id) ?? false))}</ul>
       )}
-      {(t.unwanted.length > 0 || t.unwanted_labels.length > 0) && (
+      {(t.unwanted.length > 0 || unmatched.length > 0) && (
         <ul className="profile-topic-list" aria-label="Not wanted">
           {t.unwanted.map((x) => chip(x, true))}
-          {!compact && t.unwanted_labels.filter((l) => !t.unwanted.some((x) => x.label === l)).map((l) => (
+          {!compact && unmatched.map((l) => (
             <li key={`lbl-${l}`} className="off" title="A concept on the profile that matches no OpenAlex topic; listed for information"><s>{l}</s></li>
           ))}
         </ul>

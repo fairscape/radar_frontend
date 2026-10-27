@@ -186,7 +186,7 @@ function sortedResearchers(st: MockState): MockResearcher[] {
 
 /** What a Prosopia profile declares; an ORCID-only researcher has none. */
 function mockResearcherTopics(r: MockResearcher) {
-  if (r.source !== 'prosopia') return { available: false, wanted: [], unwanted: [], wanted_labels: [], unwanted_labels: [], labels_unmapped: false };
+  if (r.source !== 'prosopia') return { available: false, wanted: [], unwanted: [], wanted_labels: [], unwanted_labels: [], labels_unmapped: false, unmatched_labels: [] as string[] };
   return {
     available: true,
     labels_unmapped: false,
@@ -200,6 +200,7 @@ function mockResearcherTopics(r: MockResearcher) {
     ],
     wanted_labels: [],
     unwanted_labels: ['phylogenomics', 'wet-lab-protocol-development'],
+    unmatched_labels: ['wet-lab-protocol-development'],
   };
 }
 
@@ -750,9 +751,9 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     const topics = r ? mockResearcherTopics(r) : mockResearcherTopics({ source: 'orcid' } as MockResearcher);
     // Overlap and the default choice, as rag_lib/researcher_topics.py.
     const overlapOf = (id: string) => [
-      ...(p.topics.some((t) => t.id === id && t.source !== 'researcher') ? ['openalex'] : []),
+      ...new Set(p.topics.filter((t) => t.id === id && t.source !== 'researcher').map((t) => t.source ?? 'openalex')),
       ...(topics.wanted.some((w) => w.id === id) ? ['profile_interest'] : []),
-    ];
+    ].sort();
     const choiceOf = (id: string) => p.notInterestChoices?.[id] ?? (overlapOf(id).length ? 'keep' : 'filter');
     if (m[2]) {
       if (method !== 'PUT') return err(405, 'method not allowed');
@@ -763,15 +764,17 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
       if (!topics.unwanted.some((u) => u.id === id)) return err(400, `${id} is not a topic the researcher's profile does not want`);
       const t = p.topics.find((x) => x.id === id);
       const u = topics.unwanted.find((x) => x.id === id)!;
-      if (choice === 'add') {
-        if (t) { t.on = true; t.profile = 'interest'; } else p.topics.push({ id, name: u.name, count: 0, on: true, source: 'researcher', profile: 'interest' });
-      } else {
-        p.topics = p.topics.filter((x) => !(x.id === id && x.source === 'researcher'));
-        const left = p.topics.find((x) => x.id === id);
-        if (left) {
-          left.profile = choice === 'filter' ? 'not_interest' : null;
-          left.on = choice === 'filter' ? false : (p.topicsBeforeProfile?.[id] ?? true);
-        }
+      const before = (p.topicsBeforeProfile ??= {});
+      const mark = choice === 'filter' ? 'not_interest' : choice === 'add' || topics.wanted.some((w) => w.id === id) ? 'interest' : null;
+      if (choice === 'add' && !t) {
+        p.topics.push({ id, name: u.name, count: 0, on: true, source: 'researcher', profile: 'interest' });
+      } else if (t && t.source === 'researcher' && !mark) {
+        p.topics = p.topics.filter((x) => x !== t);
+      } else if (t && (t.profile ?? null) !== mark) {
+        // As the server: only the state the old mark dictated goes back; a switch made by hand stays.
+        if (t.profile && t.on === (t.profile === 'interest') && id in before) t.on = before[id];
+        if (mark) { if (!(id in before)) before[id] = t.on; t.on = mark === 'interest'; } else delete before[id];
+        t.profile = mark;
       }
       if (p.topics.length > 0 && !p.topics.some((x) => x.on)) return err(409, 'the profile would switch every topic off: a scan searches by them');
       p.notInterestChoices = { ...(p.notInterestChoices ?? {}), [id]: choice as 'filter' | 'keep' | 'add' };

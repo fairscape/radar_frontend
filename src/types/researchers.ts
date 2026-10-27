@@ -79,6 +79,8 @@ export interface ResearcherTopics {
   unwanted_labels: string[];
   /** The labels could not be mapped to topics just now (the mapper is down); the lists hold only the topics the profile asserts outright. */
   labels_unmapped: boolean;
+  /** The not-wanted labels that match no topic (none is known while ``labels_unmapped``). */
+  unmatched_labels?: string[];
   /** ``unwanted`` with each topic's choice on this interest (an interest's view only). */
   not_interest?: NotInterestTopic[];
 }
