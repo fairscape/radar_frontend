@@ -67,6 +67,8 @@ export interface NotInterestTopic {
   choice: NotInterestChoice;
   in_list: boolean;
   on: boolean | null;
+  /** The listed topic's mark; a ``filter`` not yet marked is applied on the next recompute. */
+  marked?: 'interest' | 'not_interest' | null;
 }
 
 /** What a researcher's profile says they do and do not want; empty for an ORCID-only one. */
@@ -81,6 +83,8 @@ export interface ResearcherTopics {
   labels_unmapped: boolean;
   /** The not-wanted labels that match no topic (none is known while ``labels_unmapped``). */
   unmatched_labels?: string[];
+  /** Labels are matched to topics at all (UMLS on); off, every label is unmatched. */
+  label_matching?: boolean;
   /** ``unwanted`` with each topic's choice on this interest (an interest's view only). */
   not_interest?: NotInterestTopic[];
 }

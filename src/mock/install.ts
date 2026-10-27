@@ -201,6 +201,7 @@ function mockResearcherTopics(r: MockResearcher) {
     wanted_labels: [],
     unwanted_labels: ['phylogenomics', 'wet-lab-protocol-development'],
     unmatched_labels: ['wet-lab-protocol-development'],
+    label_matching: true,
   };
 }
 
@@ -764,6 +765,7 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
       if (!topics.unwanted.some((u) => u.id === id)) return err(400, `${id} is not a topic the researcher's profile does not want`);
       const t = p.topics.find((x) => x.id === id);
       const u = topics.unwanted.find((x) => x.id === id)!;
+      const snapshot = JSON.stringify({ topics: p.topics, before: p.topicsBeforeProfile ?? null });
       const before = (p.topicsBeforeProfile ??= {});
       const mark = choice === 'filter' ? 'not_interest' : choice === 'add' || topics.wanted.some((w) => w.id === id) ? 'interest' : null;
       if (choice === 'add' && !t) {
@@ -776,7 +778,13 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
         if (mark) { if (!(id in before)) before[id] = t.on; t.on = mark === 'interest'; } else delete before[id];
         t.profile = mark;
       }
-      if (p.topics.length > 0 && !p.topics.some((x) => x.on)) return err(409, 'the profile would switch every topic off: a scan searches by them');
+      if (p.topics.length > 0 && !p.topics.some((x) => x.on)) {
+        // Nothing is written on the server either.
+        const was = JSON.parse(snapshot);
+        p.topics = was.topics;
+        p.topicsBeforeProfile = was.before ?? undefined;
+        return err(409, 'the profile would switch every topic off: a scan searches by them');
+      }
       p.notInterestChoices = { ...(p.notInterestChoices ?? {}), [id]: choice as 'filter' | 'keep' | 'add' };
       return json(p.topics);
     }
@@ -784,7 +792,7 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
       const not_interest = topics.available ? topics.unwanted.map((u) => {
         const t = p.topics.find((x) => x.id === u.id);
         return { id: u.id, name: u.name, method: u.method, label: u.label, weight: u.weight, similarity: u.method === 'label' ? 0.86 : null,
-          overlap: overlapOf(u.id), choice: choiceOf(u.id), in_list: !!t, on: t ? t.on : null };
+          overlap: overlapOf(u.id), choice: choiceOf(u.id), in_list: !!t, on: t ? t.on : null, marked: t?.profile ?? null };
       }) : [];
       return json({ researcher_id: r?.id ?? null, researcher_name: r?.name ?? null, applied: !!p.researcherTopics && !!r, topics: { ...topics, not_interest } });
     }

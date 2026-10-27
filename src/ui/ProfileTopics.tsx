@@ -84,8 +84,8 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
       {t.labels_unmapped && <p className="small muted" style={{ margin: '6px 0 0' }}>The profile's text concepts could not be matched to topics just now (the topic mapper is unavailable); the ones matched before stay in the list.</p>}
       <div className="row" style={{ marginTop: 10 }}>
         {d.applied
-          ? <Button size="sm" onClick={() => toggle.run(false)} loading={toggle.busy}>Remove profile topics</Button>
-          : <Button size="sm" variant="primary" icon="plus" onClick={() => toggle.run(true)} loading={toggle.busy}>Use profile topics</Button>}
+          ? <Button size="sm" onClick={() => toggle.run(false)} loading={toggle.busy} disabled={choose.busy}>Remove profile topics</Button>
+          : <Button size="sm" variant="primary" icon="plus" onClick={() => toggle.run(true)} loading={toggle.busy} disabled={choose.busy}>Use profile topics</Button>}
       </div>
     </Callout>
   );
@@ -145,11 +145,11 @@ function NotInterestList({ topics: t, applied, busy, onChoose }: {
                   : <span className="muted">No other source lists it</span>}
                 {r.choice === 'add' && <> · <b>added as a topic</b></>}
                 {r.choice === 'keep' && r.in_list && <span className="muted"> · in the list, {r.on ? 'on' : 'off'}</span>}
-                {filtered && r.on === true && <span className="muted"> · switched back on in the list</span>}
+                {filtered && r.on === true && <span className="muted"> · {r.marked === 'not_interest' ? 'switched back on in the list' : 'still on in the list until the topics are recomputed'}</span>}
               </span>
               <span className="ni-act">
                 {r.choice === 'add'
-                  ? <Button size="sm" variant="ghost" disabled={!applied || busy} onClick={() => onChoose(r, r.overlap.length > 0 ? 'keep' : 'filter')}>Undo add</Button>
+                  ? <Button size="sm" variant="ghost" disabled={!applied || busy} onClick={() => onChoose(r, 'keep')} title="Keep it as the other sources have it; tick “Filter out” to filter it instead">Don't add</Button>
                   : !(r.in_list && r.on)
                     ? <Button size="sm" variant="ghost" icon="plus" disabled={!applied || busy} onClick={() => onChoose(r, 'add')}>Add as topic</Button>
                     : null}
@@ -160,7 +160,9 @@ function NotInterestList({ topics: t, applied, busy, onChoose }: {
         {unmatched.map((l) => (
           <li key={`lbl-${l}`} className="unmatched">
             <span className="ni-what">“{l}”</span>
-            <span className="ni-note small muted">matches no OpenAlex topic closely enough; listed for information</span>
+            <span className="ni-note small muted">{t.label_matching === false
+              ? 'not matched to a topic: matching needs UMLS, which is off here; listed for information'
+              : 'matches no OpenAlex topic closely enough; listed for information'}</span>
           </li>
         ))}
       </ul>
