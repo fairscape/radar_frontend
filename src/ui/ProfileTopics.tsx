@@ -59,7 +59,7 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
   const t = d.topics;
   const who = d.researcher_name ?? `this ${TERMS.profile}`;
   // A wanted topic the user filters out (a not-wanted label matched it too) is off.
-  const filteredIds = new Set((t.not_interest ?? []).filter((r) => r.choice === 'filter').map((r) => r.id));
+  const filteredIds = new Set((t.not_interest ?? []).filter((r) => r.choice === 'filter' && r.on !== true).map((r) => r.id));
   const wantedOn = t.wanted.filter((x) => !filteredIds.has(x.id)).length;
   if (d.applied && !t.available) {
     return (
@@ -80,7 +80,7 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
         {saved && <> <b>This is saved straight away</b>, unlike the ticks below, and applies from the next scan.</>}
       </p>
       <TopicChips topics={{ ...t, unwanted: [], unwanted_labels: [], unmatched_labels: [] }} offIds={filteredIds} />
-      <NotInterestList topics={t} applied={d.applied} busy={choose.busy || toggle.busy} onChoose={(row, c) => choose.run(row, c)} />
+      <NotInterestList topics={t} applied={d.applied} saved={saved} busy={choose.busy || toggle.busy} onChoose={(row, c) => choose.run(row, c)} />
       {t.labels_unmapped && <p className="small muted" style={{ margin: '6px 0 0' }}>The profile's text concepts could not be matched to topics just now (the topic mapper is unavailable); the ones matched before stay in the list.</p>}
       <div className="row" style={{ marginTop: 10 }}>
         {d.applied
@@ -107,8 +107,8 @@ const OVERLAP_LABEL: Record<string, string> = {
  * as a topic. Before the profile is applied the rows show the defaults it
  * would use, read-only.
  */
-function NotInterestList({ topics: t, applied, busy, onChoose }: {
-  topics: ResearcherTopics; applied: boolean; busy: boolean;
+function NotInterestList({ topics: t, applied, saved, busy, onChoose }: {
+  topics: ResearcherTopics; applied: boolean; saved: boolean; busy: boolean;
   onChoose: (row: NotInterestTopic, choice: NotInterestChoice) => void;
 }) {
   const rows = t.not_interest ?? [];
@@ -143,9 +143,11 @@ function NotInterestList({ topics: t, applied, busy, onChoose }: {
                 {r.overlap.length > 0
                   ? <>Also from {r.overlap.map((o) => OVERLAP_LABEL[o] ?? o).join(', ')}</>
                   : <span className="muted">No other source lists it</span>}
-                {r.choice === 'add' && <> · <b>added as a topic</b></>}
+                {r.choice === 'add' && <> · <b>added as a topic</b>{r.on === false && <span className="muted">, switched off in the list</span>}</>}
                 {r.choice === 'keep' && r.in_list && <span className="muted"> · in the list, {r.on ? 'on' : 'off'}</span>}
-                {filtered && r.on === true && <span className="muted"> · {r.marked === 'not_interest' ? 'switched back on in the list' : 'still on in the list until the topics are recomputed'}</span>}
+                {filtered && r.on === true && <span className="muted"> · {r.marked === 'not_interest'
+                  ? `switched back on in the ${saved ? 'saved ' : ''}list`
+                  : saved ? 'still on in the saved list until the topics are next saved' : 'still on in the list until the topics are recomputed'}</span>}
               </span>
               <span className="ni-act">
                 {r.choice === 'add'
