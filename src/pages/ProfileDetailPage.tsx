@@ -151,7 +151,7 @@ export function ProfileDetailPage({ id }: { id: number }) {
       {tab === 'papers' && <PapersTab papers={data.papers} />}
       {tab === 'interests' && <InterestsTab interests={data.interests} researcherId={r.id} nPapers={r.n_papers} importing={importing} />}
       {tab === 'about' && (
-        <Panel title="About" description={`What ${r.source === 'prosopia' ? 'the Prosopia profile' : 'OpenAlex'} says about this researcher. Stored as read; Radar does not add to it.`}>
+        <Panel title="About" description={`What ${r.source === 'prosopia' ? 'the Prosopia profile' : 'OpenAlex'} says about this researcher. Stored as read; BioXplorer does not add to it.`}>
           <dl className="doc-detail" style={{ border: 0, background: 'transparent', padding: 0 }}>
             <div><dt>Name</dt><dd>{r.name}</dd></div>
             {r.affiliation && <div><dt>Affiliation</dt><dd>{r.affiliation}</dd></div>}
@@ -216,7 +216,7 @@ function InterestsTab({ interests, researcherId, nPapers, importing }: { interes
       <EmptyState
         icon="interests"
         title={`No ${TERMS.interests} from this ${TERMS.profile} yet`}
-        body={`Pick some of the papers and Radar starts a draft with them as seeds. You can build several ${TERMS.interests} this way, one per topic.`}
+        body={`Pick some of the papers and BioXplorer starts a draft with them as seeds. You can build several ${TERMS.interests} this way, one per topic.`}
         action={nPapers > 0 && !importing ? <Link href={paths.wizardFrom('profile', researcherId)} className="btn btn-primary"><Icon name="plus" size={14} /> {TERMS.newInterest}</Link> : undefined}
       />
     );

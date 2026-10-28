@@ -73,6 +73,17 @@ export function onWriteRejected(cb: () => void): () => void {
   return () => { writeRejectedListeners.delete(cb); };
 }
 
+const openAlexListeners = new Set<(status: unknown) => void>();
+
+/**
+ * Called with ``openalex`` from a 503's body: OpenAlex could not answer,
+ * and the request stopped (FUNCTIONAL_SPEC F2). The banner follows it.
+ */
+export function onOpenAlexStatus(cb: (status: unknown) => void): () => void {
+  openAlexListeners.add(cb);
+  return () => { openAlexListeners.delete(cb); };
+}
+
 function looksLikeLoginPage(resp: Response, body: unknown): boolean {
   if (typeof body !== 'string') return false;
   const ct = resp.headers.get('content-type') ?? '';
@@ -97,6 +108,10 @@ async function request<T>(
   });
   const body = await parseBody(resp);
   if (!resp.ok) {
+    if (resp.status === 503 && body && typeof body === 'object' && 'openalex' in body) {
+      const status = (body as { openalex: unknown }).openalex;
+      openAlexListeners.forEach((cb) => cb(status));
+    }
     if ((init.method ?? 'GET') !== 'GET' && [400, 404, 409].includes(resp.status)) {
       writeRejectedListeners.forEach((cb) => cb());
     }

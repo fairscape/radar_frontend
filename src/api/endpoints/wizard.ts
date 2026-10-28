@@ -1,5 +1,5 @@
 /** Draft-interest (wizard) endpoints. Shapes mirror ``rag_lib/api/schemas.py``. */
-import type { Card, CoherenceLabel, Profile, SeedSimilarity, SweepRow, Topic, VaultDoc, YearSpan } from '../../types/radar';
+import type { Card, CoherenceLabel, SavedDraft, SeedSimilarity, SweepRow, Topic, VaultDoc, YearSpan } from '../../types/radar';
 import { apiDelete, apiGet, apiPost } from '../client';
 import { invalidate, invalidateUnshown } from '../../lib/query';
 import type { GatherRunStatus } from './profiles';
@@ -15,6 +15,9 @@ export interface LeastSimilarPair {
   b_id: string;
   b_title: string;
   cosine: number;
+  /** The public work of an uploaded seed, as ``Seed.canonicalId``. */
+  a_canonical_id?: string | null;
+  b_canonical_id?: string | null;
 }
 
 export interface DraftCoherence {
@@ -127,8 +130,13 @@ export function getDraftDryRunStatus(slug: string, runId: number): Promise<Draft
   return apiGet<DraftDryRunStatus>(`/api/profiles/draft/${enc(slug)}/dry-run/${runId}`);
 }
 
-export async function commitDraft(body: CommitDraftRequest): Promise<Profile> {
-  const res = await apiPost<Profile>('/api/profiles', body);
+/**
+ * Save a draft: the server fits it and starts its first scan; the interest
+ * goes live only when that scan succeeds (``saveRunId``, tracked as a
+ * scan job). ``isDraft`` false and no run: it was saved already.
+ */
+export async function commitDraft(body: CommitDraftRequest): Promise<SavedDraft> {
+  const res = await apiPost<SavedDraft>('/api/profiles', body);
   // 'researchers': a researcher's page lists its interests, this one as a draft until now.
   invalidate('profiles', 'vault', 'radar', 'researchers');
   // The draft's own reads are forgotten, not re-read: the draft is gone, and

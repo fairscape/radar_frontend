@@ -21,7 +21,7 @@ export function healthOf(p: Profile): { tone: Tone; label: string; hint: string 
     case 'none':
       return { tone: 'neutral', label: 'No seeds', hint: 'Add seed papers to define this interest.' };
     case 'single':
-      return { tone: 'neutral', label: 'One seed', hint: 'Radar looks for papers like this one. Agreement between seeds needs at least two.' };
+      return { tone: 'neutral', label: 'One seed', hint: 'BioXplorer looks for papers like this one. Agreement between seeds needs at least two.' };
     case 'mixed':
       return { tone: 'err', label: 'Seeds disagree', hint: `The seeds are about as similar as random papers from the same field.${a} Split them into separate interests or remove the ones that don't belong.` };
     case 'broad':

@@ -1,16 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatHistory, useChatProviders, useProfiles, useVaultDocs, useVaultMeta, useVaultStats, useVaultTags } from '../api/hooks';
 import { clearChatHistory, postChat } from '../api/endpoints/chat';
-import { uploadPdf } from '../api/endpoints/vault';
-import { getDraft, setDraft } from '../lib/draft';
-import { errorMessage, fmtDate, fmtRelative, plural } from '../lib/format';
+import { errorMessage, fmtDate, fmtRelative } from '../lib/format';
 import { invalidate, setQueryData } from '../lib/query';
 import { TERMS } from '../lib/terms';
 import { useSearchParam } from '../lib/router';
 import { toast } from '../lib/toast';
-import { isUnmatched, noteUnmatchedUploads } from '../lib/unmatched';
+import { displayTitle, workId } from '../lib/unmatched';
 import { CHAT_ENABLED } from '../lib/features';
-import { notifyEmptyDrop } from '../lib/dropHint';
 import type { ChatSource, ChatTurn, LLMProvider, VaultDoc } from '../types/radar';
 import { Badge, Button, EmptyState, ErrorBox, Icon, IconButton, Input, LoadingRows, Select, Spinner, Swatch, Textarea, confirmDialog } from '../ui';
 import { keys } from '../api/hooks';
@@ -28,8 +25,6 @@ export function VaultPage() {
   const stats = useVaultStats();
   const tags = useVaultTags();
   const meta = useVaultMeta();
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -39,83 +34,18 @@ export function VaultPage() {
   }, [docs.data, search]);
   const active = filtered.find((d) => d.id === activeDoc) ?? null;
 
-  async function upload(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    const list = Array.from(files);
-    let ok = 0;
-    const dups: string[] = [];
-    const unmatched: string[] = [];
-    const fails: string[] = [];
-    for (let i = 0; i < list.length; i++) {
-      setUploading({ done: i, total: list.length });
-      try {
-        const doc = await uploadPdf(list[i], tag !== 'all' ? tag : undefined);
-        if (doc.duplicate) dups.push(list[i].name);
-        else ok += 1;
-        if (tag !== 'all' && byKey[tag]?.isDraft && getDraft().slug === tag) {
-          // A new seed for the draft the wizard holds: its topics, trial
-          // scan and threshold were computed without it. A PDF already in
-          // the vault still becomes a seed of the tagged draft. The in-wizard
-          // upload does the same (invalidateDownstream).
-          setDraft({ selectedTopicIds: null, dryRunJobId: null, dryRunTopics: null, threshold: null });
-          invalidate(`draft/${tag}/`);
-        }
-        if (!doc.duplicate && isUnmatched(doc.id)) unmatched.push(list[i].name);
-      } catch (e) {
-        fails.push(`${list[i].name}: ${errorMessage(e)}`);
-      }
-    }
-    setUploading(null);
-    if (ok) toast.success(`${plural(ok, 'PDF')} added to the ${TERMS.vault}${tag !== 'all' ? ` as ${ok === 1 ? 'a seed' : 'seeds'} of ${byKey[tag]?.name ?? tag}` : ''}.`);
-    if (dups.length) toast.info(`Already in your ${TERMS.vault}: ${dups.join(', ')}.${tag !== 'all' ? ` ${dups.length === 1 ? 'Now a seed' : 'Now seeds'} of ${byKey[tag]?.name ?? tag}.` : ''}`);
-    noteUnmatchedUploads(unmatched, tag === 'all' ? 'vault' : byKey[tag]?.isDraft ? 'draft' : 'interest');
-    for (const f of fails) toast.error(f);
-  }
-
-  // The whole page takes dropped PDFs. Uploading here was a button that
-  // opened the file browser and nothing else, so dragging a PDF onto the
-  // Vault did nothing -- while the wizard's seed step took drops. The
-  // counter is because dragenter/dragleave fire for every child element
-  // crossed; a boolean would flicker off over each one.
-  const [dragDepth, setDragDepth] = useState(0);
-  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
-  // A link dragged in (Zotero, a download bar) is accepted too, only so the
-  // drop event fires and can explain why nothing uploaded; without
-  // preventDefault on dragover the browser never delivers the drop.
-  const droppable = (e: React.DragEvent) => hasFiles(e) || Array.from(e.dataTransfer.types).includes('text/uri-list');
+  // No upload here: PDFs are uploaded into an interest (the wizard's first
+  // step, an interest's Seeds tab), so every upload is someone's seed
+  // (FUNCTIONAL_SPEC 1.1). The vault lists what is there.
 
   return (
-    <div
-      className={`page vault-drop ${dragDepth > 0 ? 'over' : ''}`}
-      onDragEnter={(e) => { if (droppable(e)) { e.preventDefault(); setDragDepth((d) => d + 1); } }}
-      onDragOver={(e) => { if (droppable(e)) e.preventDefault(); }}
-      onDragLeave={(e) => { if (droppable(e)) setDragDepth((d) => Math.max(0, d - 1)); }}
-      onDrop={(e) => {
-        if (!hasFiles(e)) { if (e.dataTransfer.types.includes('text/uri-list')) { e.preventDefault(); setDragDepth(0); notifyEmptyDrop(); } return; }
-        e.preventDefault();
-        setDragDepth(0);
-        if (!e.dataTransfer.files?.length) { notifyEmptyDrop(); return; }
-        if (!uploading) void upload(e.dataTransfer.files);
-      }}
-    >
-      {dragDepth > 0 && (
-        <div className="vault-drop-hint" aria-hidden="true">
-          <Icon name="upload" size={22} />
-          <span>Drop PDFs to upload{tag !== 'all' ? ` to ${byKey[tag]?.name ?? tag}` : ''}</span>
-        </div>
-      )}
+    <div className="page">
       <header className="page-head">
         <div>
           <h1 className="page-title">{TERMS.vault}</h1>
           <p className="page-sub">{CHAT_ENABLED
-            ? 'Your PDFs, indexed for search. Seeds land here automatically; upload anything else you want to ask questions about.'
-            : 'Every paper you have uploaded or imported. Seeds land here automatically, and anything here can become a seed of an interest.'}</p>
-        </div>
-        <div className="page-actions">
-          <Button variant="primary" icon="upload" onClick={() => inputRef.current?.click()} loading={!!uploading} title={tag !== 'all' ? `Uploads become seeds of "${byKey[tag]?.name ?? tag}"` : 'Upload PDFs'}>
-            {uploading ? `Uploading ${uploading.done + 1}/${uploading.total}` : tag !== 'all' ? `Upload to ${byKey[tag]?.name ?? tag}` : 'Upload PDFs'}
-          </Button>
-          <input ref={inputRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ''; }} />
+            ? 'Your PDFs, indexed for search. Seeds land here automatically.'
+            : 'Every paper you have uploaded or imported. Upload PDFs from an interest (its first step, or its Seeds tab); anything here can become a seed of an interest.'}</p>
         </div>
       </header>
 
@@ -134,8 +64,7 @@ export function VaultPage() {
           </div>
           {meta.data && stats.data && (
             <div className="vault-meta">
-              <span><b>{stats.data.pages.toLocaleString()}</b> pages · <b>{stats.data.chunks.toLocaleString()}</b> chunks</span>
-              <span>chunking: {meta.data.chunkSize}</span>
+              <span><b>{stats.data.pages.toLocaleString()}</b> pages</span>
               <span>last upload: {stats.data.lastIngest ? fmtRelative(stats.data.lastIngest) : 'never'}</span>
             </div>
           )}
@@ -153,7 +82,7 @@ export function VaultPage() {
             {docs.loading && !docs.data && <div style={{ padding: 14 }}><LoadingRows rows={4} /></div>}
             {docs.data && filtered.length === 0 && (
               search ? <EmptyState compact icon="search" title="No documents match" action={<Button size="sm" onClick={() => setSearch('')}>Clear filter</Button>} />
-              : <EmptyState compact icon="file" title={tag === 'all' ? 'The vault is empty' : 'Nothing tagged here yet'} body={tag === 'all' ? 'Upload PDFs, or create an interest: its seeds are stored here.' : 'Upload PDFs while this collection is selected to tag them.'} action={<Button size="sm" icon="upload" onClick={() => inputRef.current?.click()}>Upload PDFs</Button>} />
+              : <EmptyState compact icon="file" title={tag === 'all' ? 'The vault is empty' : 'Nothing tagged here yet'} body={tag === 'all' ? 'Create an interest: the PDFs you upload as its seeds are stored here.' : 'Add seeds to this interest from its Seeds tab.'} />
             )}
             {filtered.map((d) => (
               // A div, not a <button>: the title is a link, and a link inside a
@@ -165,7 +94,7 @@ export function VaultPage() {
                 onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setActiveDoc(active?.id === d.id ? null : d.id); } }}
                 aria-expanded={active?.id === d.id}
               >
-                <div className="doc-title"><PaperLink title={d.title} id={d.id} /></div>
+                <div className="doc-title"><PaperLink title={displayTitle(d)} id={workId(d)} /></div>
                 <div className="doc-meta">
                   <span className="truncate" style={{ maxWidth: 260 }}>{d.authors.join(', ') || 'Unknown authors'}</span>
                   <span>{d.venue || '—'}</span>
@@ -189,12 +118,11 @@ export function VaultPage() {
 function DocDetail({ doc, tagName }: { doc: VaultDoc; tagName: (t: string) => string }) {
   return (
     <dl className="doc-detail">
-      <div><dt>Title</dt><dd><PaperLink title={doc.title} id={doc.id} /></dd></div>
+      <div><dt>Title</dt><dd><PaperLink title={displayTitle(doc)} id={workId(doc)} /></dd></div>
       <div><dt>Authors</dt><dd>{doc.authors.join(', ') || '—'}</dd></div>
       <div className="row" style={{ gap: 24 }}>
         <div><dt>Venue</dt><dd>{doc.venue || '—'}</dd></div>
         <div><dt>Pages</dt><dd>{doc.pages}</dd></div>
-        <div><dt>Chunks</dt><dd>{doc.chunks}</dd></div>
         <div><dt>Added</dt><dd>{fmtDate(doc.added)}</dd></div>
       </div>
       <div><dt>Tagged</dt><dd>{doc.tags.length ? doc.tags.map(tagName).join(', ') : 'Untagged'}</dd></div>

@@ -30,7 +30,7 @@ export function InterestsPage() {
       <header className="page-head">
         <div>
           <h1 className="page-title">{TERMS.Interests}</h1>
-          <p className="page-sub">Each {TERMS.interest} is a set of seed papers, the topics Radar queries for it, and a score threshold. Radar scans an {TERMS.interest} when you start a scan.</p>
+          <p className="page-sub">Each {TERMS.interest} is a set of seed papers, the topics BioXplorer queries for it, and a score threshold. BioXplorer scans an {TERMS.interest} when you start a scan.</p>
         </div>
         <div className="page-actions">
           <Link href={paths.wizard()} className="btn btn-primary"><Icon name="plus" size={16} /> {TERMS.newInterest}</Link>
@@ -114,7 +114,7 @@ function DraftRow({ draft, info }: { draft: Profile; info?: DraftSummary }) {
           {info?.phase === 'importing' ? (
             // Mid-import the seeds are not attached yet, so the count would
             // read "0 seeds" for a job busy fetching eighty papers.
-            <Badge tone="info" dot title="Radar is still fetching and embedding this researcher's papers.">importing</Badge>
+            <Badge tone="info" dot title="BioXplorer is still fetching and embedding this researcher's papers.">importing</Badge>
           ) : info?.phase === 'failed' ? (
             <Badge tone="err" title={info.import_error ?? undefined}>import failed</Badge>
           ) : (

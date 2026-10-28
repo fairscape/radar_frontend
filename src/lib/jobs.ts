@@ -365,11 +365,16 @@ function base(kind: JobKind, runId: number, profileKey: string, profileName: str
   };
 }
 
+// What one scan takes from OpenAlex (backend gatherers.openalex.PER_TOPIC and
+// years.BACKFILL_PER_YEAR; FUNCTIONAL_SPEC S.1), for the copy.
+export const SCAN_PER_TOPIC = 40;
+export const PER_YEAR = 40;
+
 // --- public API -------------------------------------------------------------
 
 export async function startScan(
   profile: { key: string; name: string },
-  opts: { days: number; limit: number },
+  opts: { days: number },
 ): Promise<Job> {
   const { run_id } = await gatherNow(profile.key, opts);
   invalidate(`profiles/${profile.key}/runs`);
@@ -384,6 +389,16 @@ export function yearsLabel(years: YearSpan): string {
 export async function startDryRun(slug: string, name: string, days = 30, years?: YearSpan | null, selectedTopicIds?: string[] | null): Promise<Job> {
   const { run_id } = await startDraftDryRun(slug, days, years, selectedTopicIds);
   return years ? add({ ...base('dryrun', run_id, slug, name), yearsLabel: yearsLabel(years) }) : add({ ...base('dryrun', run_id, slug, name), days });
+}
+
+/**
+ * A draft's save: its first scan, already started by ``commitDraft``. The
+ * job is done when the scan succeeded, and then the interest is live.
+ */
+export function trackSave(profile: { key: string; name: string }, runId: number, years: YearSpan | null): Job {
+  invalidate(`profiles/${profile.key}/runs`);
+  return add(years ? { ...base('scan', runId, profile.key, profile.name), yearsLabel: yearsLabel(years) }
+    : { ...base('scan', runId, profile.key, profile.name), days: 7 });
 }
 
 /** Papers from past years into a live interest: tracked like a scan. */

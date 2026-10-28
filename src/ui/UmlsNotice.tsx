@@ -13,9 +13,9 @@ function message(st: SeedUmlsStatus): string {
     case 'bad_data':
       return `The stored UMLS data of ${plural(n, 'seed')} could not be read; ${n === 1 ? 'it is' : 'they are'} being read again. ${KEPT}`;
     case 'failed':
-      return `UMLS concepts could not be read from ${plural(n, 'seed')}; Radar tries again in a few hours. ${KEPT}`;
+      return `UMLS concepts could not be read from ${plural(n, 'seed')}; BioXplorer tries again in a few hours. ${KEPT}`;
     case 'pending':
-      return `${plural(n, 'seed')} ${n === 1 ? 'has' : 'have'} not been read for UMLS concepts yet. ${KEPT} Reload once Radar has read them.`;
+      return `${plural(n, 'seed')} ${n === 1 ? 'has' : 'have'} not been read for UMLS concepts yet. ${KEPT} Reload once BioXplorer has read them.`;
     default:
       return `Something went wrong bringing them in. ${KEPT} Reload the page to try again.`;
   }

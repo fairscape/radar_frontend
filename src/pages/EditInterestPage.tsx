@@ -29,6 +29,7 @@ import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, confir
 import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
 import { PaperLink } from '../ui/paperLink';
+import { workId } from '../lib/unmatched';
 import { ResearchTopics } from '../ui/ResearchTopics';
 import { ScanDialog, SeedsTab, ThresholdTab, useScanBusy, useSeedUpload, type Detail } from './InterestDetailPage';
 import { AgreementMeter, verdictFor } from './WizardPage';
@@ -186,11 +187,11 @@ function StepCheck({ profile, back, next }: { profile: Profile; back: () => void
                     Least alike pair (similarity {c.least_similar.cosine.toFixed(2)}). If one is off-topic, remove it on the <button type="button" className="linklike" onClick={back}>Seeds step</button>.
                   </div>
                   {[
-                    { id: c.least_similar.a_id, title: c.least_similar.a_title },
-                    { id: c.least_similar.b_id, title: c.least_similar.b_title },
+                    { id: c.least_similar.a_id, title: c.least_similar.a_title, canonicalId: c.least_similar.a_canonical_id },
+                    { id: c.least_similar.b_id, title: c.least_similar.b_title, canonicalId: c.least_similar.b_canonical_id },
                   ].map((p) => (
                     <div className="seed-row pair-row" key={p.id}>
-                      <span className="truncate" title={p.title}><PaperLink title={p.title || p.id} id={p.id} /></span>
+                      <span className="truncate" title={p.title}><PaperLink title={p.title || p.id} id={workId(p)} /></span>
                     </div>
                   ))}
                 </div>
@@ -261,7 +262,7 @@ function StepTopics({ profile, detail, back, next, onDirty }: { profile: Profile
   });
 
   return (
-    <Panel title="What should Radar search for?" description="Topics aggregated from the seeds' OpenAlex records. Each scan asks OpenAlex for new papers in the topics that are on. Papers already found stay; a change applies from the next scan.">
+    <Panel title="What should BioXplorer search for?" description="Topics aggregated from the seeds' OpenAlex records. Each scan asks OpenAlex for new papers in the topics that are on. Papers already found stay; a change applies from the next scan.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
       <UmlsNotice profileKey={profile.key} listed={topics.data} />
       {topics.data && (

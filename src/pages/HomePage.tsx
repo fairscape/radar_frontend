@@ -21,8 +21,8 @@ export function HomePage() {
     <div className="page page-narrow">
       <header className="page-head">
         <div>
-          <h1 className="page-title">What you can do in Radar</h1>
-          <p className="page-sub">Radar watches OpenAlex for new papers and scores them against papers you already care about.</p>
+          <h1 className="page-title">What you can do in BioXplorer</h1>
+          <p className="page-sub">BioXplorer watches OpenAlex for new papers and scores them against papers you already care about.</p>
         </div>
       </header>
 

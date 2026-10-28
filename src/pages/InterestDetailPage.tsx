@@ -16,15 +16,16 @@ import {
 } from '../api/endpoints/profiles';
 import { uploadPdf } from '../api/endpoints/vault';
 import { daysLabel, errorMessage, fmtDateTime, fmtDuration, fmtRelative, fmtScore, parseServerTime, plural } from '../lib/format';
-import { startBackfill, startScan, useRunningJob, yearsLabel } from '../lib/jobs';
+import { SCAN_PER_TOPIC, startBackfill, startScan, useRunningJob, yearsLabel } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths, addLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
-import { isUnmatched, noteUnmatchedUploads } from '../lib/unmatched';
+import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedUploads, openAlexStopped, seedKeys, seedSource, workId } from '../lib/unmatched';
+import { useOpenAlexPaused } from '../lib/openalex';
 import { notifyEmptyDrop } from '../lib/dropHint';
-import type { Profile } from '../types/radar';
+import type { Profile, VaultDoc } from '../types/radar';
 import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, IconButton, LoadingRows, NumberInput, Panel, Stat, Tabs, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { PaperTitle } from '../ui/pickers';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
@@ -197,8 +198,8 @@ function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; deta
     <div className="two-col">
       <Panel title="How this interest works">
         <div className="stack" style={{ fontSize: 13.5, color: 'var(--fg-2)' }}>
-          <p>Radar queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> {detail.topics.filter((t) => t.on).length === 1 ? 'topic' : 'topics'} and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{fmtScore(profile.seedSimMin)}</b> or more are as close as your own seeds</>}.</p>
-          <p>Radar does not scan on a schedule. Press Scan now to look for new papers.</p>
+          <p>BioXplorer queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> {detail.topics.filter((t) => t.on).length === 1 ? 'topic' : 'topics'} and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{fmtScore(profile.seedSimMin)}</b> or more are as close as your own seeds</>}.</p>
+          <p>BioXplorer does not scan on a schedule. Press Scan now to look for new papers.</p>
           <p>Saving or dismissing a paper in the feed is recorded as feedback for this {TERMS.interest} and used when it is refit.</p>
         </div>
       </Panel>
@@ -272,6 +273,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
   });
   useClearOnChange(recompute, [detail.seeds.length]);
 
+  const paused = useOpenAlexPaused();
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;
     // A second drop while a batch uploads ran a second loop: it wiped the
@@ -281,6 +283,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     setFailures([]);
     let ok = 0;
     const unmatched: string[] = [];
+    const uploaded: VaultDoc[] = [];
     // A PDF that is one of the seeds already: nothing is added, and the
     // toast used to say "1 seed added" all the same.
     const had = new Set(detail.seeds.map((s) => s.id));
@@ -290,10 +293,18 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
       try {
         const doc = await uploadPdf(list[i], profile.key);
         if (had.has(doc.id)) { already.push(list[i].name); continue; }
-        if (isUnmatched(doc.id)) unmatched.push(list[i].name);
+        if (isUnmatched(doc)) unmatched.push(list[i].name);
+        uploaded.push(doc);
         ok += 1;
       } catch (e) {
         setFailures((f) => [...f, `${list[i].name}: ${errorMessage(e)}`]);
+        if (openAlexStopped(e)) {
+          // OpenAlex cannot answer: every next file would be refused the
+          // same way, so the batch stops (FUNCTIONAL_SPEC D2).
+          const rest = list.slice(i + 1).map((f) => f.name);
+          if (rest.length) setFailures((f) => [...f, `Not uploaded: ${rest.join(', ')}.`]);
+          break;
+        }
       }
     }
     setSeedUpload(profile.key, null);
@@ -302,6 +313,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     if (ok > 0) toast.success(`${plural(ok, 'seed')} added. The papers already found were re-scored against the new seeds, so the feed is updated.`);
     if (already.length > 0) toast.info(`Already a seed here: ${already.join(', ')}.`);
     noteUnmatchedUploads(unmatched, 'interest');
+    noteNewVersions(uploaded);
   }
 
   // Seeds of a live interest could be added (by PDF) but never removed:
@@ -335,7 +347,10 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
         {detail.seeds.length === 0 ? <p className="muted small">No seeds recorded.</p> : detail.seeds.map((s) => (
           <div className="seed-row removable" key={s.id}>
             <span className="idx">{String(s.idx).padStart(2, '0')}</span>
-            <span className="truncate"><PaperTitle title={s.title} id={s.id} /></span>
+            <span className="truncate">
+              <PaperTitle title={displayTitle(s)} id={workId(s)} />
+              {seedSource(s) && <span className="muted small" style={{ display: 'block' }}>{seedSource(s)}</span>}
+            </span>
             <span className="muted mono small">{s.year || ''}</span>
             <span className="mono small" title="How similar this seed is to the other seeds (leave-one-out). The lowest values are the least typical papers." style={{ color: s.coh > 0 && profile.seedSimMin != null && s.coh <= profile.seedSimMin + 1e-6 && profile.seedSimMax != null && profile.seedSimMax - profile.seedSimMin > 0.02 ? 'var(--warn)' : 'var(--fg-3)' }}>
               {s.coh > 0 ? fmtScore(s.coh) : '—'}
@@ -344,23 +359,24 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
           </div>
         ))}
         <div
-          className={`dropzone ${over ? 'over' : ''} ${progress ? 'busy' : ''}`}
+          className={`dropzone ${over ? 'over' : ''} ${progress || paused ? 'busy' : ''}`}
           style={{ marginTop: 14 }}
-          onClick={() => !progress && inputRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+          aria-disabled={!!paused}
+          onClick={() => !progress && !paused && inputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); if (!paused) setOver(true); }}
           onDragLeave={() => setOver(false)}
-          onDrop={(e) => { e.preventDefault(); setOver(false); if (!e.dataTransfer.files?.length) { notifyEmptyDrop(); return; } void upload(e.dataTransfer.files); }}
+          onDrop={(e) => { e.preventDefault(); setOver(false); if (paused) return; if (!e.dataTransfer.files?.length) { notifyEmptyDrop(); return; } void upload(e.dataTransfer.files); }}
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click(); }}
+          onKeyDown={(e) => { if (!paused && (e.key === 'Enter' || e.key === ' ')) inputRef.current?.click(); }}
         >
           <Icon name="upload" />
-          {progress ? <span>Uploading {progress.done + 1} of {progress.total}: <b>{progress.current}</b></span> : <span><b>Add seed PDFs</b> — drop files here or click to browse</span>}
+          {progress ? <span>Uploading {progress.done + 1} of {progress.total}: <b>{progress.current}</b></span> : paused ? <span>Uploading is paused while OpenAlex is unavailable (see the notice above).</span> : <span><b>Add seed PDFs</b> — drop files here or click to browse</span>}
           <input ref={inputRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ''; }} />
         </div>
         {failures.length > 0 && <ErrorBox compact title="Some files failed" message={failures.map((f) => <div key={f}>{f}</div>)} />}
         <div ref={pickerRef}>
-          <VaultSeedPicker profileKey={profile.key} seedIds={new Set(detail.seeds.map((s) => s.id))} disabled={!!progress || removing !== null} openSignal={openPicker} />
+          <VaultSeedPicker profileKey={profile.key} seedIds={seedKeys(detail.seeds)} disabled={!!progress || removing !== null} openSignal={openPicker} />
         </div>
       </Panel>
       <Panel title="Do the seeds agree?" description="Whether the seed papers are about the same thing. The similarity column on the left shows how typical each seed is; the lowest ones are the odd ones out.">
@@ -393,7 +409,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
   const yieldBy = Object.fromEntries((yieldQ.data?.topics ?? []).map((t) => [t.topic_id, t]));
   return (
     <div className="stack">
-    <Panel title="Topics" description="What Radar asks OpenAlex for. Aggregated from the seeds; chosen when the interest was created.">
+    <Panel title="Topics" description="What BioXplorer asks OpenAlex for. Aggregated from the seeds; chosen when the interest was created.">
       <SectionNote>
         To switch topics on or off, or pick up topics that new seeds brought in, use{' '}
         <Link href={paths.interestEdit(profile.key, 3)}>Edit interest → Topics</Link>. Changes apply from the next scan.
@@ -706,28 +722,25 @@ export function ScanDialog(props: { profile: Profile; open: boolean; onClose: ()
 
 function ScanDialogBody({ profile, open, onClose }: { profile: Profile; open: boolean; onClose: () => void }) {
   const [days, setDays] = useState(7);
-  const [limit, setLimit] = useState(500);
   const [daysOk, setDaysOk] = useState(true);
-  const [limitOk, setLimitOk] = useState(true);
   const go = useAction(async () => {
-    await startScan(profile, { days, limit });
+    await startScan(profile, { days });
     invalidate(`profiles/${profile.key}/runs`);
     toast.info(`Scanning "${profile.name}" for papers from the last ${daysLabel(days)}.`);
     onClose();
   });
-  useClearOnChange(go, [days, limit]);
+  useClearOnChange(go, [days]);
   return (
     <Dialog
       open={open}
       title={`Scan "${profile.name}" now`}
       onClose={onClose}
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" icon="play" onClick={() => go.run()} loading={go.busy} disabled={!daysOk || !limitOk} title={daysOk && limitOk ? undefined : 'Days 1–365, papers 1–5000'}>Start scan</Button></>}
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" icon="play" onClick={() => go.run()} loading={go.busy} disabled={!daysOk} title={daysOk ? undefined : 'Days 1–365'}>Start scan</Button></>}
     >
       <div className="stack">
-        <p>Radar will query OpenAlex for recent papers on this {TERMS.interest}'s topics, score them, and add the results to your feed. This usually takes a few minutes.</p>
+        <p>BioXplorer will query OpenAlex for recent papers on this {TERMS.interest}'s topics, score them, and add the results to your feed: each topic's {SCAN_PER_TOPIC} most cited papers from the window. This usually takes a few minutes.</p>
         <div className="row" style={{ gap: 12 }}>
           <Field label="Look back (days)"><NumberInput integer min={1} max={365} value={days} onChange={setDays} onValidity={setDaysOk} /></Field>
-          <Field label="Max papers to fetch"><NumberInput integer min={1} max={5000} step={50} value={limit} onChange={setLimit} onValidity={setLimitOk} /></Field>
         </div>
         {go.error && <ErrorBox compact message={go.error} />}
         <Callout tone="info">You can leave this page; progress shows at the top of every screen.</Callout>

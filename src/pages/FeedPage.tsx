@@ -4,7 +4,7 @@ import { dismissCard, saveCard } from '../api/endpoints/radar';
 import { addSeeds } from '../api/endpoints/profiles';
 import { daysLabel, errorMessage, fmtRelative, fmtScore, fmtSigned, plural } from '../lib/format';
 import { invalidate, invalidateUnshown } from '../lib/query';
-import { startScan, useJobs } from '../lib/jobs';
+import { SCAN_PER_TOPIC, startScan, useJobs } from '../lib/jobs';
 import { navigate, paths, useSearchParam } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
@@ -152,7 +152,7 @@ export function FeedPage() {
     setSeeding((s) => new Set(s).add(k));
     const name = byKey[card.profile]?.name ?? card.profile;
     try {
-      const res = await addSeeds(card.profile, [card.id]);
+      const res = await addSeeds(card.profile, [card.id], { source: 'feed' });
       if (res.attached > 0) toast.success(`Added to the seeds of ${name}.${res.rescored ? ` Re-scored the ${plural(res.rescored, 'paper')} it had found; the feed is updated.` : ''}`, { label: 'View seeds', onClick: () => navigate(paths.interest(card.profile, 'seeds')) });
       else if (res.rejected.length > 0) toast.error(`Couldn't add "${card.title.slice(0, 60)}" as a seed.`);
       else toast.info(`Already a seed of ${name}.`);
@@ -284,7 +284,7 @@ export function FeedPage() {
         <div>
           <h1 className="page-title">{TERMS.feed}</h1>
           <p className="page-sub">
-            Every paper Radar has gathered for {selectedName}, highest-ranked first (the rank blends similarity to your seeds with the reranker, so the similarity shown on each card is not strictly in order). Save what is useful and dismiss the rest; once you have triaged 30, the Threshold tab suggests a threshold from them.
+            Every paper BioXplorer has gathered for {selectedName}, highest-ranked first (the rank blends similarity to your seeds with the reranker, so the similarity shown on each card is not strictly in order). Save what is useful and dismiss the rest; once you have triaged 30, the Threshold tab suggests a threshold from them.
             {data?.fetchedAt ? <> Last scan finished {fmtRelative(data.fetchedAt)}.</> : null}
           </p>
         </div>
@@ -370,7 +370,7 @@ export function FeedPage() {
               <EmptyState
                 icon="radar"
                 title="No papers yet"
-                body={<>Radar scans an {TERMS.interest} only when you ask. Run a scan to fill the feed.</>}
+                body={<>BioXplorer scans an {TERMS.interest} only when you ask. Run a scan to fill the feed.</>}
                 action={<Button variant="primary" icon="play" onClick={() => setScanOpen(true)}>Scan now</Button>}
               />
             ) : cards.length === 0 ? (
@@ -426,11 +426,11 @@ export function FeedPage() {
 function Onboarding() {
   return (
     <div className="stack" style={{ gap: 16 }}>
-      <Callout tone="info" title={`Radar needs an ${TERMS.interest} to scan for`}>
-        An {TERMS.interest} is a set of papers you already care about. Radar learns what they have in common and watches OpenAlex for more like them. Add one from:
+      <Callout tone="info" title={`BioXplorer needs an ${TERMS.interest} to scan for`}>
+        An {TERMS.interest} is a set of papers you already care about. BioXplorer learns what they have in common and watches OpenAlex for more like them. Add one from:
       </Callout>
       <AddInterestCards />
-      <Link href={paths.home} className="home-link">See everything you can do in Radar <Icon name="arrow-right" size={13} /></Link>
+      <Link href={paths.home} className="home-link">See everything you can do in BioXplorer <Icon name="arrow-right" size={13} /></Link>
     </div>
   );
 }
@@ -438,9 +438,7 @@ function Onboarding() {
 function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; defaultKey: string; onClose: () => void }) {
   const [key, setKey] = useState(profiles.some((p) => p.key === defaultKey) ? defaultKey : profiles[0].key);
   const [days, setDays] = useState(7);
-  const [limit, setLimit] = useState(500);
   const [daysOk, setDaysOk] = useState(true);
-  const [limitOk, setLimitOk] = useState(true);
   const [busy, setBusy] = useState(false);
   const jobs = useJobs();
   const already = jobs.find((j) => j.kind === 'scan' && j.profileKey === key && j.status === 'running');
@@ -456,7 +454,7 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
     if (!p) return;
     setBusy(true);
     try {
-      await startScan(p, { days, limit });
+      await startScan(p, { days });
       toast.info(`Scanning "${p.name}" for papers from the last ${daysLabel(days)}.`);
       onClose();
     } catch (e) {
@@ -476,11 +474,9 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
       <Field label="Look back (days)">
         <NumberInput integer min={1} max={365} value={days} onChange={setDays} onValidity={setDaysOk} />
       </Field>
-      <Field label="Max papers to fetch">
-        <NumberInput integer min={1} max={5000} step={50} value={limit} onChange={setLimit} onValidity={setLimitOk} />
-      </Field>
+      <p className="small muted" style={{ margin: 0 }}>Takes each topic's {SCAN_PER_TOPIC} most cited papers from that window.</p>
       <div className="row">
-        <Button variant="primary" icon="play" onClick={go} loading={busy} disabled={!!already || !daysOk || !limitOk} title={already ? 'A scan is already running for this interest' : !daysOk || !limitOk ? 'Days 1–365, papers 1–5000' : undefined}>
+        <Button variant="primary" icon="play" onClick={go} loading={busy} disabled={!!already || !daysOk} title={already ? 'A scan is already running for this interest' : !daysOk ? 'Days 1–365' : undefined}>
           {already ? 'Already running' : 'Start scan'}
         </Button>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>

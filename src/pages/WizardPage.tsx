@@ -9,7 +9,7 @@ import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import { YearRange } from '../ui/YearRange';
 import { UmlsNotice } from '../ui/UmlsNotice';
 import { ProfileTopicsBox } from '../ui/ProfileTopics';
-import type { YearSpan } from '../types/radar';
+import type { VaultDoc, YearSpan } from '../types/radar';
 import {
   commitDraft,
   createDraft,
@@ -23,13 +23,14 @@ import {
 } from '../api/endpoints/wizard';
 import { forDraft, getDraft, isSeedSource, resetDraft, useDraft, type DraftState, type SeedSource } from '../lib/draft';
 import { errorMessage, fmtRelative, fmtScore, plural } from '../lib/format';
-import { findJob, startBackfill, startDryRun, startImport, startOrcidImport, startScan, trackImport, useJob, yearsLabel, type Job } from '../lib/jobs';
+import { PER_YEAR, SCAN_PER_TOPIC, findJob, startDryRun, startImport, startOrcidImport, trackImport, trackSave, useJob, yearsLabel, type Job } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
 import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
-import { isUnmatched, noteUnmatchedImport, noteUnmatchedUploads } from '../lib/unmatched';
+import { useOpenAlexPaused } from '../lib/openalex';
+import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedImport, noteUnmatchedUploads, openAlexStopped, seedKeys, workId } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { ProsopiaImportResult } from '../types/prosopia';
 import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Select, confirmDialog, useAction, useClearOnChange } from '../ui';
@@ -48,7 +49,7 @@ const DEFAULT_CRON = '0 4 * * *';
 const DEFAULT_TZ = 'UTC';
 
 const SOURCES: { source: SeedSource; icon: import('../ui').IconName; title: string; body: string }[] = [
-  { source: 'upload', icon: 'upload', title: 'Papers you have', body: 'Upload PDFs. Radar reads each one and finds it on OpenAlex.' },
+  { source: 'upload', icon: 'upload', title: 'Papers you have', body: 'Upload PDFs. BioXplorer reads each one and finds it on OpenAlex.' },
   { source: 'orcid', icon: 'id', title: 'An ORCID', body: "A researcher's papers on OpenAlex. You pick which ones count." },
   { source: 'prosopia', icon: 'interests', title: 'A Prosopia profile', body: 'The papers on a Prosopia researcher profile. You pick which ones count.' },
   { source: 'profile', icon: 'user', title: `A saved ${TERMS.profile}`, body: `Papers from a ${TERMS.profile} you already imported. No waiting: they are ready to use.` },
@@ -263,7 +264,7 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
       <header className="page-head">
         <div>
           <h1 className="page-title">{state.name ? state.name : TERMS.newInterest}</h1>
-          <p className="page-sub">An {TERMS.interest} is a topic Radar follows for you, defined by a set of papers. Four short steps; your progress is saved as a draft, so you can leave and come back.</p>
+          <p className="page-sub">An {TERMS.interest} is a topic BioXplorer follows for you, defined by a set of papers. Four short steps; your progress is saved as a draft, so you can leave and come back.</p>
         </div>
         <div className="page-actions">
           <Button variant="ghost" onClick={() => void saveForLater()} title="Keep the draft and come back later">Save for later</Button>
@@ -351,6 +352,10 @@ function UnfinishedDrafts() {
 function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselectResearcher: number | null }) {
   const { update } = useDraft();
   const [name, setName] = useState(state.name);
+  // A person the ORCID / Prosopia import found already saved as a profile:
+  // the interest is built from that profile's papers (FUNCTIONAL_SPEC D).
+  const [known, setKnown] = useState<number | null>(null);
+  const useKnown = (id: number) => { setKnown(id); update({ source: 'profile' }); };
   const importJob = useJob(state.importJobId);
   const create = useAction(async () => {
     if (!name.trim()) throw new Error('Give it a name first.');
@@ -411,9 +416,9 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
               {create.error && <span className="field-error">{create.error}</span>}
             </div>
           )}
-          {state.source === 'orcid' && <WorkPicker key="orcid" name={name.trim()} lookup={ORCID_LOOKUP} start={(orcid, ids, n) => startOrcidImport(orcid, ids, n)} />}
-          {state.source === 'prosopia' && <WorkPicker key="prosopia" name={name.trim()} lookup={PROSOPIA_LOOKUP} start={(slug, ids, n) => startImport(slug, n, ids)} />}
-          {state.source === 'profile' && <ResearcherSeedPicker key="profile" name={name.trim()} preselect={preselectResearcher} />}
+          {state.source === 'orcid' && <WorkPicker key="orcid" name={name.trim()} lookup={ORCID_LOOKUP} start={(orcid, ids, n) => startOrcidImport(orcid, ids, n)} onKnown={useKnown} />}
+          {state.source === 'prosopia' && <WorkPicker key="prosopia" name={name.trim()} lookup={PROSOPIA_LOOKUP} start={(slug, ids, n) => startImport(slug, n, ids)} onKnown={useKnown} />}
+          {state.source === 'profile' && <ResearcherSeedPicker key={`profile:${known ?? ''}`} name={name.trim()} preselect={known ?? preselectResearcher} />}
         </div>
       </Panel>
     );
@@ -426,20 +431,48 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
  * the draft bookkeeping. The import creates the draft on the server,
  * so the job's key is the draft slug and step 1 continues there.
  */
-function WorkPicker({ name, lookup, start }: { name: string; lookup: Lookup; start: (key: string, ids: string[], name?: string) => Promise<Job> }) {
+function WorkPicker({ name, lookup, start, onKnown }: { name: string; lookup: Lookup; start: (key: string, ids: string[], name?: string) => Promise<Job>; onKnown: (researcherId: number) => void }) {
   const { state, update } = useDraft();
   const importJob = useJob(state.importJobId);
+  const [known, setKnown] = useState<{ id: number; name: string } | null>(null);
   return (
-    <LookupPicker
-      lookup={lookup}
-      job={importJob}
-      initialRaw={state.prosopia?.ref ?? ''}
-      start={(key, ids) => start(key, ids, name || undefined)}
-      onStarted={(job, listing) => {
-        update({ importJobId: job.id, name: name || listing.name || job.profileName, slug: job.profileKey, prosopia: { ref: listing.key, nSeeds: null } });
-      }}
-    />
+    <>
+      <LookupPicker
+        lookup={lookup}
+        job={importJob}
+        initialRaw={state.prosopia?.ref ?? ''}
+        start={async (key, ids) => {
+          setKnown(null);
+          try {
+            return await start(key, ids, name || undefined);
+          } catch (e) {
+            const r = existingResearcher(e);
+            if (r) setKnown(r);
+            throw e;
+          }
+        }}
+        onStarted={(job, listing) => {
+          update({ importJobId: job.id, name: name || listing.name || job.profileName, slug: job.profileKey, prosopia: { ref: listing.key, nSeeds: null } });
+        }}
+      />
+      {known && (
+        <Callout tone="info">
+          <b>{known.name}</b> is already one of your saved {TERMS.profiles}. A new interest uses the papers saved there.
+          {' '}To add papers they published since, update the {TERMS.profile} under <Link href={paths.profiles}>{TERMS.Profiles}</Link> first.
+          <div style={{ marginTop: 8 }}>
+            <Button onClick={() => onKnown(known.id)}>Use {known.name}&rsquo;s saved papers</Button>
+          </div>
+        </Callout>
+      )}
+    </>
   );
+}
+
+/** The stored researcher a wizard import was refused for (409 from the server), if that was why. */
+function existingResearcher(e: unknown): { id: number; name: string } | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const r = (e.body as { researcher?: { id?: unknown; name?: unknown } } | null)?.researcher;
+  return r && typeof r.id === 'number' ? { id: r.id, name: typeof r.name === 'string' ? r.name : 'This person' } : null;
 }
 
 /**
@@ -647,7 +680,8 @@ function AddFromResearcher({ slug, seedIds, onAdded }: { slug: string; seedIds: 
   const add = useAction(async () => {
     const ids = works.filter((w) => picked.has(w.id)).map((w) => w.id);
     if (ids.length === 0) return;
-    const res = await addSeeds(slug, ids);
+    if (chosenId == null) return;
+    const res = await addSeeds(slug, ids, { source: 'researcher', researcherId: chosenId });
     setPicked(new Set());
     toast.success(`Added ${plural(res.attached, 'paper')} from ${researcher?.name ?? `the ${TERMS.profile}`}.`);
     onAdded();
@@ -698,6 +732,7 @@ function SeedUploader({ state }: { state: DraftState }) {
   const uploadingRef = useRef(false);
   const [failures, setFailures] = useState<string[]>([]);
   const seeds = docs.data ?? state.seeds;
+  const paused = useOpenAlexPaused();
   // An "Add more seeds" import holds Next too: the trial and the fit would
   // use part of the seeds, and the rest would land on the saved interest.
   const importing = importJob?.status === 'running' || extraImport?.status === 'running';
@@ -726,14 +761,28 @@ function SeedUploader({ state }: { state: DraftState }) {
     }
     try {
       await deleteDraft(slug);
-    } catch {
-      /* an orphaned draft is harmless; the list shows it under Drafts */
+    } catch (e) {
+      // Left behind, with the PDFs uploaded into it: it is under Drafts,
+      // where discarding it removes them (FUNCTIONAL_SPEC D).
+      toast.error(`The old draft was not deleted (${errorMessage(e)}). It is under Drafts; discard it there.`);
     }
     // Drop ``?draft=`` first: with it still in the URL the resume effect
     // would re-adopt the draft from the not-yet-refreshed interests list.
     navigate(paths.wizard(), { replace: true });
     update({ slug: null, seeds: [], prosopia: null, researcher: null, importJobId: null, dryRunJobId: null, selectedTopicIds: null, threshold: null, step: 1 });
   });
+
+  // The import that opened this draft failed (OpenAlex unavailable, among
+  // others): the server removed the draft and everything the import
+  // brought in (FUNCTIONAL_SPEC D), so step 1 starts again from the source.
+  const firstImportFailed = importJob?.status === 'error' ? importJob : null;
+  useEffect(() => {
+    if (!firstImportFailed) return;
+    toast.error(`The import failed, and nothing was kept: ${firstImportFailed.error ?? 'unknown error.'}`);
+    invalidate('profiles', 'researchers', 'vault');
+    navigate(paths.wizard(), { replace: true });
+    update({ slug: null, seeds: [], prosopia: null, researcher: null, importJobId: null, dryRunJobId: null, selectedTopicIds: null, threshold: null, step: 1 });
+  }, [firstImportFailed, update]);
 
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -746,22 +795,33 @@ function SeedUploader({ state }: { state: DraftState }) {
     setFailures([]);
     let added = 0;
     const unmatched: string[] = [];
+    const uploaded: VaultDoc[] = [];
     for (let i = 0; i < list.length; i++) {
       setProgress({ done: i, total: list.length, current: list[i].name });
       try {
         const doc = await uploadPdf(list[i], slug);
         forDraft(slug).addSeed(doc);
-        if (isUnmatched(doc.id)) unmatched.push(list[i].name);
+        uploaded.push(doc);
+        if (isUnmatched(doc)) unmatched.push(list[i].name);
         added += 1;
       } catch (e) {
         setFailures((f) => [...f, `${list[i].name}: ${errorMessage(e)}`]);
+        if (openAlexStopped(e)) {
+          // OpenAlex cannot answer: every next file would be refused the
+          // same way, so the batch stops (FUNCTIONAL_SPEC D2).
+          const rest = list.slice(i + 1).map((f) => f.name);
+          if (rest.length) setFailures((f) => [...f, `Not uploaded: ${rest.join(', ')}.`]);
+          break;
+        }
       }
     }
     setProgress(null);
     uploadingRef.current = false;
     if (added > 0) invalidateDownstream();
+    // Re-read the seeds: a second file of a paper also numbers its first.
     invalidate(`vault/docs?tag=${slug}`);
     noteUnmatchedUploads(unmatched, 'draft');
+    noteNewVersions(uploaded);
   }
 
   return (
@@ -778,18 +838,21 @@ function SeedUploader({ state }: { state: DraftState }) {
         </div>
       )}
       <div
-        className={`dropzone ${over ? 'over' : ''} ${progress ? 'busy' : ''}`}
-        onClick={() => !progress && inputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+        className={`dropzone ${over ? 'over' : ''} ${progress || paused ? 'busy' : ''}`}
+        aria-disabled={!!paused}
+        onClick={() => !progress && !paused && inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); if (!paused) setOver(true); }}
         onDragLeave={() => setOver(false)}
-        onDrop={(e) => { e.preventDefault(); setOver(false); if (!e.dataTransfer.files?.length) { notifyEmptyDrop(); return; } void upload(e.dataTransfer.files); }}
+        onDrop={(e) => { e.preventDefault(); setOver(false); if (paused) return; if (!e.dataTransfer.files?.length) { notifyEmptyDrop(); return; } void upload(e.dataTransfer.files); }}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click(); }}
+        onKeyDown={(e) => { if (!paused && (e.key === 'Enter' || e.key === ' ')) inputRef.current?.click(); }}
       >
         <Icon name="upload" size={20} />
         {progress ? (
           <span>Uploading {progress.done + 1} of {progress.total}: <b>{progress.current}</b></span>
+        ) : paused ? (
+          <span>Uploading is paused while OpenAlex is unavailable (see the notice above).</span>
         ) : (
           <span><b>Drop PDFs here</b> or click to browse. Several at once is fine.</span>
         )}
@@ -799,7 +862,7 @@ function SeedUploader({ state }: { state: DraftState }) {
 
       <MoreSeeds
         slug={slug}
-        seedIds={new Set(seeds.map((d) => d.id))}
+        seedIds={seedKeys(seeds)}
         disabled={importing || !!progress}
         // Same bookkeeping as an upload: the local seed list (step 2's
         // spinner reads its length, and it survives a reload) and the
@@ -818,7 +881,7 @@ function SeedUploader({ state }: { state: DraftState }) {
         {seeds.map((d, i) => (
           <div className="seed-row removable" key={d.id}>
             <span className="idx">{String(i + 1).padStart(2, '0')}</span>
-            <span className="truncate"><PaperTitle title={d.title || d.id} id={d.id} /></span>
+            <span className="truncate"><PaperTitle title={displayTitle({ ...d, title: d.title || d.id })} id={workId(d)} /></span>
             <span className="muted small">{d.pages ? `${d.pages} pages` : ''}</span>
             <span className="muted small">{d.authors.slice(0, 2).join(', ')}</span>
             <IconButton icon="trash" size="sm" label={`Remove "${d.title || d.id}" from the seeds`} disabled={importing || !!progress || removal.busyId !== null} onClick={() => void removal.remove(d.id, d.title)} />
@@ -853,7 +916,7 @@ function StepCheck({ state }: { state: DraftState }) {
     if (c && c.n <= 1) update({ step: 1 });
   }
   return (
-    <Panel title="Step 2 · Do the seeds agree?" description="Radar checks whether your seed papers are about the same thing. Papers that agree make a sharp interest; a mix of topics makes a blurry one.">
+    <Panel title="Step 2 · Do the seeds agree?" description="BioXplorer checks whether your seed papers are about the same thing. Papers that agree make a sharp interest; a mix of topics makes a blurry one.">
       {coh.error && <ErrorBox message={errorMessage(coh.error)} onRetry={coh.refresh} />}
       {coh.loading && (
         <div className="row muted" style={{ padding: '18px 0' }}><span className="spinner" style={{ width: 16, height: 16 }} /> Computing coherence from {plural(state.seeds.length || 1, 'seed')}…</div>
@@ -867,14 +930,14 @@ function StepCheck({ state }: { state: DraftState }) {
               {c.least_similar && (
                 <div className="stack" style={{ gap: 6 }}>
                   <div className="small muted">
-                    Least alike pair (similarity {c.least_similar.cosine.toFixed(2)}). If one of them is off-topic, remove it and Radar re-checks the rest.
+                    Least alike pair (similarity {c.least_similar.cosine.toFixed(2)}). If one of them is off-topic, remove it and BioXplorer re-checks the rest.
                   </div>
                   {[
-                    { id: c.least_similar.a_id, title: c.least_similar.a_title },
-                    { id: c.least_similar.b_id, title: c.least_similar.b_title },
+                    { id: c.least_similar.a_id, title: c.least_similar.a_title, canonicalId: c.least_similar.a_canonical_id },
+                    { id: c.least_similar.b_id, title: c.least_similar.b_title, canonicalId: c.least_similar.b_canonical_id },
                   ].map((p) => (
                     <div className="seed-row pair-row" key={p.id}>
-                      <span className="truncate" title={p.title}><PaperLink title={p.title || p.id} id={p.id} /></span>
+                      <span className="truncate" title={p.title}><PaperLink title={p.title || p.id} id={workId(p)} /></span>
                       <Button size="sm" variant="ghost" icon="trash" loading={removal.busyId === p.id} disabled={removal.busyId !== null || coh.fetching} onClick={() => void removeAndRecheck(p.id, p.title)}>Remove</Button>
                     </div>
                   ))}
@@ -981,7 +1044,7 @@ function StepTopics({ state }: { state: DraftState }) {
   if (!umls.ready) {
     const st = umls.status;
     return (
-      <Panel title="Step 3 · What should Radar query?" description="Reading each seed for UMLS concepts first: the topics they map to join the seeds' OpenAlex topics in the list.">
+      <Panel title="Step 3 · What should BioXplorer query?" description="Reading each seed for UMLS concepts first: the topics they map to join the seeds' OpenAlex topics in the list.">
         {umls.error ? <ErrorBox title="Couldn't check the seeds" message={umls.error} onRetry={umls.retry} /> : (
           <>
             <LoadingRows rows={2} />
@@ -1027,7 +1090,7 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
   const unsavedTicks = topics.data !== undefined && state.selectedTopicIds !== null
     && (selected.size !== serverOn.size || [...selected].some((id) => !serverOn.has(id)));
   return (
-    <Panel title="Step 3 · What should Radar query?" description="These topics were aggregated from the seeds' OpenAlex records. Radar asks OpenAlex for new papers in each selected topic, then scores them. Fewer, sharper topics mean less noise.">
+    <Panel title="Step 3 · What should BioXplorer query?" description="These topics were aggregated from the seeds' OpenAlex records. BioXplorer asks OpenAlex for new papers in each selected topic, then scores them. Fewer, sharper topics mean less noise.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
       <UmlsNotice profileKey={slug} listed={topics.data} />
       {topics.data && (
@@ -1046,7 +1109,7 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
       )}
       {topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
-        <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics. Go back and add seeds with DOIs, or continue without topic filters (Radar will fall back to a broader query)." />
+        <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics. Go back and add seeds with DOIs, or continue without topic filters (BioXplorer will fall back to a broader query)." />
       )}
       {list.length > 0 && (
         <>
@@ -1073,7 +1136,7 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
       )}
       {unread > 0 && (
         <p className="small muted" style={{ marginTop: 10 }}>
-          UMLS concepts could not be read from {plural(unread, 'seed')}; {unread === 1 ? 'its' : 'their'} OpenAlex topics are listed, and Radar tries again later.
+          UMLS concepts could not be read from {plural(unread, 'seed')}; {unread === 1 ? 'its' : 'their'} OpenAlex topics are listed, and BioXplorer tries again later.
         </p>
       )}
       {list.length > 0 && selected.size === 0 && <NoTopicsChosen onBack={() => update({ step: 2 })} />}
@@ -1114,7 +1177,7 @@ async function saveForLater() {
 function NoTopicsChosen({ onBack, onChoose }: { onBack?: () => void; onChoose?: () => void }) {
   return (
     <Callout tone="warn" title="Choose at least one topic to continue">
-      <p style={{ margin: '0 0 8px' }}>Radar asks OpenAlex for papers in the selected topics, so with none selected it has nothing to search. Tick at least one topic, go back to change the seeds, or leave and finish this draft later.</p>
+      <p style={{ margin: '0 0 8px' }}>BioXplorer asks OpenAlex for papers in the selected topics, so with none selected it has nothing to search. Tick at least one topic, go back to change the seeds, or leave and finish this draft later.</p>
       <div className="row">
         {onChoose && <Button size="sm" variant="primary" onClick={onChoose}>Choose topics</Button>}
         {onBack && <Button size="sm" icon="arrow-left" onClick={onBack}>Back</Button>}
@@ -1209,11 +1272,28 @@ function StepThreshold({ state }: { state: DraftState }) {
   }, [state.threshold, suggested, update]);
   const passing = scores.filter((s) => s >= value).length;
 
+  // Saving runs the interest's first scan; it goes live only when that
+  // succeeds (FUNCTIONAL_SPEC D.2-5), and until then it is still this draft.
+  const saveJob = useJob(state.saveJobId ?? null);
+  const saving = saveJob?.status === 'running';
+  const goToInterest = (key: string, message: string) => {
+    // Leave the wizard before clearing its state, so no effect here can
+    // re-adopt the interest we just committed from the ``?draft=`` URL.
+    navigate(paths.interest(key), { replace: true });
+    reset();
+    toast.success(message);
+    invalidate('profiles', 'vault', 'radar', 'researchers');
+  };
+  useEffect(() => {
+    if (saveJob?.status === 'done') goToInterest(saveJob.profileKey, `"${saveJob.profileName}" is saved and live.`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveJob?.status]);
+
   const save = useAction(async () => {
     const years = state.years;
-    let profile;
+    let saved;
     try {
-      profile = await commitDraft({
+      saved = await commitDraft({
         slug, threshold: Number(value.toFixed(3)), selected_topic_ids: state.selectedTopicIds ?? [], cron: DEFAULT_CRON, tz: DEFAULT_TZ,
         years: years ? { year_from: years.from, year_to: years.to } : null,
       });
@@ -1222,30 +1302,17 @@ function StepThreshold({ state }: { state: DraftState }) {
       // Saved or deleted in another tab: "draft not found" said neither.
       const now = await getProfileDetail(slug).catch(() => null);
       if (now && !now.profile.isDraft) {
-        toast.info(`"${now.profile.name}" was already saved, in another tab.`);
-        navigate(paths.interest(now.profile.key), { replace: true });
-        reset();
+        goToInterest(now.profile.key, `"${now.profile.name}" was already saved, in another tab.`);
         return;
       }
       throw new Error('This draft was deleted, perhaps in another tab.');
     }
-    // Leave the wizard before clearing its state, so no effect here can
-    // re-adopt the interest we just committed from the ``?draft=`` URL.
-    navigate(paths.interest(profile.key), { replace: true });
-    reset();
-    try {
-      // A range of years: fetch papers from them once, instead of only the
-      // last week. Later scans are started by hand (Scan now).
-      if (years) {
-        await startBackfill({ key: profile.key, name: profile.name }, years);
-        toast.success(`"${profile.name}" is live. Fetching papers from ${yearsLabel(years)} now.`);
-      } else {
-        await startScan({ key: profile.key, name: profile.name }, { days: 7, limit: 500 });
-        toast.success(`"${profile.name}" is live. Scanning the last 7 days now.`);
-      }
-    } catch (e) {
-      toast.error(`Saved, but the first scan didn't start: ${errorMessage(e)}`);
+    if (!saved.isDraft) {
+      goToInterest(saved.key, saved.saveRunId == null ? `"${saved.name}" was already saved, in another tab.` : `"${saved.name}" is saved and live.`);
+      return;
     }
+    if (saved.saveRunId == null) throw new Error('The save did not start. Try again.');
+    update({ saveJobId: trackSave({ key: saved.key, name: saved.name }, saved.saveRunId, years ?? null).id });
   });
   useClearOnChange(save, [value]);
 
@@ -1260,7 +1327,7 @@ function StepThreshold({ state }: { state: DraftState }) {
   }
 
   return (
-    <Panel title="Step 4 · How strict should it be?" description="Radar runs a trial scan and scores every paper it finds against your seeds. The shaded band shows where your own seed papers score; the suggested threshold sits just below it. Move the bar to trade volume for precision. You can change it later.">
+    <Panel title="Step 4 · How strict should it be?" description="BioXplorer runs a trial scan and scores every paper it finds against your seeds. The shaded band shows where your own seed papers score; the suggested threshold sits just below it. Move the bar to trade volume for precision. You can change it later.">
       <div style={{ marginBottom: 14 }}>
         <div className="field-label" style={{ marginBottom: 6 }}>Publication years</div>
         <YearRange
@@ -1271,8 +1338,8 @@ function StepThreshold({ state }: { state: DraftState }) {
         />
         <p className="small muted" style={{ margin: '6px 0 0' }}>
           {state.years
-            ? `The trial samples each year, most cited first. Saving fetches up to 100 papers a year from ${yearsLabel(state.years)} once; after that, Scan now on the interest looks for new papers.`
-            : 'Radar follows new papers: the trial looks at the last 30 days, and saving scans the last week once. Scan now on the interest looks again.'}
+            ? `The trial takes each year's ${PER_YEAR} most cited papers. Saving fetches them from ${yearsLabel(state.years)} once; after that, Scan now on the interest looks for new papers.`
+            : `BioXplorer follows new papers: the trial takes each topic's ${SCAN_PER_TOPIC} most cited papers from the last 30 days, and saving does the same for the last week once. Scan now on the interest looks again.`}
         </p>
       </div>
       {kickError && <ErrorBox title="Couldn't start the trial scan" message={kickError} onRetry={() => void kick()} />}
@@ -1312,11 +1379,22 @@ function StepThreshold({ state }: { state: DraftState }) {
         </div>
       )}
       {save.error && <div style={{ marginTop: 12 }}><ErrorBox compact title="Couldn't save" message={save.error} /></div>}
+      {saveJob && saving && (
+        <div style={{ marginTop: 12 }}>
+          <p className="small muted" style={{ margin: '0 0 6px' }}>Running the first scan. The {TERMS.interest} is saved when it finishes; until then it stays a draft.</p>
+          <JobProgress job={saveJob} />
+        </div>
+      )}
+      {saveJob?.status === 'error' && (
+        <div style={{ marginTop: 12 }}>
+          <ErrorBox compact title="Not saved: the first scan failed" message={`${saveJob.error ?? 'Unknown error.'} The ${TERMS.interest} is still a draft, with everything you added. Save again to retry.`} />
+        </div>
+      )}
       <div className="wizard-foot">
-        <Button icon="arrow-left" onClick={() => update({ step: 3 })}>Back</Button>
+        <Button icon="arrow-left" onClick={() => update({ step: 3 })} disabled={saving}>Back</Button>
         <div className="row">
-          {job?.status !== 'running' && <Button variant="ghost" icon="refresh" onClick={() => void kick()}>Run trial again</Button>}
-          <Button variant="primary" icon="check" onClick={() => save.run()} loading={save.busy} disabled={!result || starting} title={!result || starting ? (job?.status === 'error' || kickError ? 'The trial scan failed: run it again first' : 'Wait for the trial scan to finish') : undefined}>
+          {job?.status !== 'running' && !saving && <Button variant="ghost" icon="refresh" onClick={() => void kick()}>Run trial again</Button>}
+          <Button variant="primary" icon="check" onClick={() => save.run()} loading={save.busy || saving} disabled={!result || starting || saving} title={!result || starting ? (job?.status === 'error' || kickError ? 'The trial scan failed: run it again first' : 'Wait for the trial scan to finish') : undefined}>
             Save {TERMS.interest} and start scanning
           </Button>
         </div>

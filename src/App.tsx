@@ -72,7 +72,7 @@ export function App() {
       home: 'Start', feed: 'Feed', interests: 'Interests', interest: 'Interest', interestEdit: 'Edit interest', wizard: 'New interest',
       profiles: TERMS.Profiles, profile: TERMS.Profile, vault: 'Vault', settings: 'Settings', notfound: 'Not found',
     };
-    document.title = `${titles[route.name] ?? 'Radar'} · Radar`;
+    document.title = `${titles[route.name] ?? 'BioXplorer'} · BioXplorer`;
   }, [route.name]);
 
   // Only the newest attempt may write the gate. StrictMode runs the effect
@@ -115,7 +115,7 @@ export function App() {
           // what happened rather than with "sign in again".
           setGate({
             k: 'error',
-            message: 'Signed in, but this account is not allowed to use Radar. '
+            message: 'Signed in, but this account is not allowed to use BioXplorer. '
               + 'Ask whoever administers it to add your address.',
           });
           return;

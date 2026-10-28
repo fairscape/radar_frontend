@@ -233,8 +233,14 @@ export async function refitProfile(key: string): Promise<{ ok: true; key: string
  * papers it already found re-scored against the new seeds (``rescored``;
  * null for a draft).
  */
-export async function addSeeds(key: string, openalexIds: string[]): Promise<{ attached: number; rejected: string[]; rescored?: number | null }> {
-  const res = await apiPost<{ attached: number; rejected: string[]; rescored?: number | null }>(`/api/profiles/${enc(key)}/seeds`, { openalex_ids: openalexIds });
+/** ``from``: where the papers were picked, recorded with each seed (default the vault). */
+export async function addSeeds(
+  key: string, openalexIds: string[],
+  from: { source: 'vault' | 'feed' } | { source: 'researcher'; researcherId: number } = { source: 'vault' },
+): Promise<{ attached: number; rejected: string[]; rescored?: number | null }> {
+  const res = await apiPost<{ attached: number; rejected: string[]; rescored?: number | null }>(`/api/profiles/${enc(key)}/seeds`, {
+    openalex_ids: openalexIds, source: from.source, ...(from.source === 'researcher' ? { researcher_id: from.researcherId } : {}),
+  });
   invalidate('profiles', 'vault', 'radar', 'researchers', `draft/${key}/`);
   return res;
 }
@@ -272,11 +278,11 @@ export function candidateScores(key: string): Promise<DryRunResult> {
 
 export function gatherNow(
   key: string,
-  opts: { days?: number; limit?: number } = {},
+  opts: { days?: number } = {},
 ): Promise<{ ok: true; run_id: number }> {
   return apiPost<{ ok: true; run_id: number }>(
     `/api/profiles/${enc(key)}/gather-now` +
-      `?days=${opts.days ?? 7}&limit=${opts.limit ?? 500}`,
+      `?days=${opts.days ?? 7}`,
   );
 }
 

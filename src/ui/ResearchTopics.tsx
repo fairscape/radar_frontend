@@ -102,7 +102,7 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
   return (
     <Panel
       title="Research topics (Prosopia method)"
-      description="Topics generated the way Prosopia generates them, from this interest's seeds (or the researcher's Prosopia profile). Scans do not search by them. They rank the feed only when Radar's reranker is set to rank by research topics (see Rank refinement for what it ranks by)."
+      description="Topics generated the way Prosopia generates them, from this interest's seeds (or the researcher's Prosopia profile). Scans do not search by them. They rank the feed only when BioXplorer's reranker is set to rank by research topics (see Rank refinement for what it ranks by)."
       actions={<Button size="sm" icon="refresh" onClick={() => setDialog(true)} disabled={!!preview}>{q.data?.terms.length ? 'Regenerate' : 'Generate'}</Button>}
     >
       {q.error && <ErrorBox compact message={errorMessage(q.error)} onRetry={q.refresh} />}

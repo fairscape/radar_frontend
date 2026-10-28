@@ -20,14 +20,14 @@ export function LoginPage() {
       <section className="login-pitch">
         <div className="row" style={{ gap: 10 }}>
           <span className="brand-mark"><Icon name="radar" size={16} /></span>
-          <span className="brand-name">Radar</span>
+          <span className="brand-name">BioXplorer</span>
         </div>
         <h1>New papers, scored against the ones you already care about.</h1>
         <p className="lede">
-          Radar watches OpenAlex for you. Describe an interest with a handful of seed papers, and each scan scores what is new against them and shows you only what clears the bar.
+          BioXplorer watches OpenAlex for you. Describe an interest with a handful of seed papers, and each scan scores what is new against them and shows you only what clears the bar.
         </p>
         <div className="login-steps">
-          <div className="login-step"><span className="login-step-n">1</span><div><b>Add an interest</b><span>Upload PDFs, or import a researcher's papers by ORCID or Prosopia profile. Radar measures how tightly they cluster and picks the topics to watch.</span></div></div>
+          <div className="login-step"><span className="login-step-n">1</span><div><b>Add an interest</b><span>Upload PDFs, or import a researcher's papers by ORCID or Prosopia profile. BioXplorer measures how tightly they cluster and picks the topics to watch.</span></div></div>
           <div className="login-step"><span className="login-step-n">2</span><div><b>Set the threshold</b><span>A trial scan shows real scores; you choose how strict to be.</span></div></div>
           <div className="login-step"><span className="login-step-n">3</span><div><b>Triage the feed</b><span>Save what is useful, dismiss the rest. Your choices tune the scoring over time.</span></div></div>
         </div>

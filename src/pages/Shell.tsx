@@ -20,10 +20,30 @@ import { ProfileDetailPage } from './ProfileDetailPage';
 import { SettingsPage } from './SettingsPage';
 import { NotFoundPage } from './NotFoundPage';
 import { CHAT_ENABLED } from '../lib/features';
+import { useOpenAlexPaused, useOpenAlexStatusFromErrors } from '../lib/openalex';
+
+/** While OpenAlex is paused (quota, API key): nothing that needs it runs. */
+function OpenAlexBanner() {
+  useOpenAlexStatusFromErrors();
+  const paused = useOpenAlexPaused();
+  if (!paused) return null;
+  return (
+    <div className="callout callout-err openalex-banner" role="alert">
+      <Icon name="alert" size={16} />
+      <div className="callout-body">
+        <div className="callout-title">OpenAlex is unavailable</div>
+        <div className="callout-text">
+          {paused.kind === 'auth' ? 'OpenAlex is refusing requests without an API key.' : "OpenAlex's daily request limit has been reached."}
+          {' '}Uploading PDFs, scans and imports are paused{paused.until ? ` until ${new Date(paused.until).toLocaleString()}` : ''}.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const NAV: { name: Route['name']; href: string; label: string; icon: IconName; hint: string }[] = [
   { name: 'feed', href: paths.feed, label: TERMS.feed, icon: 'radar', hint: `New papers, scored against your ${TERMS.interests}` },
-  { name: 'interests', href: paths.interests, label: TERMS.Interests, icon: 'interests', hint: `The topics Radar scans for, each defined by a set of papers` },
+  { name: 'interests', href: paths.interests, label: TERMS.Interests, icon: 'interests', hint: `The topics BioXplorer scans for, each defined by a set of papers` },
   { name: 'profiles', href: paths.profiles, label: TERMS.Profiles, icon: 'user', hint: `Researchers you imported, with their papers; build ${TERMS.interests} from them` },
   { name: 'vault', href: paths.vault, label: TERMS.vault, icon: 'vault', hint: CHAT_ENABLED ? 'Your uploaded PDFs; ask questions about them' : 'Every paper you have uploaded or imported' },
 ];
@@ -43,6 +63,7 @@ export function Shell({ route, email }: { route: Route; email: string }) {
     <div className="app">
       <Sidebar route={route} email={email} />
       <div className="main">
+        <OpenAlexBanner />
         <JobsStrip />
         {route.name === 'home' && <HomePage />}
         {route.name === 'feed' && <FeedPage />}
@@ -84,9 +105,9 @@ function Sidebar({ route, email }: { route: Route; email: string }) {
   return (
     <aside className={`sidebar ${navOpen ? '' : 'nav-closed'}`}>
       <div className="sidebar-top">
-        <Link href={paths.home} className={`sidebar-brand ${route.name === 'home' ? 'active' : ''}`} title="What you can do in Radar">
+        <Link href={paths.home} className={`sidebar-brand ${route.name === 'home' ? 'active' : ''}`} title="What you can do in BioXplorer">
           <span className="brand-mark"><Icon name="radar" size={15} /></span>
-          <span className="brand-name">Radar</span>
+          <span className="brand-name">BioXplorer</span>
           <Icon name="help" size={14} className="brand-help" />
         </Link>
         <IconButton className="sidebar-menu" icon={navOpen ? 'x' : 'list'} label={navOpen ? 'Hide the menu' : 'Show the menu'} aria-expanded={navOpen} onClick={() => setNavOpen((o) => !o)} />

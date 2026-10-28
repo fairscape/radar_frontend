@@ -125,7 +125,7 @@ export interface Lookup {
 
 export const ORCID_LOOKUP: Lookup = {
   label: 'ORCID iD',
-  hint: 'Radar lists every paper OpenAlex attributes to this ORCID; untick the ones that should not count.',
+  hint: 'BioXplorer lists every paper OpenAlex attributes to this ORCID; untick the ones that should not count.',
   // ORCID's own documented example iD (Josiah Carberry, a fictional
   // researcher). The placeholder used to be Nathan Sheffield's real iD,
   // which read as a pre-filled value: users asked why someone else's ORCID
@@ -145,7 +145,7 @@ export const ORCID_LOOKUP: Lookup = {
 
 /** Said wherever a works listing was cut at the server's cap. */
 export const TRUNCATED_NOTE = (n: number) =>
-  `This author has more works on OpenAlex than Radar lists: these are the newest ${n.toLocaleString()}. Older papers can be added as PDFs.`;
+  `This author has more works on OpenAlex than BioXplorer lists: these are the newest ${n.toLocaleString()}. Older papers can be added as PDFs.`;
 
 /** An ORCID works listing as pick-list rows (also used by "check for new papers"). */
 export function orcidPickWorks(works: OrcidWork[]): PickWork[] {
@@ -159,7 +159,7 @@ export function prosopiaPickWorks(works: ProsopiaWork[]): PickWork[] {
 
 export const PROSOPIA_LOOKUP: Lookup = {
   label: 'Prosopia profile',
-  hint: "The profile's slug or its URL. Radar lists the profile's papers; untick the ones that should not count.",
+  hint: "The profile's slug or its URL. BioXplorer lists the profile's papers; untick the ones that should not count.",
   placeholder: 'e.g. sheffield-nathan or https://prosopia.databio.org/…',
   parse: (raw) => raw.trim() || null,
   parseError: '',

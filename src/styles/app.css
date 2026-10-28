@@ -799,3 +799,4 @@ a.interest-card:hover { border-color: var(--accent-line); text-decoration: none;
 @media (max-width: 560px) {
   .not-interest li { grid-template-columns: minmax(0, 1fr); grid-template-areas: "what" "note" "tick" "act"; row-gap: 3px; }
 }
+.openalex-banner { margin: 12px 16px 0; }

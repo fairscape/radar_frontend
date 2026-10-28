@@ -10,6 +10,11 @@ export interface SeedSimilarity {
   max: number;
 }
 
+/** ``POST /api/profiles``: the interest being saved, still a draft until its first scan (``saveRunId``) succeeds. */
+export interface SavedDraft extends Profile {
+  saveRunId: number | null;
+}
+
 export interface Profile {
   key: string;
   name: string;
@@ -64,6 +69,8 @@ export interface Card {
 
 export interface VaultDoc {
   id: string;
+  /** The public work an uploaded PDF (``local:upload:…``) is a copy of; null when OpenAlex has no record of it. */
+  canonicalId?: string | null;
   title: string;
   authors: string[];
   venue: string;
@@ -71,16 +78,27 @@ export interface VaultDoc {
   pages: number;
   chunks: number;
   added: string;
+  /** Which of your files of this paper it is (1 = first uploaded), when you have two or more; null otherwise. */
+  version?: number | null;
   /** Upload response only: these bytes were already in your vault. */
   duplicate?: boolean | null;
 }
 
 export interface Seed {
   id: string;
+  /** The public work an uploaded seed (``local:upload:…``) is a copy of. */
+  canonicalId?: string | null;
   idx: number;
   title: string;
   year: number;
   coh: number;
+  /** As VaultDoc.version, with when that file was uploaded. */
+  version?: number | null;
+  uploaded?: string | null;
+  /** Where the seed came from; null for seeds added before this was recorded. */
+  source?: 'upload' | 'researcher' | 'vault' | 'feed' | null;
+  sourceResearcherId?: number | null;
+  sourceResearcherName?: string | null;
 }
 
 export interface Topic {

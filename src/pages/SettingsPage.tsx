@@ -70,7 +70,7 @@ export function SettingsPage() {
             <Field label="Signed in as" hint="Your email is your identity; there is no password.">
               <Input value={user.email} readOnly />
             </Field>
-            <Field label="Contact email for OpenAlex" hint="Sent with every OpenAlex request so Radar gets the faster polite pool. Defaults to your sign-in email." error={save.error}>
+            <Field label="Contact email for OpenAlex" hint="Sent with every OpenAlex request so BioXplorer gets the faster polite pool. Defaults to your sign-in email." error={save.error}>
               <Input type="email" maxLength={254} value={mailto} onChange={(e) => { setMailto(e.target.value); save.clearError(); }} />
             </Field>
             <div className="row">

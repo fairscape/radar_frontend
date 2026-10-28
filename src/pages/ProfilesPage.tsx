@@ -288,7 +288,7 @@ function ImportPanel() {
   }, [job]);
   const lookup = source === 'orcid' ? ORCID_LOOKUP : PROSOPIA_LOOKUP;
   return (
-    <Panel title={`Add a ${TERMS.profile}`} description={`Look a researcher up, untick any papers that should not count, and save. Radar matches each paper on OpenAlex and embeds it in the background; that is the slow part, and it happens once.`}>
+    <Panel title={`Add a ${TERMS.profile}`} description={`Look a researcher up, untick any papers that should not count, and save. BioXplorer matches each paper on OpenAlex and embeds it in the background; that is the slow part, and it happens once.`}>
       <div className="stack" style={{ gap: 14 }}>
         {finished && (
           <div className="row spread callout callout-compact" style={{ alignItems: 'center' }}>

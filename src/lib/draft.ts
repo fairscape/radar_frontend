@@ -4,6 +4,7 @@
  */
 import { useCallback, useSyncExternalStore } from 'react';
 import type { VaultDoc, YearSpan } from '../types/radar';
+import { withSeed } from './unmatched';
 
 const STORAGE_KEY = 'radar.wizard.v2';
 
@@ -39,6 +40,8 @@ export interface DraftState {
   threshold: number | null;
   /** Step 4's publication years; null = new papers only (the last 30 days). */
   years: YearSpan | null;
+  /** The save in progress: its first scan, after which the interest is live. */
+  saveJobId?: string | null;
   step: number;
 }
 
@@ -119,7 +122,7 @@ export function forDraft(slug: string | null) {
   return {
     update: (p: Partial<DraftState>) => { if (mine()) set((s) => ({ ...s, ...p })); },
     addSeed: (doc: VaultDoc) => {
-      if (mine()) set((s) => (s.seeds.some((d) => d.id === doc.id) ? s : { ...s, seeds: [...s.seeds, doc] }));
+      if (mine()) set((s) => ({ ...s, seeds: withSeed(s.seeds, doc) }));
     },
     removeSeed: (id: string) => { if (mine()) set((s) => ({ ...s, seeds: s.seeds.filter((d) => d.id !== id) })); },
   };
@@ -137,7 +140,7 @@ export function useDraft() {
   const update = useCallback((p: Partial<DraftState>) => set((s) => ({ ...s, ...p })), []);
   const addSeed = useCallback(
     (doc: VaultDoc) =>
-      set((s) => (s.seeds.some((d) => d.id === doc.id) ? s : { ...s, seeds: [...s.seeds, doc] })),
+      set((s) => ({ ...s, seeds: withSeed(s.seeds, doc) })),
     [],
   );
   const removeSeed = useCallback(

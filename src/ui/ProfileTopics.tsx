@@ -64,7 +64,7 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
   if (d.applied && !t.available) {
     return (
       <Callout tone="warn" title={`Using ${who}'s profile topics`} icon="user">
-        <p style={{ margin: '0 0 6px' }}>The profile lists no topics Radar can read just now: it may have been re-imported without research interests, or it has only text concepts and the topic mapper is unavailable. Its topics and marks stay in the list as last read. Remove them if they are out of date.</p>
+        <p style={{ margin: '0 0 6px' }}>The profile lists no topics BioXplorer can read just now: it may have been re-imported without research interests, or it has only text concepts and the topic mapper is unavailable. Its topics and marks stay in the list as last read. Remove them if they are out of date.</p>
         <div className="row" style={{ marginTop: 10 }}>
           <Button size="sm" onClick={() => toggle.run(false)} loading={toggle.busy}>Remove profile topics</Button>
         </div>
@@ -76,7 +76,7 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
       <p style={{ margin: '0 0 6px' }}>
         {d.applied
           ? <>The {plural(wantedOn, 'topic')} the profile wants {wantedOn === 1 ? 'is' : 'are'} on{wantedOn < t.wanted.length ? ` (${t.wanted.length - wantedOn} filtered out below)` : ''}. They follow the profile: a change there shows up here on the next recompute. Removing them puts the other topics back as they were.</>
-          : <>The profile declares {plural(t.wanted.length, 'wanted topic')}{t.unwanted.length > 0 ? ` and ${plural(t.unwanted.length, 'topic')} it does not want` : ''}. Apply them and Radar adds the wanted ones to this list, switched on{t.unwanted.length > 0 ? ', and filters out the not-wanted ones ticked below' : ''}.</>}
+          : <>The profile declares {plural(t.wanted.length, 'wanted topic')}{t.unwanted.length > 0 ? ` and ${plural(t.unwanted.length, 'topic')} it does not want` : ''}. Apply them and BioXplorer adds the wanted ones to this list, switched on{t.unwanted.length > 0 ? ', and filters out the not-wanted ones ticked below' : ''}.</>}
         {saved && <> <b>This is saved straight away</b>, unlike the ticks below, and applies from the next scan.</>}
       </p>
       <TopicChips topics={{ ...t, unwanted: [], unwanted_labels: [], unmatched_labels: [] }} offIds={filteredIds} />

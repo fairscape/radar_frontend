@@ -326,7 +326,7 @@ function seedBand(p: MockProfile) {
 function coherenceSummary(label: string, n: number, agreement: number | null) {
   const a = agreement == null ? '—' : `${agreement}/100`;
   if (label === 'none') return 'No seed papers yet.';
-  if (label === 'single') return "One seed paper. Radar will look for papers like it; agreement between seeds can't be measured until there are two.";
+  if (label === 'single') return "One seed paper. BioXplorer will look for papers like it; agreement between seeds can't be measured until there are two.";
   if (label === 'focused') return `Your ${n} seed papers agree with each other (${a}). They describe one clear topic, so matches should be on target.`;
   if (label === 'broad') return `Your ${n} seed papers only loosely agree (${a}). They may cover two related topics; results will lean towards whichever group is larger.`;
   return `Your ${n} seed papers don't share a topic (${a}) — about as similar as random papers from the same field.`;

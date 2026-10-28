@@ -22,6 +22,7 @@ import { toast } from '../lib/toast';
 import type { VaultDoc } from '../types/radar';
 import { Button, ErrorBox, Input, LoadingRows, useAction, useClearOnChange } from './index';
 import { PaperTitle } from './pickers';
+import { displayTitle, workId } from '../lib/unmatched';
 
 export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded, openSignal = 0, bare = false }: {
   /** The draft's or interest's slug. */
@@ -127,7 +128,7 @@ export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded
               })}
             />
             <span>
-              <PaperTitle title={d.title || d.id} id={d.id} />
+              <PaperTitle title={displayTitle({ ...d, title: d.title || d.id })} id={workId(d)} />
               <div className="v">{[d.pages > 0 ? `${d.pages} pages` : null, d.venue, d.authors.slice(0, 2).join(', ')].filter(Boolean).join(' · ')}</div>
             </span>
             <span />
