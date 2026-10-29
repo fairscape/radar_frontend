@@ -1,0 +1,72 @@
+/* "Sign in with Prosopia" button, for an <a> or a <button>. From https://prosopia.databio.org/brand/ */
+.prosopia-signin {
+  --prosopia-fg: rgb(26, 26, 26);
+  --prosopia-muted: rgb(107, 114, 128);
+  --prosopia-border: rgb(229, 231, 235);
+  --prosopia-surface: rgb(243, 244, 246);
+  --prosopia-mark-bg: rgb(255, 255, 255);
+  --prosopia-accent: rgb(37, 99, 235);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  max-width: 420px;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--prosopia-border);
+  border-radius: 10px;
+  background: var(--prosopia-surface);
+  color: var(--prosopia-fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+  font-size: 1rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+@media (prefers-color-scheme: dark) {
+  .prosopia-signin {
+    --prosopia-fg: rgb(229, 231, 235);
+    --prosopia-muted: rgb(156, 163, 175);
+    --prosopia-border: rgb(55, 65, 81);
+    --prosopia-surface: rgb(55, 65, 81);
+    --prosopia-mark-bg: rgb(17, 24, 39);
+    --prosopia-accent: rgb(96, 165, 250);
+  }
+}
+.prosopia-signin:hover,
+.prosopia-signin:focus-visible {
+  border-color: var(--prosopia-accent);
+  transform: translateY(-1px);
+}
+.prosopia-signin__mark {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--prosopia-mark-bg);
+  color: var(--prosopia-fg);
+}
+.prosopia-signin__mark svg {
+  width: 24px;
+  height: 24px;
+}
+.prosopia-signin__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.prosopia-signin__label {
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+.prosopia-signin__hint {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--prosopia-muted);
+}

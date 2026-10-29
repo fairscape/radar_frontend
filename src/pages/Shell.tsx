@@ -72,7 +72,7 @@ export function Shell({ route, email }: { route: Route; email: string }) {
         {route.name === 'interestEdit' && <EditInterestPage profileKey={route.key} urlStep={route.step} />}
         {route.name === 'wizard' && <WizardPage draftSlug={route.draft} source={route.source} researcher={route.researcher} urlStep={route.step} />}
         {route.name === 'profiles' && <ProfilesPage />}
-        {route.name === 'profile' && <ProfileDetailPage id={route.id} />}
+        {route.name === 'profile' && <ProfileDetailPage id={route.id} check={route.check} />}
         {route.name === 'vault' && <VaultPage />}
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'notfound' && <NotFoundPage path={route.path} />}
