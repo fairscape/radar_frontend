@@ -24,7 +24,9 @@ const SOURCE_LABEL: Record<string, string> = {
   manual: 'entered by hand',
 };
 
-export function ResearchTopics({ profileKey }: { profileKey: string }) {
+/** ``readOnly``: a saved interest's page, which only shows them; they are
+ * changed in Edit interest (FUNCTIONAL_SPEC E.4 Q1). */
+export function ResearchTopics({ profileKey, readOnly = false, onUnsaved }: { profileKey: string; readOnly?: boolean; onUnsaved?: (unsaved: boolean) => void }) {
   const q = useQuery(`profiles/${profileKey}/terms`, () => getTerms(profileKey));
   // A generated preview is held here, unsaved, until the user keeps or discards it.
   const [preview, setPreview] = useState<InterestTerms | null>(null);
@@ -63,6 +65,10 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
   // added topics were dropped without a word on leaving.
   // A topic typed but not yet added counts too.
   const unsaved = (!!preview || editedSincePreviewOrSave || adding.trim() !== '') && !saving;
+  // Edit interest's Save changes waits for these: it saved the copy
+  // without them and only then asked about them.
+  useEffect(() => { onUnsaved?.(unsaved); }, [unsaved, onUnsaved]);
+  useEffect(() => () => onUnsaved?.(false), [onUnsaved]);
   useEffect(() => {
     if (!unsaved) return;
     return addLeaveGuard(() => confirmDialog({
@@ -75,7 +81,7 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
 
   // Only a saved list Claude generated; edits are saved first, so what is
   // mapped is what is shown.
-  const canMap = !!q.data && !preview && !editedSincePreviewOrSave && q.data.source === 'rp-sdk-llm' && list.length > 0;
+  const canMap = !readOnly && !!q.data && !preview && !editedSincePreviewOrSave && q.data.source === 'rp-sdk-llm' && list.length > 0;
   const mapTopics = useAction(async () => {
     const res = await mapLlmTopics(profileKey);
     toast.success(res.added.length
@@ -103,7 +109,7 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
     <Panel
       title="Research topics (Prosopia method)"
       description="Topics generated the way Prosopia generates them, from this interest's seeds (or the researcher's Prosopia profile). Scans do not search by them. They rank the feed only when BioXplorer's reranker is set to rank by research topics (see Rank refinement for what it ranks by)."
-      actions={<Button size="sm" icon="refresh" onClick={() => setDialog(true)} disabled={!!preview}>{q.data?.terms.length ? 'Regenerate' : 'Generate'}</Button>}
+      actions={readOnly ? undefined : <Button size="sm" icon="refresh" onClick={() => setDialog(true)} disabled={!!preview}>{q.data?.terms.length ? 'Regenerate' : 'Generate'}</Button>}
     >
       {q.error && <ErrorBox compact message={errorMessage(q.error)} onRetry={q.refresh} />}
       {!d && q.loading && <LoadingRows rows={2} />}
@@ -116,7 +122,7 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
           </div>
         </Callout>
       )}
-      {d && !d.source && list.length === 0 && <p className="muted small" style={{ margin: 0 }}>None yet. Generate them from the seeds.</p>}
+      {d && !d.source && list.length === 0 && <p className="muted small" style={{ margin: 0 }}>{readOnly ? 'None. Generate them in Edit interest → Topics.' : 'None yet. Generate them from the seeds.'}</p>}
       {d && d.source && (
         <div className="row-wrap small muted" style={{ gap: 8, margin: '8px 0' }}>
           <Badge tone="info">{SOURCE_LABEL[d.source] ?? d.source}</Badge>
@@ -142,18 +148,18 @@ export function ResearchTopics({ profileKey }: { profileKey: string }) {
           {list.map((t, i) => (
             <span key={`on-${t.label}-${i}`} className="topic-toggle on" title={[t.weight != null ? `weight ${t.weight}` : null, t.paper_ids?.length ? `drawn from ${t.paper_ids.length} seed${t.paper_ids.length === 1 ? '' : 's'}` : null, t.kind].filter(Boolean).join(' · ')}>
               {t.label}
-              <button type="button" className="linklike" aria-label={`Remove "${t.label}"`} title="Remove (it stays below, struck out)" onClick={() => strike(i)}><Icon name="x" size={11} /></button>
+              {!readOnly && <button type="button" className="linklike" aria-label={`Remove "${t.label}"`} title="Remove (it stays below, struck out)" onClick={() => strike(i)}><Icon name="x" size={11} /></button>}
             </span>
           ))}
           {removed.map((t, i) => (
             <span key={`off-${t.label}-${i}`} className="topic-toggle topic-struck" title="Removed — not used. Click ↺ to put it back.">
               <s>{t.label}</s>
-              <button type="button" className="linklike" aria-label={`Put "${t.label}" back`} title="Put back" onClick={() => restore(i)}><Icon name="refresh" size={11} /></button>
+              {!readOnly && <button type="button" className="linklike" aria-label={`Put "${t.label}" back`} title="Put back" onClick={() => restore(i)}><Icon name="refresh" size={11} /></button>}
             </span>
           ))}
         </div>
       )}
-      {d && (
+      {d && !readOnly && (
         <div className="row" style={{ gap: 6, marginTop: 10 }}>
           <Input value={adding} onChange={(e) => setAdding(e.target.value)} maxLength={200} placeholder="Add a topic" aria-label="Add a research topic"
             onKeyDown={(e) => { if (e.key === 'Enter' && adding.trim()) add(adding.trim()); }} />

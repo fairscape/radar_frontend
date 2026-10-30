@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDailyRadar, useProfiles } from '../api/hooks';
 import { dismissCard, saveCard } from '../api/endpoints/radar';
-import { addSeeds } from '../api/endpoints/profiles';
 import { daysLabel, errorMessage, fmtRelative, fmtScore, fmtSigned, plural } from '../lib/format';
 import { invalidate, invalidateUnshown } from '../lib/query';
 import { SCAN_PER_TOPIC, startScan, useJobs } from '../lib/jobs';
@@ -42,7 +41,6 @@ export function FeedPage() {
   const [focused, setFocused] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, CardState>>({});
   const [busy, setBusy] = useState<Set<string>>(new Set());
-  const [seeding, setSeeding] = useState<Set<string>>(new Set());
   const [scanOpen, setScanOpen] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -140,32 +138,9 @@ export function FeedPage() {
     medium: visible.filter((c) => c.bucket === 'medium').length,
   };
 
-  // A paper from the feed becomes a seed of the interest it was shown
-  // under. The server embeds it (feed papers are scored without their
-  // vectors being kept) and re-fits the interest, so the next scan scores
-  // against it. This is the "adjust the seed corpus from the article list"
-  // that was missing: before, seeds could only come from uploads and
-  // imports.
-  async function seed(card: Card) {
-    const k = keyOf(card);
-    if (seeding.has(k)) return;
-    setSeeding((s) => new Set(s).add(k));
-    const name = byKey[card.profile]?.name ?? card.profile;
-    try {
-      const res = await addSeeds(card.profile, [card.id], { source: 'feed' });
-      if (res.attached > 0) toast.success(`Added to the seeds of ${name}.${res.rescored ? ` Re-scored the ${plural(res.rescored, 'paper')} it had found; the feed is updated.` : ''}`, { label: 'View seeds', onClick: () => navigate(paths.interest(card.profile, 'seeds')) });
-      else if (res.rejected.length > 0) toast.error(`Couldn't add "${card.title.slice(0, 60)}" as a seed.`);
-      else toast.info(`Already a seed of ${name}.`);
-    } catch (e) {
-      toast.error(`Couldn't add "${card.title.slice(0, 60)}" as a seed: ${errorMessage(e)}`);
-    } finally {
-      setSeeding((s) => {
-        const n = new Set(s);
-        n.delete(k);
-        return n;
-      });
-    }
-  }
+  // There was a "Seed" button here: it added the paper to the saved
+  // interest's seeds at once. Seeds change only in Edit interest now, on a
+  // copy kept by Save changes (FUNCTIONAL_SPEC E.6 R1, R12).
 
   // Saves and dismisses live in ``overrides`` while the page is up; the
   // cached feed still holds the old states. Refetch it when leaving, or
@@ -395,8 +370,6 @@ export function FeedPage() {
                   expanded={expanded.has(c.id)}
                   focused={focused === c.id}
                   busy={busy.has(keyOf(c))}
-                  seeding={seeding.has(keyOf(c))}
-                  onSeed={() => void seed(c)}
                   onFocus={() => setFocused(c.id)}
                   onToggle={() => toggleExpand(c.id)}
                   onSave={() => act(c, 'saved')}
@@ -486,13 +459,12 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
 }
 
 function PaperCard({
-  card, profile, alsoIn, state, expanded, focused, busy, seeding, onFocus, onToggle, onSave, onDismiss, onSeed,
+  card, profile, alsoIn, state, expanded, focused, busy, onFocus, onToggle, onSave, onDismiss,
 }: {
   card: Card; profile: Profile | undefined;
   /** Names of the other interests that gathered this same paper. */
   alsoIn: string[];
-  state: CardState; expanded: boolean; focused: boolean; busy: boolean; seeding: boolean;
-  onSeed: () => void;
+  state: CardState; expanded: boolean; focused: boolean; busy: boolean;
   onFocus: () => void; onToggle: () => void; onSave: () => void; onDismiss: () => void;
 }) {
   const href = card.doi ? `https://doi.org/${card.doi}` : card.openalex;
@@ -591,9 +563,6 @@ function PaperCard({
       <div className="paper-actions">
         <Button size="sm" icon={state === 'saved' ? 'check' : 'bookmark'} className={state === 'saved' ? 'on-saved' : ''} onClick={onSave} loading={busy} aria-pressed={state === 'saved'} title={state === 'saved' ? 'Click to un-save' : 'Keep this paper (S)'}>
           {state === 'saved' ? 'Saved' : 'Save'}
-        </Button>
-        <Button size="sm" icon="plus" variant="ghost" onClick={onSeed} loading={seeding} title={`Add this paper to the seeds of ${profile?.name ?? card.profile}`}>
-          Seed
         </Button>
         <Button size="sm" icon="x" className={state === 'dismissed' ? 'on-dismissed' : ''} onClick={onDismiss} loading={busy} aria-pressed={state === 'dismissed'} title={state === 'dismissed' ? 'Click to restore' : 'Not useful (X)'}>
           {state === 'dismissed' ? 'Dismissed' : 'Dismiss'}

@@ -22,6 +22,7 @@ import { navigate, paths, addLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
+import { UmlsConcept } from '../ui/UmlsAllOn';
 import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedUploads, openAlexStopped, seedKeys, seedSource, workId } from '../lib/unmatched';
 import { useOpenAlexPaused } from '../lib/openalex';
 import { notifyEmptyDrop } from '../lib/dropHint';
@@ -91,10 +92,6 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
   // pages can link straight to one ("View seeds" after seeding from the feed).
   const tab: Tab = TABS.includes(urlTab as Tab) ? (urlTab as Tab) : 'overview';
   const setTab = (t: Tab) => navigate(paths.interest(profileKey, t === 'overview' ? null : t));
-  // "Add papers" in the header: open the Seeds tab with the Vault picker
-  // unfolded. Adding seeds to a saved interest was possible but hard to
-  // find -- the picker sat folded behind a link at the bottom of a tab.
-  const [addPapers, setAddPapers] = useState(0);
   const [scanOpen, setScanOpen] = useState(false);
   const { tabJob, scanBusy } = useScanBusy(profileKey);
   const running = tabJob;
@@ -136,7 +133,6 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
           <p className="page-sub">{health.hint}{profile.researcherId != null && <BuiltFrom id={profile.researcherId} />}</p>
         </div>
         <div className="page-actions">
-          <Button icon="plus" onClick={() => { setTab('seeds'); setAddPapers((n) => n + 1); }} title="Add seed papers to this interest">Add papers</Button>
           <Button icon="sliders" onClick={() => navigate(paths.interestEdit(profile.key))} title="Go through the steps again: seeds, check, topics, threshold">Edit interest</Button>
           <Button icon="radar" onClick={() => goToFeedFor(profile.key)}>View in feed</Button>
           <Button variant="primary" icon="play" onClick={() => setScanOpen(true)} disabled={scanBusy} title={scanBusy ? 'A scan is already running' : 'Look for new papers now'}>
@@ -175,9 +171,9 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
       {error && !detail && <ErrorBox message={errorMessage(error)} onRetry={refresh} />}
       {loading && !detail && <LoadingRows rows={4} />}
       {detail && tab === 'overview' && <OverviewTab profile={profile} detail={detail} onScan={() => setScanOpen(true)} busy={scanBusy} />}
-      {detail && tab === 'seeds' && <SeedsTab profile={profile} detail={detail} openPicker={addPapers} />}
+      {detail && tab === 'seeds' && <SeedsTab profile={profile} detail={detail} />}
       {detail && tab === 'topics' && <TopicsTab profile={profile} detail={detail} />}
-      {detail && tab === 'threshold' && <ThresholdTab profile={profile} onScan={() => setScanOpen(true)} busy={scanBusy} />}
+      {detail && tab === 'threshold' && <ThresholdTab profile={profile} onScan={() => setScanOpen(true)} busy={scanBusy} readOnly />}
       {tab === 'scans' && <ScansTab profile={profile} onScan={() => setScanOpen(true)} busy={scanBusy} />}
       {detail && tab === 'refinement' && <RankRefinementTab profile={profile} />}
 
@@ -254,11 +250,13 @@ if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', (e) => { if (seedUploads.size > 0) e.preventDefault(); });
 }
 
-export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile; detail: Detail; openPicker?: number }) {
-  const pickerRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (openPicker > 0) pickerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [openPicker]);
+/**
+ * The seeds. ``editing``: Edit interest's step 1, on the copy being edited
+ * (FUNCTIONAL_SPEC E): seeds are added and removed there and kept only by
+ * Save changes. Otherwise the saved interest's page, which only shows them
+ * (E.4 Q1).
+ */
+export function SeedsTab({ profile, detail, editing = false }: { profile: Profile; detail: Detail; editing?: boolean }) {
   const health = healthOf(profile);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
@@ -310,21 +308,21 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     setSeedUpload(profile.key, null);
     // Each upload re-fits the interest on the server; the coherence and
     // topic views are what still need a Recompute.
-    if (ok > 0) toast.success(`${plural(ok, 'seed')} added. The papers already found were re-scored against the new seeds, so the feed is updated.`);
+    if (ok > 0) toast.success(`${plural(ok, 'seed')} added. Save changes to keep ${ok === 1 ? 'it' : 'them'}; the recommendations follow the new seeds from the next scan.`);
     if (already.length > 0) toast.info(`Already a seed here: ${already.join(', ')}.`);
     noteUnmatchedUploads(unmatched, 'interest');
     noteNewVersions(uploaded);
   }
 
-  // Seeds of a live interest could be added (by PDF) but never removed:
-  // there was no route for it, and the draft route 404'd on the usual
-  // https://openalex.org/W… id. The server re-fits the interest on the
-  // seeds that remain, and refuses to remove the last one.
+  // Removed from the copy only: the interest keeps it until Save changes,
+  // and its recommendations until the next scan (E.4 Q5). The topics only
+  // this seed brought stay as they are, only marked (E.2-3). The last seed
+  // cannot go.
   const [removing, setRemoving] = useState<string | null>(null);
   async function remove(id: string, title: string) {
     const ok = await confirmDialog({
       title: 'Remove this seed?',
-      body: <p>"{title || id}" will no longer count towards this {TERMS.interest}. The interest is re-fitted on the seeds that remain; the paper stays in your Vault.</p>,
+      body: <p>"{title || id}" will no longer count towards this {TERMS.interest} once you save the changes. Topics it brought in stay as they are; you can switch them off under Topics. The paper stays in your Vault.</p>,
       confirmLabel: 'Remove seed',
       danger: true,
     });
@@ -332,7 +330,7 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
     setRemoving(id);
     try {
       await removeSeed(profile.key, id);
-      toast.success('Seed removed. The papers already found were re-scored against the seeds that remain.');
+      toast.success('Seed removed. Save changes to keep this; the recommendations follow the seeds from the next scan.');
     } catch (e) {
       toast.error(`Couldn't remove the seed: ${errorMessage(e)}`);
     } finally {
@@ -342,10 +340,15 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
 
   return (
     <div className="two-col">
-      <Panel title="Seed papers" description="What this interest is made of." actions={<Button size="sm" icon="refresh" onClick={() => recompute.run()} loading={recompute.busy} title="Recompute coherence from the current seeds">Recompute</Button>}>
+      <Panel title="Seed papers" description="What this interest is made of." actions={editing ? <Button size="sm" icon="refresh" onClick={() => recompute.run()} loading={recompute.busy} title="Recompute coherence from the current seeds">Recompute</Button> : undefined}>
+        {!editing && (
+          <SectionNote>
+            To add or remove seeds, use <Link href={paths.interestEdit(profile.key, 1)}>Edit interest</Link>: the changes are kept when you save them there.
+          </SectionNote>
+        )}
         {recompute.error && <ErrorBox compact message={recompute.error} />}
         {detail.seeds.length === 0 ? <p className="muted small">No seeds recorded.</p> : detail.seeds.map((s) => (
-          <div className="seed-row removable" key={s.id}>
+          <div className={`seed-row ${editing ? 'removable' : ''}`} key={s.id}>
             <span className="idx">{String(s.idx).padStart(2, '0')}</span>
             <span className="truncate">
               <PaperTitle title={displayTitle(s)} id={workId(s)} />
@@ -355,9 +358,10 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
             <span className="mono small" title="How similar this seed is to the other seeds (leave-one-out). The lowest values are the least typical papers." style={{ color: s.coh > 0 && profile.seedSimMin != null && s.coh <= profile.seedSimMin + 1e-6 && profile.seedSimMax != null && profile.seedSimMax - profile.seedSimMin > 0.02 ? 'var(--warn)' : 'var(--fg-3)' }}>
               {s.coh > 0 ? fmtScore(s.coh) : '—'}
             </span>
-            <IconButton icon="trash" size="sm" label={`Remove "${s.title || s.id}" from the seeds`} disabled={removing !== null || !!progress || detail.seeds.length <= 1} onClick={() => void remove(s.id, s.title)} />
+            {editing && <IconButton icon="trash" size="sm" label={`Remove "${s.title || s.id}" from the seeds`} disabled={removing !== null || !!progress || detail.seeds.length <= 1} onClick={() => void remove(s.id, s.title)} />}
           </div>
         ))}
+        {editing && <>
         <div
           className={`dropzone ${over ? 'over' : ''} ${progress || paused ? 'busy' : ''}`}
           style={{ marginTop: 14 }}
@@ -375,15 +379,14 @@ export function SeedsTab({ profile, detail, openPicker = 0 }: { profile: Profile
           <input ref={inputRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ''; }} />
         </div>
         {failures.length > 0 && <ErrorBox compact title="Some files failed" message={failures.map((f) => <div key={f}>{f}</div>)} />}
-        <div ref={pickerRef}>
-          <VaultSeedPicker profileKey={profile.key} seedIds={seedKeys(detail.seeds)} disabled={!!progress || removing !== null} openSignal={openPicker} />
-        </div>
+        <VaultSeedPicker profileKey={profile.key} seedIds={seedKeys(detail.seeds)} disabled={!!progress || removing !== null} />
+        </>}
       </Panel>
       <Panel title="Do the seeds agree?" description="Whether the seed papers are about the same thing. The similarity column on the left shows how typical each seed is; the lowest ones are the odd ones out.">
         {detail.seeds.length < 2 ? (
           <p className="muted small">Needs at least two seeds.</p>
         ) : detail.coherenceBins.length === 0 ? (
-          <p className="muted small">Not computed yet. Click Recompute.</p>
+          <p className="muted small">{editing ? 'Not computed yet. Click Recompute.' : 'Not computed yet.'}</p>
         ) : (
           <>
             <Callout tone={health.tone === 'ok' ? 'ok' : health.tone === 'err' ? 'err' : health.tone === 'warn' ? 'warn' : 'info'} title={health.label}>{health.hint}</Callout>
@@ -415,7 +418,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
         <Link href={paths.interestEdit(profile.key, 3)}>Edit interest → Topics</Link>. Changes apply from the next scan.
       </SectionNote>
       {detail.topics.length === 0 ? (
-        <p className="muted small">No topics. Add seeds whose OpenAlex records resolve, then Recompute on the Seeds tab.</p>
+        <p className="muted small">No topics. In Edit interest, add seeds whose OpenAlex records resolve.</p>
       ) : (
         <table className="table">
           <thead>
@@ -428,7 +431,8 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
                 <tr key={t.id} style={{ opacity: t.on ? 1 : 0.6 }}>
                   <td>{t.profile === 'not_interest' ? <s>{t.name}</s> : t.name} <span className="muted mono small">{t.id}</span></td>
                   <td>
-                    <Badge title={topicSourceLabel(t.source, t.llm_label)}>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge>
+                    <Badge title={topicSourceLabel(t.source, t.llm_label, t.umls_concept)}>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge>
+                    {t.source === 'umls' && <> <UmlsConcept topic={t} /></>}
                     {t.profile === 'interest' && t.source !== 'researcher' && <> <Badge tone="info" title={topicProfileNote(t.profile) ?? undefined}>Profile</Badge></>}
                   </td>
                   <td className="r">{t.papers ?? t.count}</td>
@@ -447,10 +451,12 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
       )}
       {yieldQ.error && <div style={{ marginTop: 10 }}><ErrorBox compact title="Topic yield unavailable" message={errorMessage(yieldQ.error)} onRetry={yieldQ.refresh} /></div>}
     </Panel>
-      <ResearchTopics profileKey={profile.key} />
+      <ResearchTopics profileKey={profile.key} readOnly />
     </div>
   );
 }
+
+const noChange = () => {};
 
 /** The threshold that best separates what was saved from what was dismissed. */
 function FeedbackSuggestion({ data, value, onUse }: { data: FeedbackThreshold | null; value: number; onUse: (v: number) => void }) {
@@ -476,10 +482,29 @@ function FeedbackSuggestion({ data, value, onUse }: { data: FeedbackThreshold | 
   );
 }
 
-export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profile; onScan: () => void; busy?: boolean }) {
-  const scoresQ = useQuery(`profiles/${profile.key}/scores`, () => candidateScores(profile.key), { once: true });
+/**
+ * The threshold and the publication years.
+ *
+ * ``readOnly``: a saved interest's page, which shows them; they are changed
+ * in Edit interest (FUNCTIONAL_SPEC E.4 Q1). ``canFetch``: offer fetching
+ * papers from the saved years -- only on Edit interest's page once the
+ * changes are saved (E.6 R3), not on the interest's page.
+ *
+ * ``editOf``: Edit interest's step 4, where ``profile`` is the copy being
+ * edited and ``editOf`` the saved interest. The copy has no papers of its
+ * own, so the scores and the feedback are the interest's. A value set here
+ * is written to the copy at once and kept by Save changes; fetching papers
+ * waits until the changes are saved (E.6 R3). ``onPending`` says while a
+ * value is not on the copy yet, so Save changes waits for it.
+ */
+export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, canFetch = !readOnly, editOf, onPending }: {
+  profile: Profile; onScan: () => void; busy?: boolean; readOnly?: boolean; canFetch?: boolean; editOf?: string; onPending?: (pending: boolean) => void;
+}) {
+  const scoresKey = editOf ?? profile.key;
+  const editing = editOf != null;
+  const scoresQ = useQuery(`profiles/${scoresKey}/scores`, () => candidateScores(scoresKey), { once: true });
   // Saves and dismisses are where the feed's triage feeds back into scoring.
-  const feedbackQ = useQuery(`profiles/${profile.key}/feedback-threshold`, () => getFeedbackThreshold(profile.key));
+  const feedbackQ = useQuery(`profiles/${scoresKey}/feedback-threshold`, () => getFeedbackThreshold(scoresKey));
   const [value, setExact] = useState<number>(profile.threshold);
   // On the 3-place grid the saved bar is on, however it is set: a typed
   // 0.9005 was compared to the scores as itself and saved as 0.901, so the
@@ -502,7 +527,16 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   const profileYears: YearSpan | null = profile.yearFrom != null ? { from: profile.yearFrom, to: profile.yearTo ?? null } : null;
   const [savedYears, setSavedYears] = useState<YearSpan | null>(profileYears);
   const [years, setYears] = useState<YearSpan | null>(profileYears);
-  useEffect(() => { setYears(profileYears); setSavedYears(profileYears); }, [profile.yearFrom, profile.yearTo, profile.key]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // As the threshold: follow the server's value only over an untouched
+  // one. On the copy each change is written at once, and the refetch of
+  // the first of two quick changes put it back over the second.
+  const followedYears = useRef({ key: profile.key, years: JSON.stringify(profileYears) });
+  useEffect(() => {
+    const was = followedYears.current;
+    followedYears.current = { key: profile.key, years: JSON.stringify(profileYears) };
+    setYears((v) => (was.key !== profile.key || JSON.stringify(v) === was.years ? profileYears : v));
+    setSavedYears(profileYears);
+  }, [profile.yearFrom, profile.yearTo, profile.key]);   // eslint-disable-line react-hooks/exhaustive-deps
   const yearsDirty = JSON.stringify(years) !== JSON.stringify(savedYears);
   const storedPapers = scoresQ.data?.papers ?? [];
   const papersInYears = storedPapers.filter((p) => inSpan(p.year, years));
@@ -514,11 +548,11 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   // Against the first year a backfill can reach: a range longer than 15
   // years fetches only its last 15, so comparing with ``from`` kept the
   // button up for good, each click repeating the same fetch.
-  const needsBackfill = !!savedYears && !yearsDirty && (oldestStored == null || fetchStart(savedYears) < oldestStored);
+  const needsBackfill = canFetch && !editing && !!savedYears && !yearsDirty && (oldestStored == null || fetchStart(savedYears) < oldestStored);
   const saveYears = useAction(async () => {
     await updateProfileYears(profile.key, years);
     setSavedYears(years);
-    toast.success(years ? `The feed now shows papers from ${yearsLabel(years)}.` : 'The feed shows papers from any year.');
+    if (!editOf) toast.success(years ? `The feed now shows papers from ${yearsLabel(years)}.` : 'The feed shows papers from any year.');
   });
   useClearOnChange(saveYears, [years]);
   const fetchYears = useAction(async () => {
@@ -531,18 +565,37 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   const suggested = scoresQ.data?.suggested_threshold ?? null;
   const [axisLo, axisHi] = axisFor(shownScores, band, scoresQ.data?.score_range ?? null);
   const save = useAction(async () => {
-    await updateProfileThreshold(profile.key, Number(value.toFixed(3)));
-    setSavedThreshold(Number(value.toFixed(3)));
-    toast.success(`Threshold saved as ${value.toFixed(3)}.`);
+    const v = Number(value.toFixed(3));
+    await updateProfileThreshold(profile.key, v);
+    setSavedThreshold(v);
+    if (!editOf) toast.success(`Threshold saved as ${v.toFixed(3)}.`);
   });
   useClearOnChange(save, [value]);
   const dirty = value !== savedThreshold;
   const [exactOk, setExactOk] = useState(true);
+  // On the copy, a value is applied as it is set: there is one Save, Save
+  // changes, for the whole edit. A threshold waits for the dragging or
+  // typing to pause; Save changes waits for both (``onPending``).
+  // The latest run, without restarting the timer on every render. A failed
+  // write is not retried until the value changes (its error shows below).
+  const apply = useRef({ threshold: save.run, years: saveYears.run });
+  apply.current = { threshold: save.run, years: saveYears.run };
+  useEffect(() => {
+    if (!editing || !dirty || !exactOk || save.busy || save.error) return;
+    const t = window.setTimeout(() => void apply.current.threshold(), 400);
+    return () => window.clearTimeout(t);
+  }, [editing, dirty, exactOk, save.busy, save.error, value]);
+  useEffect(() => {
+    if (editing && yearsDirty && !saveYears.busy && !saveYears.error) void apply.current.years();
+  }, [editing, yearsDirty, saveYears.busy, saveYears.error, years]);
+  const pending = editing && ((dirty && exactOk) || yearsDirty || save.busy || saveYears.busy);
+  useEffect(() => { onPending?.(pending); }, [pending, onPending]);
+  useEffect(() => () => onPending?.(false), [onPending]);
   // Threshold and years wait for their own Save: switching tab, Done on
   // Edit interest, the sidebar or Back dropped a typed value unseen.
   // An emptied or invalid box over the saved value loses nothing.
   // Nor while a save is on its way: that asked "not saved" beside "saved".
-  const unsaved = (dirty || yearsDirty) && !save.busy && !saveYears.busy;
+  const unsaved = !editing && (dirty || yearsDirty) && !save.busy && !saveYears.busy;
   useEffect(() => {
     if (!unsaved) return;
     const stop = addLeaveGuard(() => confirmDialog({
@@ -556,21 +609,26 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
   return (
     <Panel
       title="Threshold"
-      description="The similarity a paper needs to reach your feed. Scans keep every paper they find; the threshold decides which ones you see, and saving applies at once. The shaded band is where your own seed papers score; the suggested value sits just below it."
-      actions={
+      description={readOnly
+        ? 'The similarity a paper needs to reach your feed. Scans keep every paper they find; the threshold decides which ones you see. To change it or the publication years, use Edit interest.'
+        : editing
+          ? 'The similarity a paper needs to reach your feed, over the papers this interest has found so far. Scans keep every paper they find; the threshold decides which ones you see. A new threshold or year range applies to the feed when you save the changes. The shaded band is where your own seed papers score; the suggested value sits just below it.'
+          : 'The similarity a paper needs to reach your feed. Scans keep every paper they find; the threshold decides which ones you see, and saving applies at once. The shaded band is where your own seed papers score; the suggested value sits just below it.'}
+      actions={readOnly || editing ? undefined : (
         <>
           <Button size="sm" variant="ghost" onClick={() => setValue(savedThreshold)} disabled={!dirty}>Reset</Button>
           <Button size="sm" variant="primary" onClick={() => save.run()} loading={save.busy} disabled={!dirty || !exactOk} title={exactOk ? undefined : 'Enter a threshold between 0 and 1'}>Save threshold</Button>
         </>
-      }
+      )}
     >
       {save.error && <ErrorBox compact message={save.error} />}
       <div style={{ marginBottom: 14 }}>
         <div className="field-label" style={{ marginBottom: 6 }}>Publication years</div>
-        <YearRange value={years} onChange={setYears} newOnlyLabel="Any year" />
+        <YearRange value={years} onChange={setYears} newOnlyLabel="Any year" disabled={readOnly} />
+        {editing && savedYears && <p className="small muted" style={{ margin: '6px 0 0' }}>To fetch papers from these years, save the changes first.</p>}
         <div className="row" style={{ gap: 8, marginTop: 8 }}>
-          {yearsDirty && <Button size="sm" variant="primary" icon="check" loading={saveYears.busy} onClick={() => saveYears.run()}>Save years</Button>}
-          {yearsDirty && <Button size="sm" variant="ghost" onClick={() => setYears(savedYears)}>Reset</Button>}
+          {yearsDirty && !editing && <Button size="sm" variant="primary" icon="check" loading={saveYears.busy} onClick={() => saveYears.run()}>Save years</Button>}
+          {yearsDirty && !editing && <Button size="sm" variant="ghost" onClick={() => setYears(savedYears)}>Reset</Button>}
           {needsBackfill && (
             <>
               <span className="small muted">{oldestStored == null ? 'No papers stored yet.' : `The oldest paper stored is from ${oldestStored}.`}</span>
@@ -583,7 +641,9 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
       {scoresQ.error && <ErrorBox compact message={errorMessage(scoresQ.error)} onRetry={scoresQ.refresh} />}
       {scoresQ.loading && <LoadingRows rows={3} />}
       {scoresQ.data && scoresQ.data.scores.length === 0 && storedPapers.length === 0 && (
-        <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Run a scan first, then come back to tune the threshold." action={<Button icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} />
+        editing
+          ? <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Save the changes, then scan; come back to tune the threshold once papers are found." />
+          : <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Run a scan first, then come back to tune the threshold." action={<Button icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} />
       )}
       {scoresQ.data && shownScores.length === 0 && storedPapers.length > 0 && (
         // Papers are stored, none from the years chosen above.
@@ -591,20 +651,20 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
       )}
       {scoresQ.data && shownScores.length > 0 && (
         <>
-          {suggested != null && Math.abs(suggested - value) > 0.0005 && (
+          {!readOnly && suggested != null && Math.abs(suggested - value) > 0.0005 && (
             <div className="row" style={{ marginBottom: 10 }}>
               <span className="small muted">Suggested for these seeds: <b className="mono">{suggested.toFixed(3)}</b></span>
               <Button size="sm" variant="ghost" onClick={() => setValue(suggested)}>Use suggested</Button>
             </div>
           )}
-          <FeedbackSuggestion data={feedbackQ.data ?? null} value={value} onUse={setValue} />
-          <ThresholdHistogram scores={shownScores} value={value} min={axisLo} max={axisHi} onChange={setValue} reference={profile.threshold} seedBand={band} suggested={suggested} periodLabel="of gathered papers would pass" />
+          {!readOnly && <FeedbackSuggestion data={feedbackQ.data ?? null} value={value} onUse={setValue} />}
+          <ThresholdHistogram scores={shownScores} value={value} min={axisLo} max={axisHi} onChange={readOnly ? noChange : setValue} reference={profile.threshold} seedBand={band} suggested={suggested} periodLabel="of gathered papers would pass" />
           {/* Scans before 2026-10-01 dropped every paper below the threshold
               of the day, so an older interest has nothing below it to show. */}
           {scoresQ.data.papers && scoresQ.data.papers.length > 0 && !scoresQ.data.papers.some((p) => p.score < profile.threshold) && (
             <Callout tone="info">
               Nothing below <b className="mono">{profile.threshold.toFixed(3)}</b> is stored yet: earlier scans kept only the papers above the threshold. Scans now keep everything, so after the next one a lower threshold shows what it adds.{' '}
-              <Button size="sm" variant="ghost" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>
+              {!editing && <Button size="sm" variant="ghost" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>}
             </Callout>
           )}
           {scoresQ.data.papers && scoresQ.data.papers.length > 0 && (
@@ -617,7 +677,7 @@ export function ThresholdTab({ profile, onScan, busy = false }: { profile: Profi
       )}
       <div className="row" style={{ marginTop: 12 }}>
         <Field label="Exact value" inline>
-          <NumberInput min={0} max={1} step={0.001} digits={3} value={value} onChange={setValue} onValidity={setExactOk} style={{ width: 110 }} />
+          <NumberInput min={0} max={1} step={0.001} digits={3} value={value} onChange={setValue} onValidity={setExactOk} style={{ width: 110 }} disabled={readOnly} />
         </Field>
         {/* The chart and list keep the last valid value; say so rather than show "0 of 426 would pass" for 1.5. */}
         {!exactOk && <span className="field-error">Enter a value between 0 and 1. The counts above are for {value.toFixed(3)}.</span>}

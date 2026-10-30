@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useProfiles, useResearchers, useVaultStats } from '../api/hooks';
 import { TERMS } from '../lib/terms';
+import { discardLeftEdits } from '../api/endpoints/profiles';
+import { tabId } from '../lib/tab';
+import { invalidate } from '../lib/query';
 import { daysLabel } from '../lib/format';
 import { dismissJob, kindLabel, stepLabel, useJobs, type Job } from '../lib/jobs';
 import { navigate, paths, type Route } from '../lib/router';
@@ -50,6 +53,16 @@ const NAV: { name: Route['name']; href: string; label: string; icon: IconName; h
 
 export function Shell({ route, email }: { route: Route; email: string }) {
   const { data: profiles } = useProfiles();
+
+  // An Edit interest closed without saving left its copy behind: this
+  // tab's goes when the site opens here anywhere but an edit page (which
+  // discards it itself), and any not heard from for 2 minutes; another
+  // tab's edit still going stays (FUNCTIONAL_SPEC E.7 R5).
+  useEffect(() => {
+    if (route.name === 'interestEdit') return;
+    tabId().then(discardLeftEdits).then((r) => { if (r.discarded > 0) invalidate('vault', 'researchers'); }, () => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // A user with nothing set up yet lands on "what you can do" rather
   // than an empty feed. Only from the bare root, so /feed stays /feed.

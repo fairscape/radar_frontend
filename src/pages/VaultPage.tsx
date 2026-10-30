@@ -126,6 +126,11 @@ function DocDetail({ doc, tagName }: { doc: VaultDoc; tagName: (t: string) => st
         <div><dt>Added</dt><dd>{fmtDate(doc.added)}</dd></div>
       </div>
       <div><dt>Tagged</dt><dd>{doc.tags.length ? doc.tags.map(tagName).join(', ') : 'Untagged'}</dd></div>
+      {/* OpenAlex's, or else the one printed in this PDF, which says so (FUNCTIONAL_SPEC P.5 Q2). */}
+      <div>
+        <dt>Abstract{doc.abstract && doc.abstractSource === 'pdf' && <span className="muted small"> · from the PDF</span>}</dt>
+        <dd>{doc.abstract || '—'}</dd>
+      </div>
     </dl>
   );
 }

@@ -157,6 +157,17 @@ export function apiPost<T>(path: string, body?: unknown, signal?: AbortSignal): 
   }, signal);
 }
 
+/** A POST sent as the page goes (``pagehide``): ``keepalive`` lets it
+ *  outlive the page, and unlike ``sendBeacon`` it carries the headers.
+ *  Nothing waits for the answer. */
+export function apiPostOnLeave(path: string): void {
+  try {
+    void fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST', keepalive: true, headers: { Accept: 'application/json', ...userEmailHeader() },
+    }).catch(() => {});
+  } catch { /* the page is going either way */ }
+}
+
 export function apiPatch<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   return request<T>(path, {
     method: 'PATCH',

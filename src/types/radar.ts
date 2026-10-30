@@ -82,6 +82,9 @@ export interface VaultDoc {
   version?: number | null;
   /** Upload response only: these bytes were already in your vault. */
   duplicate?: boolean | null;
+  abstract?: string | null;
+  /** ``pdf``: read from your uploaded file, as OpenAlex has none; null: OpenAlex's. */
+  abstractSource?: string | null;
 }
 
 export interface Seed {
@@ -116,6 +119,11 @@ export interface Topic {
   profile?: 'interest' | 'not_interest' | null;
   /** ``source: llm``: the research topic it was mapped from. */
   llm_label?: string | null;
+  /** ``source: umls``: the UMLS concept it was mapped from, and the concept's confidence. */
+  umls_concept?: string | null;
+  umls_confidence?: number | null;
+  /** Edit page's list only: a saved topic no seed brings any more (a seed removed since); kept as saved. */
+  unmatched?: boolean | null;
 }
 
 export interface SweepRow {

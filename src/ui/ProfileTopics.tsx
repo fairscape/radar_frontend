@@ -75,9 +75,9 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
     <Callout tone={d.applied ? 'ok' : 'info'} title={d.applied ? `Using ${who}'s profile topics` : `${who}'s profile lists research interests`} icon="user">
       <p style={{ margin: '0 0 6px' }}>
         {d.applied
-          ? <>The {plural(wantedOn, 'topic')} the profile wants {wantedOn === 1 ? 'is' : 'are'} on{wantedOn < t.wanted.length ? ` (${t.wanted.length - wantedOn} filtered out below)` : ''}. They follow the profile: a change there shows up here on the next recompute. Removing them puts the other topics back as they were.</>
+          ? <>The {plural(wantedOn, 'topic')} the profile wants {wantedOn === 1 ? 'is' : 'are'} on{wantedOn < t.wanted.length ? ` (${t.wanted.length - wantedOn} filtered out below)` : ''}. They are the profile as it was when they were applied: re-importing the researcher does not change them. Removing them puts the other topics back as they were.</>
           : <>The profile declares {plural(t.wanted.length, 'wanted topic')}{t.unwanted.length > 0 ? ` and ${plural(t.unwanted.length, 'topic')} it does not want` : ''}. Apply them and BioXplorer adds the wanted ones to this list, switched on{t.unwanted.length > 0 ? ', and filters out the not-wanted ones ticked below' : ''}.</>}
-        {saved && <> <b>This is saved straight away</b>, unlike the ticks below, and applies from the next scan.</>}
+        {saved && <> Kept when you save the changes, and searched from the first scan after that.</>}
       </p>
       <TopicChips topics={{ ...t, unwanted: [], unwanted_labels: [], unmatched_labels: [] }} offIds={filteredIds} />
       <NotInterestList topics={t} applied={d.applied} saved={saved} busy={choose.busy || toggle.busy} onChoose={(row, c) => choose.run(row, c)} />

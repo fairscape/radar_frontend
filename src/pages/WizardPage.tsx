@@ -29,6 +29,7 @@ import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
+import { UmlsAllOn, UmlsConcept } from '../ui/UmlsAllOn';
 import { useOpenAlexPaused } from '../lib/openalex';
 import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedImport, noteUnmatchedUploads, openAlexStopped, seedKeys, workId } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
@@ -1120,13 +1121,15 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
               <Button size="sm" variant="ghost" onClick={() => update({ selectedTopicIds: [] })}>Clear</Button>
             </div>
           </div>
+          <UmlsAllOn list={list} selected={selected} onAdd={(ids) => update({ selectedTopicIds: [...selected, ...ids] })} />
           <div className="topics">
             {list.map((t) => (
-              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.papers ?? t.count} ${(t.papers ?? t.count) === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source, t.llm_label)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
+              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.papers ?? t.count} ${(t.papers ?? t.count) === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source, t.llm_label, t.umls_concept)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
                 <span className="tick">{selected.has(t.id) && <Icon name="check" size={10} />}</span>
                 {t.profile === 'not_interest' ? <s>{t.name}</s> : t.name}
                 <span className="tc">{t.papers ?? t.count}</span>
                 {topicSourceTag(t.source) && <span className="src">{topicSourceTag(t.source)}</span>}
+                <UmlsConcept topic={t} />
                 {t.profile === 'interest' && t.source !== 'researcher' && <span className="src">PROFILE</span>}
                 {t.profile === 'not_interest' && <span className="pf">not wanted</span>}
               </button>

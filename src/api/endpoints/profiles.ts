@@ -4,7 +4,7 @@
  * Mutations invalidate the query cache for the data they change so
  * every mounted view refreshes.
  */
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../client';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostOnLeave, apiPut } from '../client';
 import { invalidate, invalidateWhere, markStale, setQueryData } from '../../lib/query';
 import type { YearSpan } from '../../types/radar';
 import type {
@@ -136,6 +136,69 @@ export async function recomputeTopics(key: string): Promise<Topic[]> {
 /** A saved interest's topics re-aggregated from its seeds; writes nothing. New ones come back off. */
 export function previewTopics(key: string): Promise<Topic[]> {
   return apiGet<Topic[]>(`/api/profiles/${enc(key)}/topics/preview`);
+}
+
+/** Whether the topics on now, or the seeds, differ from the ones the last
+ * scan searched and scored with. For an edit copy, against the saved
+ * interest's last scan. */
+export interface ScanOutdatedState { changed: boolean; topics: boolean; seeds: boolean }
+export function scanTopics(key: string): Promise<ScanOutdatedState> {
+  return apiGet<ScanOutdatedState>(`/api/profiles/${enc(key)}/scan-topics`);
+}
+
+/**
+ * Edit interest works on a copy of the saved interest (FUNCTIONAL_SPEC E):
+ * every step changes the copy; Save changes writes it onto the interest in
+ * one go; leaving without saving discards it. The copy is a draft, so the
+ * profile routes take its slug like any draft's.
+ */
+// This tab's opens and its clearing of what it left behind, one after
+// another: run together, the clearing (the site opening) could land after
+// an open and discard the copy just made, as this tab's own.
+let editQueue: Promise<unknown> = Promise.resolve();
+function inTurn<T>(call: () => Promise<T>): Promise<T> {
+  const next = editQueue.then(call, call);
+  editQueue = next.catch(() => {});
+  return next;
+}
+
+export function openEdit(key: string, tab: string): Promise<{ slug: string; editOf: string }> {
+  return inTurn(() => apiPost<{ slug: string; editOf: string }>(`/api/profiles/${enc(key)}/edit`, { tab }));
+}
+
+/** The edit page is still open: keeps the interest for this tab (first
+ *  come first served). 404 once the copy is gone. */
+export function editAlive(copySlug: string, tab: string): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/api/profiles/draft/${enc(copySlug)}/edit-alive`, { tab });
+}
+
+/** The tab closes on the edit page: the copy goes now, not 2 minutes on. */
+export function discardEditOnLeave(copySlug: string): void {
+  apiPostOnLeave(`/api/profiles/draft/${enc(copySlug)}/discard-edit`);
+}
+
+/** Whether the copy differs from the interest it copies. */
+export function editState(copySlug: string): Promise<{ changed: boolean }> {
+  return apiGet<{ changed: boolean }>(`/api/profiles/draft/${enc(copySlug)}/edit-state`);
+}
+
+/** Save changes: the copy is written onto the interest and deleted. No scan. */
+export async function saveEdit(copySlug: string, originalKey: string): Promise<Profile> {
+  const res = await apiPost<Profile>(`/api/profiles/draft/${enc(copySlug)}/save-edit`);
+  invalidate('profiles', 'vault', 'radar', 'researchers', `draft/${copySlug}/`, `draft/${originalKey}/`);
+  return res;
+}
+
+/** Leave without saving: the copy goes, with what it brought in that nothing else uses. */
+export async function discardEdit(copySlug: string): Promise<void> {
+  await apiDelete<{ ok: boolean }>(`/api/profiles/draft/${enc(copySlug)}`);
+  invalidate('vault', `draft/${copySlug}/`);
+}
+
+/** Discard the copies left behind: this tab's own, and any not heard from
+ *  for 2 minutes. Another tab's edit still going stays. */
+export function discardLeftEdits(tab: string): Promise<{ discarded: number }> {
+  return inTurn(() => apiPost<{ discarded: number }>('/api/profiles/drafts/discard-edits', { tab }));
 }
 
 export interface InterestTerm { label: string; weight?: number | null; paper_ids?: string[]; kind?: string | null }
@@ -359,6 +422,6 @@ export interface LlmTopicsResult {
 export async function mapLlmTopics(key: string): Promise<LlmTopicsResult> {
   const res = await apiPost<LlmTopicsResult>(`/api/profiles/${enc(key)}/llm-topics`);
   // The topic lists (detail, Edit interest step 3) read them.
-  invalidate(`profiles/${key}/`);
+  invalidate(`profiles/${key}/`, `draft/${key}/`);
   return res;
 }

@@ -21,12 +21,24 @@ type LeaveGuard = () => Promise<boolean>;
 // Named, so a page that has just saved can leave past its own guard only:
 // ``force`` skipped every guard, and Edit interest's "Save topics and
 // continue" dropped an unsaved Research topics edit without asking.
-const guards = new Map<LeaveGuard, string | undefined>();
-function currentGuard(skip: string[] = []): LeaveGuard | null {
-  const list = [...guards].filter(([, name]) => !name || !skip.includes(name)).map(([g]) => g);
+// ``within``: the URLs that are still the guarded page (Edit interest's
+// steps), where its guard is not asked. ``unload``: whether closing or
+// reloading the tab asks (default yes); the browser's own question cannot
+// wait for an answer from the server, so a guard that checks there says
+// here, from what it knows, whether there is anything to lose.
+type GuardOpts = { name?: string; within?: (to: string) => boolean; unload?: () => boolean };
+const guards = new Map<LeaveGuard, GuardOpts>();
+// Once the user agreed, only the guards that were asked are dropped: one
+// asked on a move inside a page (a step's unsaved panel) used to clear the
+// page's own guard too, and leaving the page later asked nothing.
+function currentGuard(skip: string[] = [], to?: string): (() => Promise<boolean>) | null {
+  const list = [...guards]
+    .filter(([, o]) => (!o.name || !skip.includes(o.name)) && !(to != null && o.within?.(to)))
+    .map(([g]) => g);
   if (list.length === 0) return null;
   return async () => {
     for (const g of list) if (!(await g())) return false;
+    for (const g of list) guards.delete(g);
     return true;
   };
 }
@@ -45,8 +57,8 @@ function entryIdx(state: unknown): number | null {
 }
 
 /** Ask ``guard`` before leaving the page; returns the function that stops asking. */
-export function addLeaveGuard(guard: LeaveGuard, name?: string): () => void {
-  guards.set(guard, name);
+export function addLeaveGuard(guard: LeaveGuard, name?: string, within?: (to: string) => boolean, unload?: () => boolean): () => void {
+  guards.set(guard, { name, within, unload });
   return () => { guards.delete(guard); };
 }
 
@@ -61,7 +73,7 @@ if (typeof window !== 'undefined') {
       restoring = false;
       return;
     }
-    const guard = currentGuard();
+    const guard = currentGuard([], target);
     if (!guard || target === shownUrl) {
       shownUrl = target;
       if (idx !== null) shownIdx = idx;
@@ -82,7 +94,6 @@ if (typeof window !== 'undefined') {
     void guard().then((ok) => {
       asking = false;
       if (!ok) return;
-      guards.clear();
       if (delta) {
         window.history.go(-delta);   // its popstate, unguarded now, shows the page
       } else {
@@ -93,7 +104,7 @@ if (typeof window !== 'undefined') {
     });
   });
   window.addEventListener('beforeunload', (e) => {
-    if (guards.size > 0) e.preventDefault();
+    if ([...guards.values()].some((o) => (o.unload ? o.unload() : true))) e.preventDefault();
   });
 }
 
@@ -105,11 +116,10 @@ export function navigate(to: string, opts: { replace?: boolean; force?: boolean;
   if (typeof window === 'undefined') return;
   const current = window.location.pathname + window.location.search;
   if (current === to) return;
-  const guard = currentGuard(opts.past);
+  const guard = currentGuard(opts.past, to);
   if (guard && !opts.force) {
     void guard().then((ok) => {
       if (!ok) return;
-      guards.clear();
       navigate(to, { ...opts, force: true });
     });
     return;
