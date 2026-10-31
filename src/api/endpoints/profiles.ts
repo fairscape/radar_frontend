@@ -177,6 +177,14 @@ export function discardEditOnLeave(copySlug: string): void {
   apiPostOnLeave(`/api/profiles/draft/${enc(copySlug)}/discard-edit`);
 }
 
+/** A feed paper Edit interest's Seeds step can add (FUNCTIONAL_SPEC E.11). */
+export interface FeedSeedChoice { id: string; title: string; year: number | null; venue: string | null; doi: string | null; saved: boolean; score: number | null }
+
+/** The feed papers of the interest the copy edits: saved first, then by score; ``q`` searches titles. */
+export function feedSeedChoices(copySlug: string, q: string): Promise<FeedSeedChoice[]> {
+  return apiGet<FeedSeedChoice[]>(`/api/profiles/draft/${enc(copySlug)}/feed-papers?q=${encodeURIComponent(q)}`);
+}
+
 /** Whether the copy differs from the interest it copies. */
 export function editState(copySlug: string): Promise<{ changed: boolean }> {
   return apiGet<{ changed: boolean }>(`/api/profiles/draft/${enc(copySlug)}/edit-state`);

@@ -30,6 +30,7 @@ import type { Profile, VaultDoc } from '../types/radar';
 import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, IconButton, LoadingRows, NumberInput, Panel, Stat, Tabs, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { PaperTitle } from '../ui/pickers';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
+import { FeedSeedPicker } from '../ui/FeedSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import { ResearchTopics } from '../ui/ResearchTopics';
 import { YearRange, fetchStart, inSpan } from '../ui/YearRange';
@@ -380,6 +381,7 @@ export function SeedsTab({ profile, detail, editing = false }: { profile: Profil
         </div>
         {failures.length > 0 && <ErrorBox compact title="Some files failed" message={failures.map((f) => <div key={f}>{f}</div>)} />}
         <VaultSeedPicker profileKey={profile.key} seedIds={seedKeys(detail.seeds)} disabled={!!progress || removing !== null} />
+        <FeedSeedPicker copySlug={profile.key} disabled={!!progress || removing !== null} />
         </>}
       </Panel>
       <Panel title="Do the seeds agree?" description="Whether the seed papers are about the same thing. The similarity column on the left shows how typical each seed is; the lowest ones are the odd ones out.">
