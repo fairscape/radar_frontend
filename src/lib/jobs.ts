@@ -436,14 +436,16 @@ export async function startOrcidImport(orcid: string, openalexIds: string[], nam
   return addOrJoin(base('import', start.run_id, slug, name || orcid), start.already_running === true);
 }
 
-/** Import (or refresh) a stored profile. Polled like any import; no draft is created. */
 /**
+ * Import (or refresh) a stored profile. Polled like any import; no draft is created.
  * ``baseUrl``: the Prosopia instance the profile was imported from; without
- * it a re-import read the default instance. Throws when an import of this
- * person is already running: the papers picked now would not be added.
+ * it a re-import read the default instance. ``refreshOf``: the stored
+ * profile "check for new papers" adds to; without it a person already
+ * stored is refused (409, FUNCTIONAL_SPEC O.2 D). Throws when an import of
+ * this person is already running: the papers picked now would not be added.
  */
-export async function startResearcherImport(source: ResearcherSource, ref: string, name: string, paperIds?: string[], baseUrl?: string | null): Promise<Job> {
-  const start = await postResearcherImport({ source, ref, ...(paperIds ? { paper_ids: paperIds } : {}), ...(baseUrl ? { base_url: baseUrl } : {}) });
+export async function startResearcherImport(source: ResearcherSource, ref: string, name: string, paperIds?: string[], baseUrl?: string | null, refreshOf?: number): Promise<Job> {
+  const start = await postResearcherImport({ source, ref, ...(paperIds ? { paper_ids: paperIds } : {}), ...(baseUrl ? { base_url: baseUrl } : {}), ...(refreshOf != null ? { researcher_id: refreshOf } : {}) });
   if (start.already_running) {
     // The run is already tracked (it was started here or picked up from the
     // server); replacing its job would reset its progress for a poll.

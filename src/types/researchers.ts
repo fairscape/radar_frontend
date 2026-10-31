@@ -130,6 +130,8 @@ export interface ResearcherImportRequest {
   base_url?: string;
   /** Prosopia paper ids or OpenAlex work ids to keep; omitted = everything. */
   paper_ids?: string[];
+  /** "Check for new papers" on this stored profile; without it a stored person is refused (409). */
+  researcher_id?: number;
 }
 
 export interface ResearcherImportStart {
@@ -172,8 +174,13 @@ export interface ResearcherWorks {
   /** ``OrcidWork`` or ``ProsopiaWork`` items, by ``source``. */
   works: unknown[];
   saved_ids: string[];
+  /** Offered by an earlier import and left unticked: listed apart, unticked. */
+  skipped_ids?: string[];
   /** More works than listed; the newest are. */
   truncated?: boolean;
+  /** ORCID only, as OrcidWorksResponse. */
+  registry_read?: boolean;
+  institution_basis?: 'orcid' | 'works' | null;
 }
 
 export interface ResearcherSuggestions {

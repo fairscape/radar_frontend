@@ -6,7 +6,7 @@ import { resetDraft, setDraft } from '../lib/draft';
 import { errorMessage, fmtDateTime, fmtRelative, plural } from '../lib/format';
 import { researcherJobKey, startResearcherImport, useRunningJob } from '../lib/jobs';
 import { navigate, paths, useSearchParam } from '../lib/router';
-import { useQuery } from '../lib/query';
+import { invalidateExact, useQuery } from '../lib/query';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { Profile } from '../types/radar';
@@ -325,20 +325,37 @@ function SuggestionCard({ suggestion: s, researcherId, researcherName, byId }: {
 function NewPapersPanel({ researcher: r, onClose }: { researcher: Researcher; onClose: () => void }) {
   // Once: for an ORCID profile each read lists the works from OpenAlex again.
   const q = useQuery(`researchers/${r.id}/works`, () => getResearcherWorks(r.id), { once: true });
-  const fresh: PickWork[] = q.data
+  // Reading a Prosopia profile again stores its fields as the source has
+  // them now (O.2 F4): the header above shows them. Exact keys: the prefix
+  // would refetch this very read.
+  useEffect(() => {
+    if (q.data?.source === 'prosopia') invalidateExact(`researchers/${r.id}`, 'researchers');
+  }, [q.data, r.id]);
+  const unsaved: PickWork[] = q.data
     ? (q.data.source === 'orcid' ? orcidPickWorks(q.data.works as OrcidWork[]) : prosopiaPickWorks(q.data.works as ProsopiaWork[]))
         .filter((w) => !q.data!.saved_ids.includes(w.id))
     : [];
+  // Left unticked when imported before: listed apart, never ticked by
+  // default; the user chooses (FUNCTIONAL_SPEC O.2 E).
+  const skippedIds = new Set(q.data?.skipped_ids ?? []);
+  const fresh = unsaved.filter((w) => !skippedIds.has(w.id));
+  const skipped = unsaved.filter((w) => skippedIds.has(w.id));
+  const registryRead = q.data?.source === 'orcid' ? !!q.data.registry_read : undefined;
   const [picked, setPicked] = useState<Set<string> | null>(null);
   useEffect(() => {
-    if (q.data && picked === null) setPicked(new Set(defaultPicks(fresh).map((w) => w.id)));
+    if (q.data && picked === null) setPicked(new Set(defaultPicks(fresh, registryRead).map((w) => w.id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.data]);
   const sel = picked ?? new Set<string>();
+  // The two lists share one selection; each changes only its own rows.
+  const within = (rows: PickWork[]) => (next: Set<string>) => {
+    const mine = new Set(rows.map((w) => w.id));
+    setPicked(new Set([...[...sel].filter((id) => !mine.has(id)), ...[...next].filter((id) => mine.has(id))]));
+  };
   const add = useAction(async () => {
-    const ids = fresh.filter((w) => sel.has(w.id)).map((w) => w.id);
+    const ids = unsaved.filter((w) => sel.has(w.id)).map((w) => w.id);
     if (ids.length === 0) return;
-    await startResearcherImport(r.source, r.key, r.name, ids, r.base_url);
+    await startResearcherImport(r.source, r.key, r.name, ids, r.base_url, r.id);
     toast.success(`Importing ${plural(ids.length, 'new paper')} for ${r.name}.`);
     onClose();
   });
@@ -352,12 +369,22 @@ function NewPapersPanel({ researcher: r, onClose }: { researcher: Researcher; on
       {q.error && <ErrorBox compact title="Couldn't read the source" message={errorMessage(q.error)} onRetry={q.refresh} />}
       {!q.data && q.loading && <LoadingRows rows={3} />}
       {q.data?.truncated && <Callout tone="info">{TRUNCATED_NOTE(q.data.works.length)}</Callout>}
-      {q.data && fresh.length === 0 && (
+      {q.data && unsaved.length === 0 && (
         <EmptyState compact icon="check" title="Nothing new" body={`All ${plural(q.data.works.length, 'paper')} on the source are already saved.`} />
       )}
-      {fresh.length > 0 && (
+      {q.data && fresh.length === 0 && skipped.length > 0 && (
+        <p className="small muted" style={{ margin: 0 }}>Nothing new since the last import.</p>
+      )}
+      {unsaved.length > 0 && (
         <div className="stack" style={{ gap: 8 }}>
-          <PaperPickList works={fresh} picked={sel} onChange={setPicked} ariaLabel="New papers to import" />
+          {fresh.length > 0 && <PaperPickList works={fresh} picked={sel} onChange={within(fresh)} ariaLabel="New papers to import" registryRead={registryRead} />}
+          {skipped.length > 0 && (
+            <div className="stack" style={{ gap: 6, marginTop: fresh.length > 0 ? 10 : 0 }}>
+              <span className="field-label">Left out before</span>
+              <p className="small muted" style={{ margin: 0 }}>{plural(skipped.length, 'paper')} {skipped.length === 1 ? 'was' : 'were'} offered when this {TERMS.profile} was imported and left unticked. None are ticked; tick any you want now.</p>
+              <PaperPickList works={skipped} picked={sel} onChange={within(skipped)} ariaLabel="Papers left out of an earlier import" noDefaults />
+            </div>
+          )}
           <div className="row">
             <Button variant="primary" icon="upload" onClick={() => add.run()} loading={add.busy} disabled={sel.size === 0}>Import {plural(sel.size, 'paper')}</Button>
             {add.error && <span className="field-error">{add.error}</span>}

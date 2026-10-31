@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDrafts, useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
 import { ApiError } from '../api/client';
-import { createInterestFromResearcher } from '../api/endpoints/researchers';
+import { createInterestFromResearcher, existingResearcher } from '../api/endpoints/researchers';
 import { addSeeds, getProfileDetail, removeSeed as removeSeedOnServer, saveTopics } from '../api/endpoints/profiles';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
@@ -469,13 +469,6 @@ function WorkPicker({ name, lookup, start, onKnown }: { name: string; lookup: Lo
   );
 }
 
-/** The stored researcher a wizard import was refused for (409 from the server), if that was why. */
-function existingResearcher(e: unknown): { id: number; name: string } | null {
-  if (!(e instanceof ApiError) || e.status !== 409) return null;
-  const r = (e.body as { researcher?: { id?: unknown; name?: unknown } } | null)?.researcher;
-  return r && typeof r.id === 'number' ? { id: r.id, name: typeof r.name === 'string' ? r.name : 'This person' } : null;
-}
-
 /**
  * Seeds from a stored profile. Nothing is imported: the papers were
  * resolved and embedded when the profile was, so creating the draft is
@@ -754,7 +747,7 @@ function SeedUploader({ state }: { state: DraftState }) {
     invalidate(`draft/${slug}/`);
   };
   // Back to the source picker. The draft on the server is thrown away
-  // (an import creates one per attempt) and the wizard keeps the name.
+  // (an import opens a new one) and the wizard keeps the name.
   const startOver = useAction(async () => {
     if (seeds.length > 0) {
       const ok = await confirmDialog({ title: 'Start over?', body: `This deletes the draft "${state.name}" and its ${plural(seeds.length, 'seed')}. The name and source choice are kept.`, confirmLabel: 'Start over', danger: true });
@@ -1159,9 +1152,13 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
 async function saveForLater() {
   const { slug, selectedTopicIds: ids } = getDraft();
   if (!slug) {
-    // Before the first seed nothing exists on the server: leaving dropped
-    // the name typed so far without a word.
-    toast.info('Nothing to save yet: a draft is made once it has seed papers.');
+    // Before the first seed nothing exists on the server (FUNCTIONAL_SPEC
+    // D): say so, and leave as asked -- it used to stay put, so the button
+    // that says "leave" did nothing. The name typed so far goes too, so
+    // Create interest starts fresh.
+    toast.info('Nothing was saved: a draft is made once it has seed papers.');
+    resetDraft();
+    navigate(paths.interests);
     return;
   }
   if (ids && ids.length > 0) {

@@ -38,6 +38,9 @@ export interface PickWork {
   /** For the title link: the DOI, else the OpenAlex id when `id` is not one. */
   doi?: string | null;
   openalex?: string | null;
+  /** ORCID listings: the author's institutions on this work, and whether none is theirs. */
+  institutions?: string[];
+  otherInstitution?: boolean;
 }
 
 /** OpenAlex work types that read as papers; software and dataset records start unticked. */
@@ -57,11 +60,16 @@ export function papersOf(works: PickWork[]): PickWork[] {
  *  - the author's own ORCID record does not list it, which is how a work
  *    OpenAlex attached to an over-merged author entity shows up
  *
- * `claimed === false`, not `!claimed`: null means the registry could not be
- * read, and unticking on "we never asked" would leave nothing selected for
- * anyone whose record is private or uncurated.
+ * `claimed === false`, not `!claimed`: a single work the record has nothing
+ * comparable for (null) stays ticked.
+ *
+ * `registryRead === false` (an ORCID listing whose ORCID works list could not
+ * be read at all): nothing starts ticked, so a namesake's papers OpenAlex
+ * merged in are not imported by default; the user chooses (FUNCTIONAL_SPEC
+ * O.2 A1). Undefined (a Prosopia listing) is not an ORCID question.
  */
-export function defaultPicks(works: PickWork[]): PickWork[] {
+export function defaultPicks(works: PickWork[], registryRead?: boolean): PickWork[] {
+  if (registryRead === false) return [];
   return papersOf(works).filter((w) => !w.duplicate_of && w.claimed !== false);
 }
 
@@ -88,6 +96,14 @@ function noteParts(w: PickWork): { chip: string; title: string }[] {
         + 'so it may belong to somebody else — tick it if it is theirs.',
     });
   }
+  if (w.otherInstitution) {
+    out.push({
+      chip: 'other institution',
+      title: `On this paper the author is at ${(w.institutions ?? []).join('; ') || 'an institution'}, `
+        + 'which is none of the institutions this person has been at. It may be a namesake’s '
+        + 'paper; check it. Only a hint: tick it if it is theirs.',
+    });
+  }
   return out;
 }
 
@@ -104,8 +120,17 @@ export function noteTitle(w: PickWork): string {
 
 /** A bare ORCID or an orcid.org URL, normalised to the bare id; null if it is neither. */
 export function parseOrcid(raw: string): string | null {
-  const v = raw.trim().replace(/^https?:\/\/(www\.)?orcid\.org\//i, '').replace(/\/+$/, '');
-  return /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/i.test(v) ? v.toUpperCase() : null;
+  const v = raw.trim().replace(/^(https?:\/\/)?(www\.)?orcid\.org\//i, '').replace(/\/+$/, '').toUpperCase();
+  return /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(v) && orcidChecksumOk(v) ? v : null;
+}
+
+/** ISO 7064 mod 11-2, the ORCID check digit: a mistyped iD is someone else's, or nobody's. */
+export function orcidChecksumOk(orcid: string): boolean {
+  const d = orcid.replace(/-/g, '');
+  let total = 0;
+  for (const ch of d.slice(0, -1)) total = (total + Number(ch)) * 2;
+  const r = (12 - (total % 11)) % 11;
+  return d.slice(-1) === (r === 10 ? 'X' : String(r));
 }
 
 export interface Lookup {
@@ -115,8 +140,9 @@ export interface Lookup {
   /** The key to look up, or null when the text is not usable yet. */
   parse: (raw: string) => string | null;
   parseError: string;
-  /** ``truncated``: the source has more works than it listed (the newest are listed). */
-  find: (key: string) => Promise<{ key: string; name: string | null; works: PickWork[]; truncated?: boolean }>;
+  /** ``truncated``: the source has more works than it listed (the newest are listed).
+   *  ``registryRead``: ORCID only, whether the person's ORCID works list could be read. */
+  find: (key: string) => Promise<{ key: string; name: string | null; works: PickWork[]; truncated?: boolean; registryRead?: boolean }>;
   emptyTitle: string;
   emptyBody: string;
   /** localStorage key for the last key this browser looked up, if remembered. */
@@ -134,10 +160,10 @@ export const ORCID_LOOKUP: Lookup = {
   // People mostly look up their own iD, again and again.
   rememberAs: 'radar.lastOrcid',
   parse: parseOrcid,
-  parseError: 'That does not look like an ORCID (0000-0000-0000-0000).',
+  parseError: 'That is not an ORCID iD (0000-0000-0000-0000, and the last character is a check digit).',
   find: async (orcid) => {
     const r = await fetchOrcidWorks(orcid);
-    return { key: r.orcid, name: r.name, works: orcidPickWorks(r.works), truncated: r.truncated };
+    return { key: r.orcid, name: r.name, works: orcidPickWorks(r.works), truncated: r.truncated, registryRead: !!r.registry_read };
   },
   emptyTitle: 'No papers on OpenAlex for this ORCID',
   emptyBody: 'OpenAlex has no works with this ORCID on an authorship. Check the iD, or upload PDFs instead.',
@@ -149,7 +175,7 @@ export const TRUNCATED_NOTE = (n: number) =>
 
 /** An ORCID works listing as pick-list rows (also used by "check for new papers"). */
 export function orcidPickWorks(works: OrcidWork[]): PickWork[] {
-  return works.map((w) => ({ id: w.openalex_id, title: w.title, year: w.year, venue: w.venue, type: w.type, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors, claimed: w.claimed, duplicate_of: w.duplicate_of, doi: w.doi }));
+  return works.map((w) => ({ id: w.openalex_id, title: w.title, year: w.year, venue: w.venue, type: w.type, cited_by_count: w.cited_by_count, authors: w.authors, n_authors: w.n_authors, claimed: w.claimed, duplicate_of: w.duplicate_of, doi: w.doi, institutions: w.institutions, otherInstitution: !!w.other_institution }));
 }
 
 /** A Prosopia works listing as pick-list rows. */
@@ -189,7 +215,7 @@ export function PaperTitle({ title, id, doi }: { title: string; id?: string | nu
   );
 }
 
-export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = 'Papers', head }: {
+export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = 'Papers', head, registryRead, noDefaults = false }: {
   works: PickWork[];
   picked: Set<string>;
   onChange: (next: Set<string>) => void;
@@ -197,6 +223,10 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
   ariaLabel?: string;
   /** Text before the count, e.g. the researcher's name. */
   head?: string | null;
+  /** ORCID listings: whether the person's ORCID works list could be read (see defaultPicks). */
+  registryRead?: boolean;
+  /** Rows that never start ticked (left out of an earlier import): no Reset to a default. */
+  noDefaults?: boolean;
 }) {
   // A redundant copy is collapsed out of the main list rather than shown
   // in it unticked. Shown-but-unticked was the original design, on the
@@ -220,6 +250,10 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
   // the totals can never exceed what is actually listed there.
   const nonPapers = shown.length - papersOf(shown).length;
   const nUnclaimed = papersOf(shown).filter((w) => w.claimed === false).length;
+  const claimedIds = shown.filter((w) => w.claimed === true).map((w) => w.id);
+  const otherInst = works.filter((w) => w.otherInstitution).map((w) => w.id);
+  const nOtherTicked = otherInst.filter((id) => picked.has(id)).length;
+  const defaults = noDefaults ? [] : defaultPicks(works, registryRead);
   function toggle(id: string) {
     const n = new Set(picked);
     if (n.has(id)) n.delete(id); else n.add(id);
@@ -246,7 +280,7 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
   return (
     <div className="stack" style={{ gap: 8 }}>
       <div className="pick-head">
-        <span className="field-label">{head ? `${head} · ` : ''}{picked.size} of {plural(works.length, 'paper')} selected</span>
+        <span className="field-label">{head ? `${head} · ` : ''}{works.filter((w) => picked.has(w.id)).length} of {plural(works.length, 'paper')} selected</span>
         <span className="row" style={{ gap: 6 }}>
           <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set([
             ...shown.map((w) => w.id),
@@ -255,7 +289,17 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
             // button that quietly takes it away.
             ...hidden.filter((w) => picked.has(w.id)).map((w) => w.id),
           ]))}>All</Button>
-          {defaultPicks(works).length !== works.length && (
+          {registryRead === true && claimedIds.length > 0 && (
+            // O.2 A2: back to exactly the works the person lists on ORCID.
+            <Button size="sm" variant="ghost" disabled={disabled} title="Tick only the works on this person's own ORCID record"
+              onClick={() => onChange(new Set(claimedIds))}>Tick the works on their ORCID record</Button>
+          )}
+          {nOtherTicked > 0 && (
+            // O.2 A3: the institution check only hints; this is the user's call.
+            <Button size="sm" variant="ghost" disabled={disabled} title="Untick the papers marked “other institution”"
+              onClick={() => onChange(new Set([...picked].filter((id) => !otherInst.includes(id))))}>Untick other institutions</Button>
+          )}
+          {!noDefaults && defaults.length !== works.length && (
             // Shown whenever the default leaves anything out -- a
             // dataset, an unclaimed work, a collapsed copy -- not only for
             // software/dataset rows: with every row unclaimed and no
@@ -263,11 +307,23 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
             // Gated on what the default excludes rather than on the current
             // selection, so unticking one row and ticking another (equal
             // size, different set) does not make the way back vanish.
-            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set(defaultPicks(works).map((w) => w.id)))}>Reset</Button>
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set(defaults.map((w) => w.id)))}>Reset</Button>
           )}
           <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set())}>None</Button>
         </span>
       </div>
+      {registryRead === false && !noDefaults && (
+        <Callout tone="warn">
+          This person&rsquo;s works list on ORCID could not be read (it is private, empty, or ORCID did not answer),
+          so nothing says which of these are theirs. None are ticked: choose the papers yourself.
+        </Callout>
+      )}
+      {otherInst.length > 0 && (
+        <p className="small muted" style={{ margin: 0 }}>
+          {plural(otherInst.length, 'paper')} {otherInst.length === 1 ? 'is' : 'are'} marked <i>other institution</i>: on {otherInst.length === 1 ? 'it' : 'them'} the
+          author is at none of the institutions this person has been at, so {otherInst.length === 1 ? 'it' : 'they'} may be a namesake&rsquo;s. Only a hint; what you tick is imported.
+        </p>
+      )}
       {(nonPapers > 0 || nUnclaimed > 0) && (
         <p className="small muted" style={{ margin: 0 }}>
           {[
@@ -304,11 +360,19 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
       </div>
       {showHidden && hidden.length > 0 && (
         <div className="stack" style={{ gap: 6 }}>
-          <span className="field-label">
-            {hidden.length === 1
-              ? 'A second copy of a paper already above'
-              : `${hidden.length} further copies of papers already above`}
-          </span>
+          {/* The toggle above sits before the whole main list; after
+              scrolling down to these rows it was out of sight, and the
+              copies could not be folded away again. */}
+          <div className="row spread" style={{ alignItems: 'baseline' }}>
+            <span className="field-label">
+              {hidden.length === 1
+                ? 'A second copy of a paper already above'
+                : `${hidden.length} further copies of papers already above`}
+            </span>
+            <button type="button" className="linklike small" onClick={() => setShowHidden(false)}>
+              {hidden.length === 1 ? 'Hide this copy' : 'Hide these copies'}
+            </button>
+          </div>
           <p className="small muted" style={{ margin: 0 }}>
             Matched by title — and a short title only together with the
             same year and authors, and only for datasets, software and
@@ -364,8 +428,8 @@ function remember(key: string | undefined, value: string): void {
 
 export function LookupPicker({ lookup, start, startLabel = 'Import', job, initialRaw = '', onStarted }: {
   lookup: Lookup;
-  /** Starts the job for the kept papers; ``name`` is the researcher's name from the lookup. */
-  start: (key: string, ids: string[], name: string | null) => Promise<Job>;
+  /** Starts the job for the kept papers; ``name`` is the researcher's name from the lookup. Null: the caller handled why nothing started. */
+  start: (key: string, ids: string[], name: string | null) => Promise<Job | null>;
   startLabel?: string;
   /** A job already running from here, to show progress and lock the form. */
   job?: Job | undefined;
@@ -373,7 +437,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
   onStarted?: (job: Job, listing: { key: string; name: string | null; works: PickWork[] }) => void;
 }) {
   const [raw, setRaw] = useState(() => initialRaw || recall(lookup.rememberAs));
-  const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[]; truncated?: boolean } | null>(null);
+  const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[]; truncated?: boolean; registryRead?: boolean } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const key = lookup.parse(raw);
   const running = job?.status === 'running';
@@ -383,7 +447,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
     const res = await lookup.find(key);
     remember(lookup.rememberAs, raw.trim());
     setListing({ forRaw: raw.trim(), ...res });
-    setPicked(new Set(defaultPicks(res.works).map((w) => w.id)));
+    setPicked(new Set(defaultPicks(res.works, res.registryRead).map((w) => w.id)));
   });
   useClearOnChange(find, [raw]);
   const go = useAction(async () => {
@@ -397,6 +461,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
     const ids = Array.from(picked).filter((id) => inListing.has(id));
     if (ids.length === 0) return;
     const j = await start(listing.key, ids, listing.name);
+    if (!j) return;
     if (j.joinedExisting) {
       // The server answered with a run that was already going, so this
       // selection was not applied. Saying "imported" here would be a lie
@@ -427,7 +492,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
       {current && current.works.length > 0 && (
         <div className="stack" style={{ gap: 8 }}>
           {current.truncated && <Callout tone="info">{TRUNCATED_NOTE(current.works.length)}</Callout>}
-          <PaperPickList works={current.works} picked={picked} onChange={setPicked} disabled={running} head={current.name} ariaLabel="Papers to import" />
+          <PaperPickList works={current.works} picked={picked} onChange={setPicked} disabled={running} head={current.name} ariaLabel="Papers to import" registryRead={current.registryRead} />
           {job && running && <JobProgress job={job} />}
           {job?.status === 'error' && <ErrorBox compact title="Import failed" message={job.error} />}
           <div className="row">

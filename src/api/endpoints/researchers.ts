@@ -1,5 +1,5 @@
 /** Stored researcher profiles: ``/api/researchers``. */
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../client';
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../client';
 import { invalidate, invalidateExact, markStale, setQueryData, invalidateWhere } from '../../lib/query';
 import type {
   Researcher,
@@ -29,6 +29,13 @@ export function getResearcherSuggestions(id: number): Promise<ResearcherSuggesti
 /** The profile's source read again, with the works it already has marked. Nothing is written. */
 export function getResearcherWorks(id: number): Promise<ResearcherWorks> {
   return apiGet<ResearcherWorks>(`/api/researchers/${id}/works`);
+}
+
+/** The stored researcher an import was refused for (409: that person is already a profile), if that was why. */
+export function existingResearcher(e: unknown): { id: number; name: string } | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const r = (e.body as { researcher?: { id?: unknown; name?: unknown } } | null)?.researcher;
+  return r && typeof r.id === 'number' ? { id: r.id, name: typeof r.name === 'string' ? r.name : 'This person' } : null;
 }
 
 /** Starts (or refreshes) a profile; the papers arrive under ``run_id``. */

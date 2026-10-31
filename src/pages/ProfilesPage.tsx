@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { reorderResearchers, setResearcherMark } from '../api/endpoints/researchers';
+import { existingResearcher, reorderResearchers, setResearcherMark } from '../api/endpoints/researchers';
 import { useResearchers } from '../api/hooks';
 import { errorMessage, fmtRelative } from '../lib/format';
 import { invalidateExact } from '../lib/query';
@@ -8,7 +8,7 @@ import { paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { Researcher, ResearcherMark } from '../types/researchers';
-import { Badge, Button, EmptyState, ErrorBox, Icon, IconButton, LoadingRows, Panel, Segmented, Select, Spinner } from '../ui';
+import { Badge, Button, Callout, EmptyState, ErrorBox, Icon, IconButton, LoadingRows, Panel, Segmented, Select, Spinner } from '../ui';
 import { Link } from '../ui/Link';
 import { JobProgress } from '../ui/domain';
 import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP } from '../ui/pickers';
@@ -287,6 +287,8 @@ function ImportPanel() {
     setRound((n) => n + 1);
   }, [job]);
   const lookup = source === 'orcid' ? ORCID_LOOKUP : PROSOPIA_LOOKUP;
+  const [known, setKnown] = useState<{ id: number; name: string } | null>(null);
+  useEffect(() => { setKnown(null); }, [source, round]);
   return (
     <Panel title={`Add a ${TERMS.profile}`} description={`Look a researcher up, untick any papers that should not count, and save. BioXplorer matches each paper on OpenAlex and embeds it in the background; that is the slow part, and it happens once.`}>
       <div className="stack" style={{ gap: 14 }}>
@@ -309,11 +311,29 @@ function ImportPanel() {
           job={job}
           startLabel="Save"
           start={async (key, ids, name) => {
-            const j = await startResearcherImport(source, key, name ?? key, ids);
-            setJobId(j.id);
-            return j;
+            setKnown(null);
+            try {
+              const j = await startResearcherImport(source, key, name ?? key, ids);
+              setJobId(j.id);
+              return j;
+            } catch (e) {
+              // This person is already a profile: nothing was created
+              // (FUNCTIONAL_SPEC O.2 D); point at the one there is.
+              const r = existingResearcher(e);
+              if (!r) throw e;
+              setKnown(r);
+              return null;
+            }
           }}
         />
+        {known && (
+          <Callout tone="info">
+            <b>{known.name}</b> is already one of your {TERMS.profiles}, so no new one was created. Open it to check for papers published since.
+            <div style={{ marginTop: 8 }}>
+              <Link href={paths.profile(known.id)} className="btn btn-sm">Open {known.name}</Link>
+            </div>
+          </Callout>
+        )}
         {job && job.status === 'running' && (
           <p className="small muted" style={{ margin: 0 }}>You can leave this page; the import continues and the {TERMS.profile} appears above when it is done.</p>
         )}

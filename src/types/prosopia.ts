@@ -58,6 +58,10 @@ export interface OrcidWork {
    * the rule is a heuristic and the user is right there looking.
    */
   duplicate_of: string | null;
+  /** This author's institutions on this work, as OpenAlex records them. */
+  institutions?: string[];
+  /** None of them is one of the person's institutions: maybe a namesake's paper. A hint only. */
+  other_institution?: boolean;
 }
 
 export interface OrcidWorksResponse {
@@ -67,6 +71,10 @@ export interface OrcidWorksResponse {
   works: OrcidWork[];
   /** More works than listed; the newest are. */
   truncated?: boolean;
+  /** The person's ORCID works list could be read. When not, nothing starts ticked. */
+  registry_read?: boolean;
+  /** Where the person's institutions came from: their ORCID record, or their works. */
+  institution_basis?: 'orcid' | 'works' | null;
 }
 
 export interface OrcidImportRequest {
