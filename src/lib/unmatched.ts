@@ -109,6 +109,8 @@ export function seedSource(s: { source?: string | null; sourceResearcherName?: s
     case 'researcher': return s.sourceResearcherName ? `From ${s.sourceResearcherName}'s profile` : 'From a researcher profile';
     case 'vault': return 'Picked from the vault';
     case 'feed': return 'Added from the feed';
+    case 'orcid': return 'Imported from ORCID';
+    case 'prosopia': return 'Imported from Prosopia';
     default: return null;
   }
 }

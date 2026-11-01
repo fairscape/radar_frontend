@@ -1,3 +1,4 @@
+import { prosopiaNote } from '../ui/ProsopiaTopics';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useProfileDetail, useProfileRuns, useProfiles, useResearchers } from '../api/hooks';
 import {
@@ -436,6 +437,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
                     <Badge title={topicSourceLabel(t.source, t.llm_label, t.umls_concept)}>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge>
                     {t.source === 'umls' && <> <UmlsConcept topic={t} /></>}
                     {t.profile === 'interest' && t.source !== 'researcher' && <> <Badge tone="info" title={topicProfileNote(t.profile) ?? undefined}>Profile</Badge></>}
+                    {prosopiaNote(t) && t.source !== 'prosopia' && <> <Badge tone="info" title={prosopiaNote(t) ?? undefined}>Prosopia interest</Badge></>}
                   </td>
                   <td className="r">{t.papers ?? t.count}</td>
                   <td>

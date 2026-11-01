@@ -7,10 +7,11 @@
  * they share; ``PaperPickList`` is the list itself, also used when the
  * papers are already known (a stored profile).
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { fetchOrcidWorks, fetchProsopiaWorks } from '../api/endpoints/prosopia';
 import { toast } from '../lib/toast';
 import { plural } from '../lib/format';
+import { TERMS } from '../lib/terms';
 import { getUserEmail } from '../lib/userEmail';
 import type { Job } from '../lib/jobs';
 import type { OrcidWork, ProsopiaWork } from '../types/prosopia';
@@ -426,7 +427,7 @@ function remember(key: string | undefined, value: string): void {
   }
 }
 
-export function LookupPicker({ lookup, start, startLabel = 'Import', job, initialRaw = '', onStarted }: {
+export function LookupPicker({ lookup, start, startLabel = 'Import', job, initialRaw = '', onStarted, onLookupChange, footer }: {
   lookup: Lookup;
   /** Starts the job for the kept papers; ``name`` is the researcher's name from the lookup. Null: the caller handled why nothing started. */
   start: (key: string, ids: string[], name: string | null) => Promise<Job | null>;
@@ -435,8 +436,20 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
   job?: Job | undefined;
   initialRaw?: string;
   onStarted?: (job: Job, listing: { key: string; name: string | null; works: PickWork[] }) => void;
+  /** The ORCID iD / profile being looked up changed: what the caller said
+   *  about the previous one (e.g. "already one of your profiles") is stale. */
+  onLookupChange?: () => void;
+  /** Shown under the pick list, above the import button (the wizard's "Also save as a researcher profile"). */
+  footer?: ReactNode;
 }) {
   const [raw, setRaw] = useState(() => initialRaw || recall(lookup.rememberAs));
+  const lookupChanged = useRef(onLookupChange);
+  lookupChanged.current = onLookupChange;
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    lookupChanged.current?.();
+  }, [raw]);
   const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[]; truncated?: boolean; registryRead?: boolean } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const key = lookup.parse(raw);
@@ -495,6 +508,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
           <PaperPickList works={current.works} picked={picked} onChange={setPicked} disabled={running} head={current.name} ariaLabel="Papers to import" registryRead={current.registryRead} />
           {job && running && <JobProgress job={job} />}
           {job?.status === 'error' && <ErrorBox compact title="Import failed" message={job.error} />}
+          {footer}
           <div className="row">
             <Button variant="primary" icon="upload" onClick={() => go.run()} loading={go.busy || running} disabled={picked.size === 0}>{startLabel} {plural(picked.size, 'paper')}</Button>
             {go.error && <span className="field-error">{go.error}</span>}
@@ -502,5 +516,23 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * "Also save as a researcher profile" under a wizard import's pick list
+ * (FUNCTIONAL_SPEC M.2). Off by default: the papers are only the draft's
+ * seeds and go with it. On: a researcher profile is saved at once, under
+ * Profiles, and keeps its papers whatever becomes of the draft.
+ */
+export function SaveProfileCheck({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <label className="row small" style={{ gap: 6, cursor: disabled ? undefined : 'pointer' }}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      <span>Also save as a researcher {TERMS.profile}</span>
+      <span className="muted">· {checked
+        ? `saved under ${TERMS.Profiles} now, and kept even if this draft is discarded`
+        : 'off: these papers belong to this draft only'}</span>
+    </label>
   );
 }

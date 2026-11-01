@@ -99,7 +99,7 @@ export interface Seed {
   version?: number | null;
   uploaded?: string | null;
   /** Where the seed came from; null for seeds added before this was recorded. */
-  source?: 'upload' | 'researcher' | 'vault' | 'feed' | null;
+  source?: 'upload' | 'researcher' | 'vault' | 'feed' | 'orcid' | 'prosopia' | null;
   sourceResearcherId?: number | null;
   sourceResearcherName?: string | null;
 }
@@ -124,6 +124,8 @@ export interface Topic {
   umls_confidence?: number | null;
   /** Edit page's list only: a saved topic no seed brings any more (a seed removed since); kept as saved. */
   unmatched?: boolean | null;
+  /** The Prosopia profiles that list it as an interest (FUNCTIONAL_SPEC M.3), by name. */
+  prosopia?: { profile: string }[] | null;
 }
 
 export interface SweepRow {

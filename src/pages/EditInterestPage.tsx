@@ -27,7 +27,7 @@ import { useProfileDetail, useProfiles } from '../api/hooks';
 import { discardEdit, discardEditOnLeave, editAlive, editState, openEdit, previewTopics, recomputeCoherence, saveEdit, saveTopics, scanTopics } from '../api/endpoints/profiles';
 import { ApiError } from '../api/client';
 import { UmlsNotice } from '../ui/UmlsNotice';
-import { ProfileTopicsBox } from '../ui/ProfileTopics';
+import { ProsopiaTag, prosopiaNote } from '../ui/ProsopiaTopics';
 import { errorMessage, plural } from '../lib/format';
 import { useQuery } from '../lib/query';
 import { tabId } from '../lib/tab';
@@ -484,11 +484,6 @@ function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: (
     <Panel title="What should BioXplorer search for?" description="Topics aggregated from the seeds' OpenAlex records. Each scan asks OpenAlex for papers in the topics that are on. Papers already found stay; a change applies from the first scan after you save.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
       <UmlsNotice profileKey={profile.key} listed={topics.data} />
-      {topics.data && (
-        <div style={{ marginBottom: 10 }}>
-          <ProfileTopicsBox profileKey={profile.key} saved unsavedTicks={false} onChanged={async () => { await topics.refresh(); }} />
-        </div>
-      )}
       {!topics.data && topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
         <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics." />
@@ -512,11 +507,12 @@ function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: (
           <UmlsAllOn list={list} selected={on} onAdd={(ids) => apply(new Set([...on, ...ids]))} />
           <div className="topics">
             {list.map((t) => (
-              <button key={t.id} type="button" disabled={write.busy} className={`topic-toggle ${on.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggle(t.id)} aria-pressed={on.has(t.id)} title={`${t.papers ?? t.count} ${(t.papers ?? t.count) === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source, t.llm_label, t.umls_concept)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
+              <button key={t.id} type="button" disabled={write.busy} className={`topic-toggle ${on.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggle(t.id)} aria-pressed={on.has(t.id)} title={`${t.papers ?? t.count} ${(t.papers ?? t.count) === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source, t.llm_label, t.umls_concept)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}${prosopiaNote(t) ? ` · ${prosopiaNote(t)}` : ''}`}>
                 <span className="tick">{on.has(t.id) && <Icon name="check" size={10} />}</span>
                 {t.profile === 'not_interest' ? <s>{t.name}</s> : t.name}
                 <span className="tc">{t.papers ?? t.count}</span>
-                {topicSourceTag(t.source) && <span className="src">{topicSourceTag(t.source)}</span>}
+                {topicSourceTag(t.source) && t.source !== 'prosopia' && <span className="src">{topicSourceTag(t.source)}</span>}
+                <ProsopiaTag topic={t} />
                 <UmlsConcept topic={t} />
                 {t.profile === 'interest' && t.source !== 'researcher' && <span className="src">PROFILE</span>}
                 {t.profile === 'not_interest' && <span className="pf">not wanted</span>}

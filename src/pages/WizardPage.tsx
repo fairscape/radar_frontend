@@ -8,7 +8,7 @@ import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
 import { YearRange } from '../ui/YearRange';
 import { UmlsNotice } from '../ui/UmlsNotice';
-import { ProfileTopicsBox } from '../ui/ProfileTopics';
+import { ProsopiaTag, prosopiaNote } from '../ui/ProsopiaTopics';
 import type { VaultDoc, YearSpan } from '../types/radar';
 import {
   commitDraft,
@@ -37,7 +37,7 @@ import type { ProsopiaImportResult } from '../types/prosopia';
 import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Select, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, JobProgress, ThresholdHistogram, agreementTone, axisFor } from '../ui/domain';
-import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP, PaperLink, PaperPickList, PaperTitle, papersOf, type Lookup, type PickWork } from '../ui/pickers';
+import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP, PaperLink, PaperPickList, PaperTitle, SaveProfileCheck, papersOf, type Lookup, type PickWork } from '../ui/pickers';
 
 const STEPS = [
   { n: 1, label: 'Seeds', hint: 'name it, add papers' },
@@ -417,8 +417,8 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
               {create.error && <span className="field-error">{create.error}</span>}
             </div>
           )}
-          {state.source === 'orcid' && <WorkPicker key="orcid" name={name.trim()} lookup={ORCID_LOOKUP} start={(orcid, ids, n) => startOrcidImport(orcid, ids, n)} onKnown={useKnown} />}
-          {state.source === 'prosopia' && <WorkPicker key="prosopia" name={name.trim()} lookup={PROSOPIA_LOOKUP} start={(slug, ids, n) => startImport(slug, n, ids)} onKnown={useKnown} />}
+          {state.source === 'orcid' && <WorkPicker key="orcid" name={name.trim()} lookup={ORCID_LOOKUP} start={(orcid, ids, n, save) => startOrcidImport(orcid, ids, n, undefined, save)} onKnown={useKnown} />}
+          {state.source === 'prosopia' && <WorkPicker key="prosopia" name={name.trim()} lookup={PROSOPIA_LOOKUP} start={(slug, ids, n, save) => startImport(slug, n, ids, undefined, save)} onKnown={useKnown} />}
           {state.source === 'profile' && <ResearcherSeedPicker key={`profile:${known ?? ''}`} name={name.trim()} preselect={known ?? preselectResearcher} />}
         </div>
       </Panel>
@@ -432,10 +432,11 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
  * the draft bookkeeping. The import creates the draft on the server,
  * so the job's key is the draft slug and step 1 continues there.
  */
-function WorkPicker({ name, lookup, start, onKnown }: { name: string; lookup: Lookup; start: (key: string, ids: string[], name?: string) => Promise<Job>; onKnown: (researcherId: number) => void }) {
+function WorkPicker({ name, lookup, start, onKnown }: { name: string; lookup: Lookup; start: (key: string, ids: string[], name: string | undefined, saveProfile: boolean) => Promise<Job>; onKnown: (researcherId: number) => void }) {
   const { state, update } = useDraft();
   const importJob = useJob(state.importJobId);
   const [known, setKnown] = useState<{ id: number; name: string } | null>(null);
+  const [saveProfile, setSaveProfile] = useState(false);
   return (
     <>
       <LookupPicker
@@ -445,7 +446,7 @@ function WorkPicker({ name, lookup, start, onKnown }: { name: string; lookup: Lo
         start={async (key, ids) => {
           setKnown(null);
           try {
-            return await start(key, ids, name || undefined);
+            return await start(key, ids, name || undefined, saveProfile);
           } catch (e) {
             const r = existingResearcher(e);
             if (r) setKnown(r);
@@ -455,13 +456,16 @@ function WorkPicker({ name, lookup, start, onKnown }: { name: string; lookup: Lo
         onStarted={(job, listing) => {
           update({ importJobId: job.id, name: name || listing.name || job.profileName, slug: job.profileKey, prosopia: { ref: listing.key, nSeeds: null } });
         }}
+        onLookupChange={() => setKnown(null)}
+        footer={<SaveProfileCheck checked={saveProfile} onChange={setSaveProfile} disabled={importJob?.status === 'running'} />}
       />
       {known && (
         <Callout tone="info">
           <b>{known.name}</b> is already one of your saved {TERMS.profiles}. A new interest uses the papers saved there.
           {' '}To add papers they published since, update the {TERMS.profile} under <Link href={paths.profiles}>{TERMS.Profiles}</Link> first.
-          <div style={{ marginTop: 8 }}>
+          <div className="row" style={{ marginTop: 8 }}>
             <Button onClick={() => onKnown(known.id)}>Use {known.name}&rsquo;s saved papers</Button>
+            <Button variant="ghost" icon="x" onClick={() => setKnown(null)}>Dismiss</Button>
           </div>
         </Callout>
       )}
@@ -617,6 +621,7 @@ function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid
   const [running, setRunning] = useState<{ jobId: string; who: string } | null>(null);
   const job = useJob(running?.jobId ?? null);
   const [round, setRound] = useState(0);
+  const [saveProfile, setSaveProfile] = useState(false);
   // onAdded is a new function on every render of the parent, and calling it
   // re-renders the parent: as a dependency it re-ran this effect while the
   // job still read "done", which called it again -- an endless loop that
@@ -644,8 +649,9 @@ function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid
       lookup={source === 'orcid' ? ORCID_LOOKUP : PROSOPIA_LOOKUP}
       job={job}
       startLabel="Add"
-      start={(key, ids) => source === 'orcid' ? startOrcidImport(key, ids, undefined, slug) : startImport(key, undefined, ids, slug)}
+      start={(key, ids) => source === 'orcid' ? startOrcidImport(key, ids, undefined, slug, saveProfile) : startImport(key, undefined, ids, slug, saveProfile)}
       onStarted={(j, listing) => { setRunning({ jobId: j.id, who: listing.name || listing.key }); update({ extraImportJobId: j.id }); }}
+      footer={<SaveProfileCheck checked={saveProfile} onChange={setSaveProfile} disabled={!!running} />}
     />
   );
 }
@@ -1078,29 +1084,39 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
     if (kept.length !== state.selectedTopicIds.length) update({ selectedTopicIds: kept });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- listed derives from topics.data
   }, [topics.data, state.selectedTopicIds, update]);
-  // Ticks the trial scan has not saved yet: applying or removing the
-  // profile's topics resets them to what the server then holds.
-  const serverOn = new Set(list.filter((t) => t.on !== false).map((t) => t.id));
-  const unsavedTicks = topics.data !== undefined && state.selectedTopicIds !== null
-    && (selected.size !== serverOn.size || [...selected].some((id) => !serverOn.has(id)));
+  // Each change of the ticks is stored on the draft, as the user leaves
+  // them: a seed changed since re-reads the list from the server, and a
+  // topic switched here would otherwise go back to what was stored before
+  // (a Prosopia interest switched on, off again). None on is not stored:
+  // a scan needs one, and step 4 says so.
+  const pendingSave = useRef<string[] | null>(null);
+  const flushSave = useRef<() => void>(() => {});
+  flushSave.current = () => {
+    const ids = pendingSave.current;
+    pendingSave.current = null;
+    if (ids && ids.length > 0) {
+      saveTopics(slug, ids).catch((e) => toast.error(`Couldn't save the topics you switched: ${errorMessage(e)}`));
+    }
+  };
+  useEffect(() => {
+    if (topics.data === undefined || state.selectedTopicIds === null) return;
+    const ids = state.selectedTopicIds.filter((id) => listed.has(id));
+    const stored = new Set(list.filter((t) => t.on !== false).map((t) => t.id));
+    if (ids.length === stored.size && ids.every((id) => stored.has(id))) {
+      pendingSave.current = null;
+      return;
+    }
+    pendingSave.current = ids;
+    const timer = setTimeout(() => flushSave.current(), 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- listed and list derive from topics.data
+  }, [topics.data, state.selectedTopicIds]);
+  // Left (another step, a seed change) before the save went: send it now.
+  useEffect(() => () => flushSave.current(), []);
   return (
     <Panel title="Step 3 · What should BioXplorer query?" description="These topics were aggregated from the seeds' OpenAlex records. BioXplorer asks OpenAlex for new papers in each selected topic, then scores them. Fewer, sharper topics mean less noise.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
       <UmlsNotice profileKey={slug} listed={topics.data} />
-      {topics.data && (
-        <div style={{ marginBottom: 10 }}>
-          <ProfileTopicsBox
-            profileKey={slug}
-            unsavedTicks={unsavedTicks}
-            onChanged={async () => {
-              // The server set the on/off states; re-read the list, then let
-              // the effect above pick the ticks up from it.
-              await topics.refresh();
-              update({ selectedTopicIds: null });
-            }}
-          />
-        </div>
-      )}
       {topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
         <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics. Go back and add seeds with DOIs, or continue without topic filters (BioXplorer will fall back to a broader query)." />
@@ -1117,11 +1133,12 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
           <UmlsAllOn list={list} selected={selected} onAdd={(ids) => update({ selectedTopicIds: [...selected, ...ids] })} />
           <div className="topics">
             {list.map((t) => (
-              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.papers ?? t.count} ${(t.papers ?? t.count) === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source, t.llm_label, t.umls_concept)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}`}>
+              <button key={t.id} type="button" className={`topic-toggle ${selected.has(t.id) ? 'on' : ''} ${t.profile === 'not_interest' ? 'topic-profile-off' : ''}`} onClick={() => toggleTopic(t.id)} aria-pressed={selected.has(t.id)} title={`${t.papers ?? t.count} ${(t.papers ?? t.count) === 1 ? 'seed carries' : 'seeds carry'} this topic · ${topicSourceLabel(t.source, t.llm_label, t.umls_concept)} ${t.id}${topicProfileNote(t.profile) ? ` · ${topicProfileNote(t.profile)}` : ''}${prosopiaNote(t) ? ` · ${prosopiaNote(t)}` : ''}`}>
                 <span className="tick">{selected.has(t.id) && <Icon name="check" size={10} />}</span>
                 {t.profile === 'not_interest' ? <s>{t.name}</s> : t.name}
                 <span className="tc">{t.papers ?? t.count}</span>
-                {topicSourceTag(t.source) && <span className="src">{topicSourceTag(t.source)}</span>}
+                {topicSourceTag(t.source) && t.source !== 'prosopia' && <span className="src">{topicSourceTag(t.source)}</span>}
+                <ProsopiaTag topic={t} />
                 <UmlsConcept topic={t} />
                 {t.profile === 'interest' && t.source !== 'researcher' && <span className="src">PROFILE</span>}
                 {t.profile === 'not_interest' && <span className="pf">not wanted</span>}

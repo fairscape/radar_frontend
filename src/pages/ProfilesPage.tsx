@@ -325,12 +325,14 @@ function ImportPanel() {
               return null;
             }
           }}
+          onLookupChange={() => setKnown(null)}
         />
         {known && (
           <Callout tone="info">
             <b>{known.name}</b> is already one of your {TERMS.profiles}, so no new one was created. Open it to check for papers published since.
-            <div style={{ marginTop: 8 }}>
+            <div className="row" style={{ marginTop: 8 }}>
               <Link href={paths.profile(known.id)} className="btn btn-sm">Open {known.name}</Link>
+              <Button size="sm" variant="ghost" icon="x" onClick={() => setKnown(null)}>Dismiss</Button>
             </div>
           </Callout>
         )}

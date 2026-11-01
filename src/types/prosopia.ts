@@ -24,6 +24,8 @@ export interface ProsopiaImportRequest {
   paper_ids?: string[];
   /** An existing draft to add the papers to, instead of opening a new one. */
   into?: string;
+  /** "Also save as a researcher profile" (FUNCTIONAL_SPEC M.2); off: the papers are only the draft's seeds. */
+  save_profile?: boolean;
 }
 
 /** One of an author's OpenAlex works, as ``GET /api/import/orcid/{orcid}/works`` lists it. */
@@ -85,6 +87,8 @@ export interface OrcidImportRequest {
   embedding_model?: string;
   /** An existing draft to add the works to, instead of opening a new one. */
   into?: string;
+  /** "Also save as a researcher profile" (FUNCTIONAL_SPEC M.2); off: the papers are only the draft's seeds. */
+  save_profile?: boolean;
 }
 
 /** One paper on a Prosopia profile, as ``GET /api/import/prosopia/works`` lists it. */

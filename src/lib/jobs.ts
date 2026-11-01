@@ -409,8 +409,8 @@ export async function startBackfill(profile: { key: string; name: string }, year
 }
 
 /** ``into``: add the papers to that existing draft rather than opening a new one. */
-export async function startImport(ref: string, name?: string, paperIds?: string[], into?: string): Promise<Job> {
-  const start = await startProsopiaImport({ ref, ...(name ? { name } : {}), ...(paperIds ? { paper_ids: paperIds } : {}), ...(into ? { into } : {}) });
+export async function startImport(ref: string, name?: string, paperIds?: string[], into?: string, saveProfile = false): Promise<Job> {
+  const start = await startProsopiaImport({ ref, ...(name ? { name } : {}), ...(paperIds ? { paper_ids: paperIds } : {}), ...(into ? { into } : {}), save_profile: saveProfile });
   const slug = requireDraft(start);
   return addOrJoin(base('import', start.run_id, slug, name || ref), start.already_running === true);
 }
@@ -429,9 +429,9 @@ function requireDraft(start: { draft_slug: string | null; already_running?: bool
   );
 }
 
-/** ``into``: add the works to that existing draft rather than opening a new one. */
-export async function startOrcidImport(orcid: string, openalexIds: string[], name?: string, into?: string): Promise<Job> {
-  const start = await postOrcidImport({ orcid, openalex_ids: openalexIds, ...(name ? { name } : {}), ...(into ? { into } : {}) });
+/** ``into``: add the works to that existing draft rather than opening a new one. ``saveProfile``: also save a researcher profile (FUNCTIONAL_SPEC M.2). */
+export async function startOrcidImport(orcid: string, openalexIds: string[], name?: string, into?: string, saveProfile = false): Promise<Job> {
+  const start = await postOrcidImport({ orcid, openalex_ids: openalexIds, ...(name ? { name } : {}), ...(into ? { into } : {}), save_profile: saveProfile });
   const slug = requireDraft(start);
   return addOrJoin(base('import', start.run_id, slug, name || orcid), start.already_running === true);
 }
