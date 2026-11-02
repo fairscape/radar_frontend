@@ -5,20 +5,20 @@ import {
   afterProfileDeleted,
   candidateScores,
   deleteProfile,
-  getFeedbackThreshold,
   getRerankerComparison,
   getTopicYield,
+  listSaved,
   recomputeCoherence,
   removeSeed,
   updateProfileThreshold,
   updateProfileYears,
-  type FeedbackThreshold,
   type GatherRunStatus,
 } from '../api/endpoints/profiles';
+import { saveCard } from '../api/endpoints/radar';
 import { uploadPdf } from '../api/endpoints/vault';
 import { daysLabel, errorMessage, fmtDateTime, fmtDuration, fmtRelative, fmtScore, parseServerTime, plural } from '../lib/format';
 import { SCAN_PER_TOPIC, startBackfill, startScan, useRunningJob, yearsLabel } from '../lib/jobs';
-import { useQuery, invalidate } from '../lib/query';
+import { useQuery, invalidate, invalidateUnshown } from '../lib/query';
 import { navigate, paths, addLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
@@ -45,9 +45,9 @@ import { getDraft, resetDraft } from '../lib/draft';
 // row as running once it has not reported progress for this long.
 const SCAN_STALE_MS = 120 * 60_000;
 
-type Tab = 'overview' | 'seeds' | 'topics' | 'threshold' | 'scans' | 'refinement';
+type Tab = 'overview' | 'seeds' | 'topics' | 'threshold' | 'saved' | 'scans' | 'refinement';
 
-const TABS: Tab[] = ['overview', 'seeds', 'topics', 'threshold', 'scans', 'refinement'];
+const TABS: Tab[] = ['overview', 'seeds', 'topics', 'threshold', 'saved', 'scans', 'refinement'];
 
 /** What the reranker's queries are, by its ``query_mode``. */
 const QUERY_KIND: Record<string, string> = {
@@ -165,6 +165,7 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
           { id: 'seeds', label: 'Seeds', count: detail?.seeds.length ?? null },
           { id: 'topics', label: 'Topics', count: detail ? detail.topics.filter((t) => t.on).length : null },
           { id: 'threshold', label: 'Threshold' },
+          { id: 'saved', label: 'Saved' },
           { id: 'scans', label: 'Scans' },
           { id: 'refinement', label: 'Rank refinement' },
         ]}
@@ -176,6 +177,7 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
       {detail && tab === 'seeds' && <SeedsTab profile={profile} detail={detail} />}
       {detail && tab === 'topics' && <TopicsTab profile={profile} detail={detail} />}
       {detail && tab === 'threshold' && <ThresholdTab profile={profile} onScan={() => setScanOpen(true)} busy={scanBusy} readOnly />}
+      {tab === 'saved' && <SavedTab profile={profile} />}
       {tab === 'scans' && <ScansTab profile={profile} onScan={() => setScanOpen(true)} busy={scanBusy} />}
       {detail && tab === 'refinement' && <RankRefinementTab profile={profile} />}
 
@@ -198,7 +200,7 @@ function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; deta
         <div className="stack" style={{ fontSize: 13.5, color: 'var(--fg-2)' }}>
           <p>BioXplorer queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> {detail.topics.filter((t) => t.on).length === 1 ? 'topic' : 'topics'} and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{fmtScore(profile.seedSimMin)}</b> or more are as close as your own seeds</>}.</p>
           <p>BioXplorer does not scan on a schedule. Press Scan now to look for new papers.</p>
-          <p>Saving or dismissing a paper in the feed is recorded as feedback for this {TERMS.interest} and used when it is refit.</p>
+          <p>Saving or dismissing a paper in the feed is recorded below for this {TERMS.interest}. It does not change the seeds, the scores or the threshold; saved papers are listed under Saved and in the Vault.</p>
         </div>
       </Panel>
       <Panel title="Recent activity" actions={<Button size="sm" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>}>
@@ -468,30 +470,6 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
 
 const noChange = () => {};
 
-/** The threshold that best separates what was saved from what was dismissed. */
-function FeedbackSuggestion({ data, value, onUse }: { data: FeedbackThreshold | null; value: number; onUse: (v: number) => void }) {
-  if (!data) return null;
-  const n = data.n_saved + data.n_dismissed;
-  if (data.suggested == null) {
-    return (
-      <p className="small muted" style={{ marginTop: 0, marginBottom: 10 }}>
-        From your feedback: {n < data.min_events
-          ? `${plural(n, 'paper')} saved or dismissed so far; a suggestion appears at ${data.min_events}.`
-          : 'save at least one paper for a suggestion.'}
-      </p>
-    );
-  }
-  const s = data.suggested;
-  return (
-    <div className="row" style={{ marginBottom: 10 }}>
-      <span className="small muted">
-        From your feedback ({data.n_saved} saved, {data.n_dismissed} dismissed): <b className="mono">{s.toFixed(3)}</b> keeps what you saved and drops the most of what you dismissed.
-      </span>
-      {Math.abs(s - value) > 0.0005 && <Button size="sm" variant="ghost" onClick={() => onUse(s)}>Use this</Button>}
-    </div>
-  );
-}
-
 /**
  * The threshold and the publication years.
  *
@@ -502,7 +480,7 @@ function FeedbackSuggestion({ data, value, onUse }: { data: FeedbackThreshold | 
  *
  * ``editOf``: Edit interest's step 4, where ``profile`` is the copy being
  * edited and ``editOf`` the saved interest. The copy has no papers of its
- * own, so the scores and the feedback are the interest's. A value set here
+ * own, so the scores are the interest's. A value set here
  * is written to the copy at once and kept by Save changes; fetching papers
  * waits until the changes are saved (E.6 R3). ``onPending`` says while a
  * value is not on the copy yet, so Save changes waits for it.
@@ -513,8 +491,6 @@ export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, 
   const scoresKey = editOf ?? profile.key;
   const editing = editOf != null;
   const scoresQ = useQuery(`profiles/${scoresKey}/scores`, () => candidateScores(scoresKey), { once: true });
-  // Saves and dismisses are where the feed's triage feeds back into scoring.
-  const feedbackQ = useQuery(`profiles/${scoresKey}/feedback-threshold`, () => getFeedbackThreshold(scoresKey));
   const [value, setExact] = useState<number>(profile.threshold);
   // On the 3-place grid the saved bar is on, however it is set: a typed
   // 0.9005 was compared to the scores as itself and saved as 0.901, so the
@@ -667,7 +643,6 @@ export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, 
               <Button size="sm" variant="ghost" onClick={() => setValue(suggested)}>Use suggested</Button>
             </div>
           )}
-          {!readOnly && <FeedbackSuggestion data={feedbackQ.data ?? null} value={value} onUse={setValue} />}
           <ThresholdHistogram scores={shownScores} value={value} min={axisLo} max={axisHi} onChange={readOnly ? noChange : setValue} reference={profile.threshold} seedBand={band} suggested={suggested} periodLabel="of gathered papers would pass" />
           {/* Scans before 2026-10-01 dropped every paper below the threshold
               of the day, so an older interest has nothing below it to show. */}
@@ -691,6 +666,60 @@ export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, 
         </Field>
         {/* The chart and list keep the last valid value; say so rather than show "0 of 426 would pass" for 1.5. */}
         {!exactOk && <span className="field-error">Enter a value between 0 and 1. The counts above are for {value.toFixed(3)}.</span>}
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * The papers saved in this interest's feed, last saved first
+ * (FUNCTIONAL_SPEC 5.2-3): whatever the threshold and years say now, and
+ * one made a seed since marked so. Un-saving takes a paper off this list
+ * only: it stays in the Vault, stays a seed if it is one, and goes back
+ * to the feed after the other papers if it still passes (5.5).
+ */
+function SavedTab({ profile }: { profile: Profile }) {
+  const q = useQuery(`profiles/${profile.key}/saved`, () => listSaved(profile.key));
+  const [busy, setBusy] = useState<Set<string>>(new Set());
+  const unsave = async (id: string, title: string) => {
+    setBusy((b) => new Set(b).add(id));
+    try {
+      await saveCard(id, profile.key, false);
+      toast.success(`Unsaved "${title.slice(0, 60)}". It stays in the Vault, and goes back to the feed after the other papers if it still passes the threshold.`);
+      invalidate('profiles', 'vault');
+      invalidateUnshown('radar');
+    } catch (e) {
+      toast.error(`Couldn't unsave "${title.slice(0, 60)}": ${errorMessage(e)}`);
+    } finally {
+      setBusy((b) => { const n = new Set(b); n.delete(id); return n; });
+    }
+  };
+  const papers = q.data ?? [];
+  return (
+    <Panel title="Saved" description="Papers you saved in this interest's feed, last saved first. Saving does not change the seeds, the scores or the threshold; to make one a seed, use Edit interest → Add from the feed." className="panel-flush">
+      <div style={{ padding: '0 18px 12px' }}>
+        {q.error && !q.data && <ErrorBox compact message={errorMessage(q.error)} onRetry={q.refresh} />}
+        {q.loading && !q.data && <LoadingRows rows={3} />}
+        {q.data && papers.length === 0 && <EmptyState compact icon="radar" title="Nothing saved yet" body="Press Save on a paper in the feed to keep it here." />}
+        {papers.length > 0 && (
+          <table className="table">
+            <thead><tr><th>Paper</th><th>Saved</th><th /></tr></thead>
+            <tbody>
+              {papers.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <PaperTitle title={p.title || p.id} id={p.id} />
+                    <div className="small muted">{[p.year, p.venue, p.score != null ? `score ${fmtScore(p.score)}` : null].filter(Boolean).join(' · ')}{p.is_seed && <> <Badge tone="ok" title="Also a seed of this interest">seed</Badge></>}</div>
+                  </td>
+                  <td className="small">{fmtRelative(p.saved_at)}</td>
+                  <td className="r">
+                    <Button size="sm" variant="ghost" loading={busy.has(p.id)} disabled={busy.has(p.id)} onClick={() => void unsave(p.id, p.title || p.id)} title="Take it off this list; it stays in the Vault">Unsave</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </Panel>
   );

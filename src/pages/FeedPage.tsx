@@ -259,7 +259,7 @@ export function FeedPage() {
         <div>
           <h1 className="page-title">{TERMS.feed}</h1>
           <p className="page-sub">
-            Every paper BioXplorer has gathered for {selectedName}, highest-ranked first (the rank blends similarity to your seeds with the reranker, so the similarity shown on each card is not strictly in order). Save what is useful and dismiss the rest; once you have triaged 30, the Threshold tab suggests a threshold from them.
+            Every paper BioXplorer has gathered for {selectedName}, highest-ranked first (the rank blends similarity to your seeds with the reranker, so the similarity shown on each card is not strictly in order). Save what is useful (it is kept under the interest's Saved tab and in the Vault) and dismiss the rest; neither changes the seeds, the scores or the threshold.
             {data?.fetchedAt ? <> Last scan finished {fmtRelative(data.fetchedAt)}.</> : null}
           </p>
         </div>

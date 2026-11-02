@@ -374,17 +374,21 @@ export function listProfileRuns(key: string, limit = 20): Promise<GatherRunStatu
 }
 
 /** What the interest's saves and dismisses say its threshold should be. */
-export interface FeedbackThreshold {
-  n_saved: number;
-  n_dismissed: number;
-  min_events: number;
-  /** Null until ``min_events`` papers are triaged, with at least one save. */
-  suggested: number | null;
-  threshold: number | null;
+/** A paper saved in one interest: its Saved tab (FUNCTIONAL_SPEC 5.2-3). */
+export interface SavedPaper {
+  id: string;
+  title: string;
+  year: number | null;
+  venue: string | null;
+  doi: string | null;
+  score: number | null;
+  saved_at: string;
+  is_seed: boolean;
 }
 
-export function getFeedbackThreshold(key: string): Promise<FeedbackThreshold> {
-  return apiGet<FeedbackThreshold>(`/api/profiles/${enc(key)}/feedback-threshold`);
+/** Last saved first; un-saving is the feed's ``saveCard(id, key, false)``. */
+export function listSaved(key: string): Promise<SavedPaper[]> {
+  return apiGet<SavedPaper[]>(`/api/profiles/${enc(key)}/saved`);
 }
 
 export function listProfileFeedback(key: string, limit = 50): Promise<FeedbackEvent[]> {
