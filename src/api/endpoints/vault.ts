@@ -1,4 +1,4 @@
-import { apiGet, apiPostMultipart } from '../client';
+import { apiDelete, apiGet, apiPostMultipart } from '../client';
 import { invalidate } from '../../lib/query';
 import type { VaultDoc, VaultStats } from '../../types/radar';
 
@@ -52,5 +52,20 @@ export async function uploadPdf(file: File, profileSlug?: string): Promise<Vault
   // 'radar' too: a seed upload re-fits a live interest and re-scores its feed.
   // draft/<slug>/ too: the edit steps' coherence and topics were computed without this seed.
   invalidate('vault', 'profiles', 'radar', ...(profileSlug ? [`draft/${profileSlug}/`] : []));
+  return res;
+}
+
+/** Whether a vault doc is the user's own uploaded PDF, which they can delete (FUNCTIONAL_SPEC F1). */
+export function isOwnUpload(doc: VaultDoc): boolean {
+  return doc.id.startsWith('local:upload:');
+}
+
+/**
+ * ``DELETE /api/vault/docs/{id}``: the PDF's file, text and vectors go.
+ * Where it was a seed it is listed as deleted until the interest's next scan.
+ */
+export async function deleteVaultDoc(id: string): Promise<{ ok: boolean; interests: string[] }> {
+  const res = await apiDelete<{ ok: boolean; interests: string[] }>(`/api/vault/docs/${encodeURIComponent(id)}`);
+  invalidate('vault', 'profiles', 'radar', 'draft/');
   return res;
 }

@@ -370,6 +370,15 @@ export function SeedsTab({ profile, detail, editing = false, more }: {
             {editing && <IconButton icon="trash" size="sm" label={`Remove "${s.title || s.id}" from the seeds`} disabled={removing !== null || !!progress || detail.seeds.length <= 1} onClick={() => void remove(s.id, s.title)} />}
           </div>
         ))}
+        {(detail.deletedSeeds ?? []).map((s) => (
+          <div className="seed-row" key={`deleted-${s.id}`} title="This interest's current recommendations were worked out with this paper, but its content has been deleted. It goes from this list after the next scan.">
+            <span className="idx">—</span>
+            <span className="truncate">
+              <s className="muted">{s.title || 'Untitled PDF'}</s> <Badge tone="warn">deleted</Badge>
+              <span className="muted small" style={{ display: 'block' }}>Deleted from the {TERMS.vault} {fmtRelative(s.deletedAt)}. The current recommendations still include it; the next scan works without it.</span>
+            </span>
+          </div>
+        ))}
         {editing && <>
         <div
           className={`dropzone ${over ? 'over' : ''} ${progress || paused ? 'busy' : ''}`}

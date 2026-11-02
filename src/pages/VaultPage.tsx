@@ -11,6 +11,7 @@ import { CHAT_ENABLED } from '../lib/features';
 import type { ChatSource, ChatTurn, LLMProvider, VaultDoc } from '../types/radar';
 import { Badge, Button, EmptyState, ErrorBox, Icon, IconButton, Input, LoadingRows, Select, Spinner, Swatch, Textarea, confirmDialog } from '../ui';
 import { keys } from '../api/hooks';
+import { deleteVaultDoc, isOwnUpload } from '../api/endpoints/vault';
 import { PaperLink } from '../ui/pickers';
 
 export function VaultPage() {
@@ -131,7 +132,43 @@ function DocDetail({ doc, tagName }: { doc: VaultDoc; tagName: (t: string) => st
         <dt>Abstract{doc.abstract && doc.abstractSource === 'pdf' && <span className="muted small"> · from the PDF</span>}</dt>
         <dd>{doc.abstract || '—'}</dd>
       </div>
+      {isOwnUpload(doc) && <DeleteUpload doc={doc} />}
     </dl>
+  );
+}
+
+/** Delete an uploaded PDF from the Vault: the only way a paper leaves it (FUNCTIONAL_SPEC F1). */
+function DeleteUpload({ doc }: { doc: VaultDoc }) {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    const ok = await confirmDialog({
+      title: 'Delete this PDF?',
+      body: (
+        <>
+          <p>The file, its text and its vectors are deleted, and it leaves your {TERMS.vault}. This cannot be undone.</p>
+          {doc.tags.length > 0 && (
+            <p>It is a seed of {doc.tags.length === 1 ? 'an interest' : `${doc.tags.length} interests`}. There it stays on the seed list, marked deleted, until the next scan: the current recommendations were worked out with it.</p>
+          )}
+        </>
+      ),
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await deleteVaultDoc(doc.id);
+      toast.success(`Deleted "${displayTitle(doc)}".`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <Button size="sm" variant="ghost" icon="trash" loading={busy} disabled={busy} onClick={() => void run()}>Delete PDF</Button>
+    </div>
   );
 }
 

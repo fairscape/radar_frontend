@@ -25,6 +25,8 @@ export type { DraftCoherence } from './wizard';
 export interface ProfileDetail {
   profile: Profile;
   seeds: Seed[];
+  /** Seeds whose PDF was deleted from the Vault: listed last, marked deleted, until the next scan (FUNCTIONAL_SPEC F1). */
+  deletedSeeds?: { id: string; title?: string | null; deletedAt: string }[];
   topics: Topic[];
   sweep: SweepRow[];
   coherenceBins: number[];
