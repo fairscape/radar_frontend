@@ -114,3 +114,16 @@ export function seedSource(s: { source?: string | null; sourceResearcherName?: s
     default: return null;
   }
 }
+
+/**
+ * The mark on a seed sharing its title with another seed of the interest
+ * (FUNCTIONAL_SPEC M.4), and what it means on hover. Both stay seeds and
+ * count as two until the user removes one; the server lists them together.
+ */
+export function sameTitleTag(s: { sameTitle?: string | null }): { label: string; title: string } | null {
+  switch (s.sameTitle) {
+    case 'title': return { label: 'title duplicate', title: 'Another seed has the same title (an uploaded PDF or a paper OpenAlex has no record of is compared by its title). Both are kept and both count; remove one if they are the same paper.' };
+    case 'possible': return { label: 'possible duplicate', title: 'Another seed has the same title, such as a preprint and its published version. Both are kept and both count; remove one if they are the same paper.' };
+    default: return null;
+  }
+}

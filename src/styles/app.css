@@ -565,6 +565,8 @@ a.interest-card:hover { border-color: var(--accent-line); text-decoration: none;
 .seed-row { display: grid; grid-template-columns: 28px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .seed-row:last-child { border-bottom: 0; }
 .seed-row.removable { grid-template-columns: 28px 1fr auto auto auto; }
+.seed-row.same-title { box-shadow: inset 3px 0 0 var(--warn); padding-left: 6px; }
+.seed-dup { margin-left: 8px; font-size: 10px; font-weight: 600; letter-spacing: 0.05em; color: var(--warn); white-space: nowrap; cursor: help; }
 .seed-row.pair-row { grid-template-columns: 1fr auto; padding: 4px 0; }
 .seed-row .idx { font-family: var(--font-mono); color: var(--fg-4); font-size: 12px; }
 /* A researcher's paper on the profile page: full title, meta underneath, links at the right. */

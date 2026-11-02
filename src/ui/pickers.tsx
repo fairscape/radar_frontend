@@ -14,7 +14,7 @@ import { plural } from '../lib/format';
 import { TERMS } from '../lib/terms';
 import { getUserEmail } from '../lib/userEmail';
 import type { Job } from '../lib/jobs';
-import type { OrcidWork, ProsopiaWork } from '../types/prosopia';
+import type { OrcidWork, ProsopiaWork, SavedProfileRef } from '../types/prosopia';
 import { Button, Callout, EmptyState, ErrorBox, Field, Input, useAction, useClearOnChange } from './index';
 import { JobProgress } from './domain';
 import { paperHref, PaperLink } from './paperLink';
@@ -42,6 +42,20 @@ export interface PickWork {
   /** ORCID listings: the author's institutions on this work, and whether none is theirs. */
   institutions?: string[];
   otherInstitution?: boolean;
+  /** Already a seed of the interest being added to (FUNCTIONAL_SPEC M.4): shown, never ticked. */
+  seeded?: boolean;
+}
+
+/**
+ * ``works`` with those already among ``seedIds`` marked ``seeded``. Compared
+ * by OpenAlex code (ids come as URLs or bare); a Prosopia record OpenAlex
+ * has no record of is the seed ``prosopia:<user>:<profile>:<record id>``.
+ */
+export function markSeeded(works: PickWork[], seedIds: Set<string> | undefined): PickWork[] {
+  if (!seedIds || seedIds.size === 0) return works;
+  const code = (id: string) => (id.startsWith('prosopia:') ? id.split(':').slice(3).join(':') : id.split('/').pop() ?? id);
+  const have = new Set([...seedIds].map(code));
+  return works.map((w) => (have.has(code(w.id)) || (w.openalex && have.has(code(w.openalex))) ? { ...w, seeded: true } : w));
 }
 
 /** OpenAlex work types that read as papers; software and dataset records start unticked. */
@@ -71,7 +85,7 @@ export function papersOf(works: PickWork[]): PickWork[] {
  */
 export function defaultPicks(works: PickWork[], registryRead?: boolean): PickWork[] {
   if (registryRead === false) return [];
-  return papersOf(works).filter((w) => !w.duplicate_of && w.claimed !== false);
+  return papersOf(works).filter((w) => !w.duplicate_of && w.claimed !== false && !w.seeded);
 }
 
 /**
@@ -86,6 +100,9 @@ export function defaultPicks(works: PickWork[], registryRead?: boolean): PickWor
  */
 function noteParts(w: PickWork): { chip: string; title: string }[] {
   const out: { chip: string; title: string }[] = [];
+  if (w.seeded) {
+    out.push({ chip: 'already a seed', title: 'This paper is already one of this interest\u2019s seeds, so it cannot be added again.' });
+  }
   if (w.note) {
     out.push({ chip: w.note, title: 'How this paper was matched to OpenAlex' });
   }
@@ -143,7 +160,7 @@ export interface Lookup {
   parseError: string;
   /** ``truncated``: the source has more works than it listed (the newest are listed).
    *  ``registryRead``: ORCID only, whether the person's ORCID works list could be read. */
-  find: (key: string) => Promise<{ key: string; name: string | null; works: PickWork[]; truncated?: boolean; registryRead?: boolean }>;
+  find: (key: string) => Promise<{ key: string; name: string | null; works: PickWork[]; truncated?: boolean; registryRead?: boolean; savedProfile?: SavedProfileRef | null }>;
   emptyTitle: string;
   emptyBody: string;
   /** localStorage key for the last key this browser looked up, if remembered. */
@@ -164,7 +181,7 @@ export const ORCID_LOOKUP: Lookup = {
   parseError: 'That is not an ORCID iD (0000-0000-0000-0000, and the last character is a check digit).',
   find: async (orcid) => {
     const r = await fetchOrcidWorks(orcid);
-    return { key: r.orcid, name: r.name, works: orcidPickWorks(r.works), truncated: r.truncated, registryRead: !!r.registry_read };
+    return { key: r.orcid, name: r.name, works: orcidPickWorks(r.works), truncated: r.truncated, registryRead: !!r.registry_read, savedProfile: r.saved_profile ?? null };
   },
   emptyTitle: 'No papers on OpenAlex for this ORCID',
   emptyBody: 'OpenAlex has no works with this ORCID on an authorship. Check the iD, or upload PDFs instead.',
@@ -192,7 +209,7 @@ export const PROSOPIA_LOOKUP: Lookup = {
   parseError: '',
   find: async (ref) => {
     const r = await fetchProsopiaWorks(ref);
-    return { key: r.slug, name: r.name, works: prosopiaPickWorks(r.works) };
+    return { key: r.slug, name: r.name, works: prosopiaPickWorks(r.works), savedProfile: r.saved_profile ?? null };
   },
   emptyTitle: 'This profile lists no papers',
   emptyBody: 'The profile exists but has no papers to import. Upload PDFs instead.',
@@ -262,8 +279,8 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
   }
   function row(w: PickWork) {
     return (
-      <label className={`pick-row ${picked.has(w.id) ? 'on' : ''}`} key={w.id}>
-        <input type="checkbox" checked={picked.has(w.id)} disabled={disabled} onChange={() => toggle(w.id)} />
+      <label className={`pick-row ${picked.has(w.id) && !w.seeded ? 'on' : ''}`} key={w.id}>
+        <input type="checkbox" checked={picked.has(w.id) && !w.seeded} disabled={disabled || w.seeded} onChange={() => toggle(w.id)} />
         <span>
           <PaperTitle title={w.title} id={w.openalex ?? w.id} doi={w.doi} />
           <div className="v">{[w.year, w.venue, w.n_authors && w.n_authors > 3 ? `${w.authors.slice(0, 2).join(', ')} +${w.n_authors - 2}` : w.authors.join(', ')].filter(Boolean).join(' · ')}</div>
@@ -281,10 +298,10 @@ export function PaperPickList({ works, picked, onChange, disabled, ariaLabel = '
   return (
     <div className="stack" style={{ gap: 8 }}>
       <div className="pick-head">
-        <span className="field-label">{head ? `${head} · ` : ''}{works.filter((w) => picked.has(w.id)).length} of {plural(works.length, 'paper')} selected</span>
+        <span className="field-label">{head ? `${head} · ` : ''}{works.filter((w) => picked.has(w.id) && !w.seeded).length} of {plural(works.length, 'paper')} selected</span>
         <span className="row" style={{ gap: 6 }}>
           <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(new Set([
-            ...shown.map((w) => w.id),
+            ...shown.filter((w) => !w.seeded).map((w) => w.id),
             // Not just `shown`: a hidden copy the user went and ticked on
             // purpose is a deliberate choice, and "All" must not be the
             // button that quietly takes it away.
@@ -427,7 +444,7 @@ function remember(key: string | undefined, value: string): void {
   }
 }
 
-export function LookupPicker({ lookup, start, startLabel = 'Import', job, initialRaw = '', onStarted, onLookupChange, footer }: {
+export function LookupPicker({ lookup, start, startLabel = 'Import', job, initialRaw = '', onStarted, onLookupChange, footer, seedIds }: {
   lookup: Lookup;
   /** Starts the job for the kept papers; ``name`` is the researcher's name from the lookup. Null: the caller handled why nothing started. */
   start: (key: string, ids: string[], name: string | null) => Promise<Job | null>;
@@ -439,8 +456,11 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
   /** The ORCID iD / profile being looked up changed: what the caller said
    *  about the previous one (e.g. "already one of your profiles") is stale. */
   onLookupChange?: () => void;
-  /** Shown under the pick list, above the import button (the wizard's "Also save as a researcher profile"). */
-  footer?: ReactNode;
+  /** Shown under the pick list, above the import button (the wizard's "Also save as a researcher profile");
+   *  a function gets the researcher profile the user already has for this person. */
+  footer?: ReactNode | ((listing: { savedProfile: SavedProfileRef | null }) => ReactNode);
+  /** "Add more seeds": the interest's seeds, listed as "already a seed" and never ticked (FUNCTIONAL_SPEC M.4). */
+  seedIds?: Set<string>;
 }) {
   const [raw, setRaw] = useState(() => initialRaw || recall(lookup.rememberAs));
   const lookupChanged = useRef(onLookupChange);
@@ -450,7 +470,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
     if (first.current) { first.current = false; return; }
     lookupChanged.current?.();
   }, [raw]);
-  const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[]; truncated?: boolean; registryRead?: boolean } | null>(null);
+  const [listing, setListing] = useState<{ forRaw: string; key: string; name: string | null; works: PickWork[]; truncated?: boolean; registryRead?: boolean; savedProfile?: SavedProfileRef | null } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const key = lookup.parse(raw);
   const running = job?.status === 'running';
@@ -460,7 +480,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
     const res = await lookup.find(key);
     remember(lookup.rememberAs, raw.trim());
     setListing({ forRaw: raw.trim(), ...res });
-    setPicked(new Set(defaultPicks(res.works, res.registryRead).map((w) => w.id)));
+    setPicked(new Set(defaultPicks(markSeeded(res.works, seedIds), res.registryRead).map((w) => w.id)));
   });
   useClearOnChange(find, [raw]);
   const go = useAction(async () => {
@@ -470,7 +490,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
     // importable, or the disclosure that offers it is a lie. What this
     // still refuses is an id that is not in the listing at all, which is
     // what a stale selection would produce.
-    const inListing = new Set(listing.works.map((w) => w.id));
+    const inListing = new Set(markSeeded(listing.works, seedIds).filter((w) => !w.seeded).map((w) => w.id));
     const ids = Array.from(picked).filter((id) => inListing.has(id));
     if (ids.length === 0) return;
     const j = await start(listing.key, ids, listing.name);
@@ -485,7 +505,9 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
   });
   useClearOnChange(go, [picked]);
 
-  const current = listing && listing.forRaw === raw.trim() ? listing : null;
+  const listed = listing && listing.forRaw === raw.trim() ? listing : null;
+  const current = listed ? { ...listed, works: markSeeded(listed.works, seedIds) } : null;
+  const nPicked = current ? current.works.filter((w) => picked.has(w.id) && !w.seeded).length : 0;
   return (
     <div className="stack">
       <Field label={lookup.label} hint={lookup.hint} error={raw.trim() && !key ? lookup.parseError : null}>
@@ -508,9 +530,9 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
           <PaperPickList works={current.works} picked={picked} onChange={setPicked} disabled={running} head={current.name} ariaLabel="Papers to import" registryRead={current.registryRead} />
           {job && running && <JobProgress job={job} />}
           {job?.status === 'error' && <ErrorBox compact title="Import failed" message={job.error} />}
-          {footer}
+          {typeof footer === 'function' ? footer({ savedProfile: current.savedProfile ?? null }) : footer}
           <div className="row">
-            <Button variant="primary" icon="upload" onClick={() => go.run()} loading={go.busy || running} disabled={picked.size === 0}>{startLabel} {plural(picked.size, 'paper')}</Button>
+            <Button variant="primary" icon="upload" onClick={() => go.run()} loading={go.busy || running} disabled={nPicked === 0}>{startLabel} {plural(nPicked, 'paper')}</Button>
             {go.error && <span className="field-error">{go.error}</span>}
           </div>
         </div>
@@ -523,16 +545,20 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
  * "Also save as a researcher profile" under a wizard import's pick list
  * (FUNCTIONAL_SPEC M.2). Off by default: the papers are only the draft's
  * seeds and go with it. On: a researcher profile is saved at once, under
- * Profiles, and keeps its papers whatever becomes of the draft.
+ * Profiles, and keeps its papers whatever becomes of the draft. When the
+ * user has one for this person already (``saved``), on adds the papers it
+ * lacks to that one instead (M.2a).
  */
-export function SaveProfileCheck({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+export function SaveProfileCheck({ checked, onChange, disabled, saved }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; saved?: SavedProfileRef | null }) {
   return (
     <label className="row small" style={{ gap: 6, cursor: disabled ? undefined : 'pointer' }}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-      <span>Also save as a researcher {TERMS.profile}</span>
-      <span className="muted">· {checked
-        ? `saved under ${TERMS.Profiles} now, and kept even if this draft is discarded`
-        : 'off: these papers belong to this draft only'}</span>
+      <span>{saved ? <>Also add to {saved.name}&rsquo;s researcher {TERMS.profile}</> : <>Also save as a researcher {TERMS.profile}</>}</span>
+      <span className="muted">· {!checked
+        ? 'off: these papers belong to this draft only'
+        : saved
+          ? `the papers it lacks are added now, and kept even if this draft is discarded`
+          : `saved under ${TERMS.Profiles} now, and kept even if this draft is discarded`}</span>
     </label>
   );
 }

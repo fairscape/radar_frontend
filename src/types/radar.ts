@@ -85,6 +85,10 @@ export interface VaultDoc {
   abstract?: string | null;
   /** ``pdf``: read from your uploaded file, as OpenAlex has none; null: OpenAlex's. */
   abstractSource?: string | null;
+  /** As a seed of the listed interest, sharing its title with another (FUNCTIONAL_SPEC M.4): "title" duplicate (an upload or an unmatched record) or "possible" duplicate (OpenAlex works). */
+  sameTitle?: 'title' | 'possible' | null;
+  /** The same for the seeds of one title. */
+  sameTitleGroup?: string | null;
 }
 
 export interface Seed {
@@ -102,6 +106,9 @@ export interface Seed {
   source?: 'upload' | 'researcher' | 'vault' | 'feed' | 'orcid' | 'prosopia' | null;
   sourceResearcherId?: number | null;
   sourceResearcherName?: string | null;
+  /** As VaultDoc.sameTitle / sameTitleGroup. */
+  sameTitle?: 'title' | 'possible' | null;
+  sameTitleGroup?: string | null;
 }
 
 export interface Topic {

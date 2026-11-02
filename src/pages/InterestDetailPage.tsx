@@ -1,5 +1,5 @@
 import { prosopiaNote } from '../ui/ProsopiaTopics';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useProfileDetail, useProfileRuns, useProfiles, useResearchers } from '../api/hooks';
 import {
   afterProfileDeleted,
@@ -24,7 +24,7 @@ import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
 import { UmlsConcept } from '../ui/UmlsAllOn';
-import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedUploads, openAlexStopped, seedKeys, seedSource, workId } from '../lib/unmatched';
+import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedUploads, openAlexStopped, sameTitleTag, seedKeys, seedSource, workId } from '../lib/unmatched';
 import { useOpenAlexPaused } from '../lib/openalex';
 import { notifyEmptyDrop } from '../lib/dropHint';
 import type { Profile, VaultDoc } from '../types/radar';
@@ -258,7 +258,11 @@ if (typeof window !== 'undefined') {
  * Save changes. Otherwise the saved interest's page, which only shows them
  * (E.4 Q1).
  */
-export function SeedsTab({ profile, detail, editing = false }: { profile: Profile; detail: Detail; editing?: boolean }) {
+export function SeedsTab({ profile, detail, editing = false, more }: {
+  profile: Profile; detail: Detail; editing?: boolean;
+  /** Edit interest's other sources (ORCID, Prosopia, a saved researcher profile), under the Vault and feed pickers (E.12). */
+  more?: ReactNode;
+}) {
   const health = healthOf(profile);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [over, setOver] = useState(false);
@@ -350,10 +354,11 @@ export function SeedsTab({ profile, detail, editing = false }: { profile: Profil
         )}
         {recompute.error && <ErrorBox compact message={recompute.error} />}
         {detail.seeds.length === 0 ? <p className="muted small">No seeds recorded.</p> : detail.seeds.map((s) => (
-          <div className={`seed-row ${editing ? 'removable' : ''}`} key={s.id}>
+          <div className={`seed-row ${editing ? 'removable' : ''} ${s.sameTitle ? 'same-title' : ''}`} key={s.id}>
             <span className="idx">{String(s.idx).padStart(2, '0')}</span>
             <span className="truncate">
               <PaperTitle title={displayTitle(s)} id={workId(s)} />
+              {sameTitleTag(s) && <span className="seed-dup" title={sameTitleTag(s)!.title}>{sameTitleTag(s)!.label}</span>}
               {seedSource(s) && <span className="muted small" style={{ display: 'block' }}>{seedSource(s)}</span>}
             </span>
             <span className="muted mono small">{s.year || ''}</span>
@@ -383,6 +388,7 @@ export function SeedsTab({ profile, detail, editing = false }: { profile: Profil
         {failures.length > 0 && <ErrorBox compact title="Some files failed" message={failures.map((f) => <div key={f}>{f}</div>)} />}
         <VaultSeedPicker profileKey={profile.key} seedIds={seedKeys(detail.seeds)} disabled={!!progress || removing !== null} />
         <FeedSeedPicker copySlug={profile.key} disabled={!!progress || removing !== null} />
+        {more}
         </>}
       </Panel>
       <Panel title="Do the seeds agree?" description="Whether the seed papers are about the same thing. The similarity column on the left shows how typical each seed is; the lowest ones are the odd ones out.">

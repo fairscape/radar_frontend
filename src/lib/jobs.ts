@@ -271,7 +271,10 @@ async function pollOne(job: Job) {
     }
     if (status.run.error) return fail(job, status.run.error);
     const result = status.result;
-    const n = typeof result?.drafted === 'number' ? result.drafted : undefined;
+    // Into a draft: the seeds it gained (a seed already, or a paper with the
+    // DOI of one, is not added twice; FUNCTIONAL_SPEC M.4).
+    const seeded = job.researcherId == null && typeof result?.seeded === 'number' ? result.seeded : undefined;
+    const n = seeded ?? (typeof result?.drafted === 'number' ? result.drafted : undefined);
     finish(job, {
       summary: n != null ? `${plural(n, job.researcherId != null ? 'paper' : 'seed')} imported` : 'Import finished',
       result: result ?? null,

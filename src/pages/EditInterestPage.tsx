@@ -29,7 +29,7 @@ import { ApiError } from '../api/client';
 import { UmlsNotice } from '../ui/UmlsNotice';
 import { ProsopiaTag, prosopiaNote } from '../ui/ProsopiaTopics';
 import { errorMessage, plural } from '../lib/format';
-import { useQuery } from '../lib/query';
+import { invalidate, useQuery } from '../lib/query';
 import { tabId } from '../lib/tab';
 import { navigate, paths, addLeaveGuard } from '../lib/router';
 import { TERMS } from '../lib/terms';
@@ -40,10 +40,11 @@ import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, confir
 import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
 import { PaperLink } from '../ui/paperLink';
-import { workId } from '../lib/unmatched';
+import { seedKeys, workId } from '../lib/unmatched';
+import { useSeedImport } from '../lib/seedImports';
 import { ResearchTopics } from '../ui/ResearchTopics';
 import { ScanDialog, SeedsTab, ThresholdTab, useScanBusy, useSeedUpload } from './InterestDetailPage';
-import { AgreementMeter, verdictFor } from './WizardPage';
+import { AgreementMeter, MoreSeeds, verdictFor } from './WizardPage';
 import type { Profile } from '../types/radar';
 
 const STEPS = [
@@ -173,6 +174,13 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
   const uploading = !!useSeedUpload(copyKey);
   const uploadingRef = useRef(uploading);
   uploadingRef.current = uploading;
+  // An ORCID or Prosopia import into the copy (E.12), from the click on
+  // Add: the server refuses saving or discarding the copy until it
+  // finishes (X-6), so the page waits too. After a reload the server's
+  // refusal is what says so.
+  const importing = useSeedImport(copyKey);
+  const importingRef = useRef(importing);
+  importingRef.current = importing;
   const step = urlStep ?? 1;
   // A threshold or year range not yet on the copy; a topic tick on its way.
   const [thresholdPending, setThresholdPending] = useState(false);
@@ -180,7 +188,7 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
   // Research topics generated or edited but not kept with the panel's own
   // Save: Save changes would save the copy without them.
   const [researchUnsaved, setResearchUnsaved] = useState(false);
-  const busy = uploading || thresholdPending || topicsBusy;
+  const busy = uploading || importing || thresholdPending || topicsBusy;
   // Whether the copy differs from the interest, for closing the tab: the
   // browser asks at once, so it cannot wait for the server (the in-app
   // guard below asks the server). Unknown counts as changed.
@@ -188,13 +196,14 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
   const mayLose = useRef(true);
   const localUnsaved = useRef(false);
   localUnsaved.current = thresholdPending || topicsBusy || researchUnsaved;
-  mayLose.current = stateQ.data?.changed !== false || uploading || localUnsaved.current;
+  mayLose.current = stateQ.data?.changed !== false || uploading || importing || localUnsaved.current;
 
   // Every way off the page asks first when something changed: leaving
   // discards the changes (E.7). Moving between the steps is not leaving.
   const editPath = paths.interestEdit(profileKey);
   useEffect(() => addLeaveGuard(async () => {
     if (uploadingRef.current) { toast.info('Wait for the uploads to finish.'); return false; }
+    if (importingRef.current) { toast.info('Wait for the import to finish.'); return false; }
     // A value still on its way, or research topics not kept, count too.
     let changed = true;
     try { changed = (await editState(copyKey)).changed || localUnsaved.current; } catch { /* ask, to be safe */ }
@@ -211,6 +220,7 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
   // a threshold set less than a moment before (its write was still waiting).
   const go = (n: number) => {
     if (uploading) { toast.info('Wait for the uploads to finish.'); return; }
+    if (importing) { toast.info('Wait for the import to finish.'); return; }
     if (thresholdPending || topicsBusy) { toast.info(thresholdPending ? 'Applying the threshold…' : 'Applying the topics…'); return; }
     navigate(paths.interestEdit(profileKey, n));
   };
@@ -222,6 +232,7 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
     navigate(paths.interestEdit(profileKey, 4), { replace: true });
   });
   const saveTitle = uploading ? 'Wait for the uploads to finish'
+    : importing ? 'Wait for the import to finish'
     : thresholdPending ? 'Applying the threshold…'
       : topicsBusy ? 'Applying the topics…'
         : researchUnsaved ? 'Save or discard the research topics first (step 3)' : undefined;
@@ -261,7 +272,7 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
           <p className="page-sub">Nothing changes until you click Save changes; Cancel, or leaving the page, discards the changes. Saving does not scan: you choose when to look for papers with the new settings.</p>
         </div>
         <div className="page-actions">
-          <Button onClick={cancel} disabled={uploading} title={uploading ? 'Wait for the uploads to finish' : undefined}>Cancel</Button>
+          <Button onClick={cancel} disabled={uploading || importing} title={uploading ? 'Wait for the uploads to finish' : importing ? 'Wait for the import to finish' : undefined}>Cancel</Button>
           {/* Step 4 has its own, at the foot: two on one screen read as two different saves. */}
           {step !== 4 && saveButton}
         </div>
@@ -287,8 +298,19 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
         <div>
           {step === 1 && (
             <>
-              <SeedsTab profile={profile} detail={detail} editing />
-              <Foot next={() => go(2)} nextLabel="Next: check the seeds" nextDisabled={uploading} />
+              <SeedsTab profile={profile} detail={detail} editing more={
+                <MoreSeeds
+                  slug={copyKey}
+                  seedIds={seedKeys(detail.seeds)}
+                  // Not another source mid-import: the picker that knows it runs would go.
+                  disabled={uploading || importing}
+                  // The copy's seeds, its topics and coherence, its state
+                  // against the interest, and a researcher profile if one was saved.
+                  onImported={() => invalidate('profiles', 'vault', 'researchers', `draft/${profile.key}/`)}
+                  saveNote=" Save changes to keep them."
+                />
+              } />
+              <Foot next={() => go(2)} nextLabel="Next: check the seeds" nextDisabled={uploading || importing} />
             </>
           )}
           {step === 2 && <StepCheck profile={profile} back={() => go(1)} next={() => go(3)} />}

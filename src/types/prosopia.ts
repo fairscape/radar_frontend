@@ -77,6 +77,14 @@ export interface OrcidWorksResponse {
   registry_read?: boolean;
   /** Where the person's institutions came from: their ORCID record, or their works. */
   institution_basis?: 'orcid' | 'works' | null;
+  /** The researcher profile the user already has for this person (FUNCTIONAL_SPEC M.2a). */
+  saved_profile?: SavedProfileRef | null;
+}
+
+/** A researcher profile the user already has for the person a listing is of. */
+export interface SavedProfileRef {
+  id: number;
+  name: string;
 }
 
 export interface OrcidImportRequest {
@@ -108,6 +116,8 @@ export interface ProsopiaWorksResponse {
   slug: string;
   name: string | null;
   works: ProsopiaWork[];
+  /** The researcher profile the user already has for this person (FUNCTIONAL_SPEC M.2a). */
+  saved_profile?: SavedProfileRef | null;
 }
 
 export interface ProsopiaImportStart {
@@ -141,6 +151,11 @@ export interface ProsopiaImportResult {
   name?: string;
   /** Papers imported. */
   drafted?: number;
+  /** Seeds the import added; fewer than drafted where some were seeds already (FUNCTIONAL_SPEC M.4). */
+  seeded?: number | null;
+  /** Papers added to a researcher profile the user already had, and its name (FUNCTIONAL_SPEC M.2a). */
+  added_to_profile?: number | null;
+  profile_name?: string | null;
   /** How many papers each resolution rung found (work_id, doi, pmcid, title, none). */
   resolved_by?: Record<string, number>;
   /** Ids of the papers no rung resolved, kept as synthetic records. */

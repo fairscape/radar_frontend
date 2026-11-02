@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDrafts, useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
 import { ApiError } from '../api/client';
-import { createInterestFromResearcher, existingResearcher } from '../api/endpoints/researchers';
+import { createInterestFromResearcher } from '../api/endpoints/researchers';
 import { addSeeds, getProfileDetail, removeSeed as removeSeedOnServer, saveTopics } from '../api/endpoints/profiles';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
 import { ThresholdPaperList } from '../ui/ThresholdPaperList';
@@ -31,8 +31,9 @@ import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
 import { UmlsAllOn, UmlsConcept } from '../ui/UmlsAllOn';
 import { useOpenAlexPaused } from '../lib/openalex';
-import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedImport, noteUnmatchedUploads, openAlexStopped, seedKeys, workId } from '../lib/unmatched';
+import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedImport, noteUnmatchedUploads, openAlexStopped, sameTitleTag, seedKeys, workId } from '../lib/unmatched';
 import { notifyEmptyDrop } from '../lib/dropHint';
+import { setSeedImport, useSeedImport } from '../lib/seedImports';
 import type { ProsopiaImportResult } from '../types/prosopia';
 import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, LoadingRows, Panel, Select, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { Link } from '../ui/Link';
@@ -202,7 +203,9 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
   // trial and the save then too). Gates the step rail and, below, the URL
   // (Back/Forward, a pasted link).
   const firstImport = useJob(state.importJobId ?? null);
-  const importing = firstImport?.status === 'running' || extraJob?.status === 'running';
+  // An "Add more seeds" import being started: its job is not known yet.
+  const moreStarting = useSeedImport(state.slug);
+  const importing = firstImport?.status === 'running' || extraJob?.status === 'running' || moreStarting;
   const prevUrlStep = useRef<number | null | undefined>(undefined);
   const prevStoreStep = useRef<number | undefined>(undefined);
   const maxReached = useRef({ slug: null as string | null, step: 1 });
@@ -353,10 +356,6 @@ function UnfinishedDrafts() {
 function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselectResearcher: number | null }) {
   const { update } = useDraft();
   const [name, setName] = useState(state.name);
-  // A person the ORCID / Prosopia import found already saved as a profile:
-  // the interest is built from that profile's papers (FUNCTIONAL_SPEC D).
-  const [known, setKnown] = useState<number | null>(null);
-  const useKnown = (id: number) => { setKnown(id); update({ source: 'profile' }); };
   const importJob = useJob(state.importJobId);
   const create = useAction(async () => {
     if (!name.trim()) throw new Error('Give it a name first.');
@@ -382,6 +381,8 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
     if (notedId === importJob.id) return;
     const r = importJob.result as ProsopiaImportResult | null;
     noteUnmatchedImport(r?.unresolved);
+    const note = addedToProfileNote(r);
+    if (note) toast.info(note.trim());
     update({
       importNotedId: importJob.id,
       slug: r?.draft_slug ?? importJob.profileKey,
@@ -389,7 +390,7 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
       // Only for a draft this wizard started from ORCID/Prosopia: one resumed
       // from the Drafts list (source "upload", tracked import) read
       // "Imported from Prosopia ()".
-      prosopia: prosopiaRef !== null ? { ref: prosopiaRef, nSeeds: typeof r?.drafted === 'number' ? r.drafted : null } : null,
+      prosopia: prosopiaRef !== null ? { ref: prosopiaRef, nSeeds: typeof r?.seeded === 'number' ? r.seeded : typeof r?.drafted === 'number' ? r.drafted : null } : null,
     });
   }, [importJob, update, prosopiaRef, notedId]);
 
@@ -417,9 +418,9 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
               {create.error && <span className="field-error">{create.error}</span>}
             </div>
           )}
-          {state.source === 'orcid' && <WorkPicker key="orcid" name={name.trim()} lookup={ORCID_LOOKUP} start={(orcid, ids, n, save) => startOrcidImport(orcid, ids, n, undefined, save)} onKnown={useKnown} />}
-          {state.source === 'prosopia' && <WorkPicker key="prosopia" name={name.trim()} lookup={PROSOPIA_LOOKUP} start={(slug, ids, n, save) => startImport(slug, n, ids, undefined, save)} onKnown={useKnown} />}
-          {state.source === 'profile' && <ResearcherSeedPicker key={`profile:${known ?? ''}`} name={name.trim()} preselect={known ?? preselectResearcher} />}
+          {state.source === 'orcid' && <WorkPicker key="orcid" name={name.trim()} lookup={ORCID_LOOKUP} start={(orcid, ids, n, save) => startOrcidImport(orcid, ids, n, undefined, save)} />}
+          {state.source === 'prosopia' && <WorkPicker key="prosopia" name={name.trim()} lookup={PROSOPIA_LOOKUP} start={(slug, ids, n, save) => startImport(slug, n, ids, undefined, save)} />}
+          {state.source === 'profile' && <ResearcherSeedPicker key="profile" name={name.trim()} preselect={preselectResearcher} />}
         </div>
       </Panel>
     );
@@ -432,45 +433,30 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
  * the draft bookkeeping. The import creates the draft on the server,
  * so the job's key is the draft slug and step 1 continues there.
  */
-function WorkPicker({ name, lookup, start, onKnown }: { name: string; lookup: Lookup; start: (key: string, ids: string[], name: string | undefined, saveProfile: boolean) => Promise<Job>; onKnown: (researcherId: number) => void }) {
+function WorkPicker({ name, lookup, start }: { name: string; lookup: Lookup; start: (key: string, ids: string[], name: string | undefined, saveProfile: boolean) => Promise<Job> }) {
   const { state, update } = useDraft();
   const importJob = useJob(state.importJobId);
-  const [known, setKnown] = useState<{ id: number; name: string } | null>(null);
   const [saveProfile, setSaveProfile] = useState(false);
   return (
-    <>
-      <LookupPicker
-        lookup={lookup}
-        job={importJob}
-        initialRaw={state.prosopia?.ref ?? ''}
-        start={async (key, ids) => {
-          setKnown(null);
-          try {
-            return await start(key, ids, name || undefined, saveProfile);
-          } catch (e) {
-            const r = existingResearcher(e);
-            if (r) setKnown(r);
-            throw e;
-          }
-        }}
-        onStarted={(job, listing) => {
-          update({ importJobId: job.id, name: name || listing.name || job.profileName, slug: job.profileKey, prosopia: { ref: listing.key, nSeeds: null } });
-        }}
-        onLookupChange={() => setKnown(null)}
-        footer={<SaveProfileCheck checked={saveProfile} onChange={setSaveProfile} disabled={importJob?.status === 'running'} />}
-      />
-      {known && (
-        <Callout tone="info">
-          <b>{known.name}</b> is already one of your saved {TERMS.profiles}. A new interest uses the papers saved there.
-          {' '}To add papers they published since, update the {TERMS.profile} under <Link href={paths.profiles}>{TERMS.Profiles}</Link> first.
-          <div className="row" style={{ marginTop: 8 }}>
-            <Button onClick={() => onKnown(known.id)}>Use {known.name}&rsquo;s saved papers</Button>
-            <Button variant="ghost" icon="x" onClick={() => setKnown(null)}>Dismiss</Button>
-          </div>
-        </Callout>
-      )}
-    </>
+    <LookupPicker
+      lookup={lookup}
+      job={importJob}
+      initialRaw={state.prosopia?.ref ?? ''}
+      start={(key, ids) => start(key, ids, name || undefined, saveProfile)}
+      onStarted={(job, listing) => {
+        update({ importJobId: job.id, name: name || listing.name || job.profileName, slug: job.profileKey, prosopia: { ref: listing.key, nSeeds: null } });
+      }}
+      footer={({ savedProfile }) => <SaveProfileCheck checked={saveProfile} onChange={setSaveProfile} disabled={importJob?.status === 'running'} saved={savedProfile} />}
+    />
   );
+}
+
+/** "N papers also added to X's researcher profile." -- said when the import
+ *  added to a profile the user already had (FUNCTIONAL_SPEC M.2a). */
+function addedToProfileNote(r: ProsopiaImportResult | null): string {
+  const n = r?.added_to_profile;
+  if (typeof n !== 'number' || !r?.profile_name) return '';
+  return ` ${n === 1 ? '1 paper' : `${n} papers`} also added to ${r.profile_name}\u2019s researcher ${TERMS.profile}; ${n === 1 ? 'it stays' : 'they stay'} there either way.`;
 }
 
 /**
@@ -584,28 +570,37 @@ const MORE_SOURCES: { value: MoreSource; label: string }[] = [
  * back to the others: the Vault list hid behind a link that could not be
  * folded away again, and an ORCID or Prosopia search was not offered at
  * all. One dropdown names every source and shows only the chosen picker.
+ *
+ * Edit interest's step 1 has it too, on the copy being edited
+ * (FUNCTIONAL_SPEC E.12): without the Vault, which has its own picker
+ * there (``onVaultAdded`` left out), and with ``saveNote`` in the toast.
  */
-function MoreSeeds({ slug, seedIds, disabled, onVaultAdded, onImported }: {
+export function MoreSeeds({ slug, seedIds, disabled, onVaultAdded, onImported, onImportStarted, saveNote = '' }: {
   slug: string;
   seedIds: Set<string>;
   disabled: boolean;
-  /** Vault docs the server accepted (the local seed list keeps them). */
-  onVaultAdded: (docs: import('../types/radar').VaultDoc[]) => void;
+  /** Vault docs the server accepted (the local seed list keeps them). Left out: no Vault source. */
+  onVaultAdded?: (docs: import('../types/radar').VaultDoc[]) => void;
   /** Papers arrived some other way: refresh the seed list and what depends on it. */
   onImported: () => void;
+  /** An ORCID or Prosopia import started (its job id). Whether one is under way: ``useSeedImport(slug)``. */
+  onImportStarted?: (jobId: string) => void;
+  /** After "Added N papers from X.", e.g. what keeps them. */
+  saveNote?: string;
 }) {
   const [source, setSource] = useState<MoreSource | ''>('');
+  const sources = onVaultAdded ? MORE_SOURCES : MORE_SOURCES.filter((o) => o.value !== 'vault');
   return (
     <div className="stack" style={{ gap: 10, marginTop: 16 }}>
       <Field label="Add more seeds from" inline>
         <Select value={source} onChange={(e) => setSource(e.target.value as MoreSource | '')} disabled={disabled} aria-label="Where to add more seeds from" style={{ minWidth: 260 }}>
           <option value="">Choose a source…</option>
-          {MORE_SOURCES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {sources.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </Select>
       </Field>
-      {source === 'vault' && <VaultSeedPicker bare profileKey={slug} seedIds={seedIds} disabled={disabled} onAdded={onVaultAdded} />}
-      {(source === 'orcid' || source === 'prosopia') && <AddFromImport key={source} slug={slug} source={source} onAdded={onImported} />}
-      {source === 'profile' && <AddFromResearcher slug={slug} seedIds={seedIds} onAdded={onImported} />}
+      {source === 'vault' && onVaultAdded && <VaultSeedPicker bare profileKey={slug} seedIds={seedIds} disabled={disabled} onAdded={onVaultAdded} />}
+      {(source === 'orcid' || source === 'prosopia') && <AddFromImport key={source} slug={slug} source={source} seedIds={seedIds} onAdded={onImported} onStarted={onImportStarted} saveNote={saveNote} />}
+      {source === 'profile' && <AddFromResearcher slug={slug} seedIds={seedIds} onAdded={onImported} saveNote={saveNote} />}
     </div>
   );
 }
@@ -616,10 +611,20 @@ function MoreSeeds({ slug, seedIds, disabled, onVaultAdded, onImported }: {
  * papers to the draft (so it completes even if the page is left), and the
  * picker resets for the next person.
  */
-function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid' | 'prosopia'; onAdded: () => void }) {
-  const { update } = useDraft();
+function AddFromImport({ slug, source, seedIds, onAdded, onStarted, saveNote }: {
+  slug: string; source: 'orcid' | 'prosopia'; seedIds: Set<string>; onAdded: () => void;
+  onStarted?: (jobId: string) => void; saveNote: string;
+}) {
   const [running, setRunning] = useState<{ jobId: string; who: string } | null>(null);
   const job = useJob(running?.jobId ?? null);
+  // Under way from the click on Add (setSeedImport in ``start`` below)
+  // until the job is done or failed; a failure stays on screen in the
+  // picker and must not hold Save changes for good.
+  useEffect(() => {
+    if (running && job && job.status !== 'running') setSeedImport(slug, false);
+  }, [running, job, slug]);
+  // Unmounted (the page left): the job, if still running, is the page's to read.
+  useEffect(() => () => setSeedImport(slug, false), [slug]);
   const [round, setRound] = useState(0);
   const [saveProfile, setSaveProfile] = useState(false);
   // onAdded is a new function on every render of the parent, and calling it
@@ -635,7 +640,10 @@ function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid
     if (job.status === 'done') {
       handled.current = job.id;
       const r = job.result as ProsopiaImportResult | null;
-      toast.success(`Added ${plural(typeof r?.drafted === 'number' ? r.drafted : 0, 'paper')} from ${running.who}. You can add another.`);
+      // Seeds actually added: a paper that is a seed already, or has the DOI
+      // of one, is not added again (FUNCTIONAL_SPEC M.4).
+      const added = typeof r?.seeded === 'number' ? r.seeded : typeof r?.drafted === 'number' ? r.drafted : 0;
+      toast.success(`Added ${plural(added, 'paper')} from ${running.who}.${saveNote}${addedToProfileNote(r)} You can add another.`);
       noteUnmatchedImport(r?.unresolved);
       setRound((n) => n + 1);   // a fresh picker for the next one
       setRunning(null);
@@ -649,9 +657,20 @@ function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid
       lookup={source === 'orcid' ? ORCID_LOOKUP : PROSOPIA_LOOKUP}
       job={job}
       startLabel="Add"
-      start={(key, ids) => source === 'orcid' ? startOrcidImport(key, ids, undefined, slug, saveProfile) : startImport(key, undefined, ids, slug, saveProfile)}
-      onStarted={(j, listing) => { setRunning({ jobId: j.id, who: listing.name || listing.key }); update({ extraImportJobId: j.id }); }}
-      footer={<SaveProfileCheck checked={saveProfile} onChange={setSaveProfile} disabled={!!running} />}
+      start={async (key, ids) => {
+        setSeedImport(slug, true);
+        try {
+          const j = await (source === 'orcid' ? startOrcidImport(key, ids, undefined, slug, saveProfile) : startImport(key, undefined, ids, slug, saveProfile));
+          if (!j) setSeedImport(slug, false);
+          return j;
+        } catch (e) {
+          setSeedImport(slug, false);
+          throw e;
+        }
+      }}
+      onStarted={(j, listing) => { setRunning({ jobId: j.id, who: listing.name || listing.key }); onStarted?.(j.id); }}
+      footer={({ savedProfile }) => <SaveProfileCheck checked={saveProfile} onChange={setSaveProfile} disabled={!!running} saved={savedProfile} />}
+      seedIds={seedIds}
     />
   );
 }
@@ -661,7 +680,7 @@ function AddFromImport({ slug, source, onAdded }: { slug: string; source: 'orcid
  * embedded, so they attach at once (no import). Nothing starts ticked: a
  * saved profile can hold hundreds of papers.
  */
-function AddFromResearcher({ slug, seedIds, onAdded }: { slug: string; seedIds: Set<string>; onAdded: () => void }) {
+function AddFromResearcher({ slug, seedIds, onAdded, saveNote }: { slug: string; seedIds: Set<string>; onAdded: () => void; saveNote: string }) {
   const list = useResearchers();
   const [id, setId] = useState<number | null>(null);
   // A preselected id that is not in the list (a forgotten profile, from a
@@ -683,7 +702,7 @@ function AddFromResearcher({ slug, seedIds, onAdded }: { slug: string; seedIds: 
     if (chosenId == null) return;
     const res = await addSeeds(slug, ids, { source: 'researcher', researcherId: chosenId });
     setPicked(new Set());
-    toast.success(`Added ${plural(res.attached, 'paper')} from ${researcher?.name ?? `the ${TERMS.profile}`}.`);
+    toast.success(`Added ${plural(res.attached, 'paper')} from ${researcher?.name ?? `the ${TERMS.profile}`}.${saveNote}`);
     onAdded();
   });
   useClearOnChange(add, [id, picked]);
@@ -722,6 +741,7 @@ function SeedUploader({ state }: { state: DraftState }) {
   const docs = useVaultDocs(slug);
   const importJob = useJob(state.importJobId);
   const extraImport = useJob(state.extraImportJobId ?? null);
+  const moreStarting = useSeedImport(slug);
   // The latest import's error, from the server: an import that died after
   // attaching part of its papers resumed as a healthy-looking seed list.
   const draftInfo = useDrafts().data?.find((d) => d.slug === slug);
@@ -735,7 +755,7 @@ function SeedUploader({ state }: { state: DraftState }) {
   const paused = useOpenAlexPaused();
   // An "Add more seeds" import holds Next too: the trial and the fit would
   // use part of the seeds, and the rest would land on the saved interest.
-  const importing = importJob?.status === 'running' || extraImport?.status === 'running';
+  const importing = importJob?.status === 'running' || extraImport?.status === 'running' || moreStarting;
   const removal = useRemoveSeed(slug);
   const haveSeeds = seeds.length > 0;
   // Coherence, the dry run, the threshold and the topic picks were all
@@ -869,6 +889,7 @@ function SeedUploader({ state }: { state: DraftState }) {
         // results computed from the old seed set.
         onVaultAdded={(docs) => { docs.forEach(forDraft(slug).addSeed); invalidateDownstream(); }}
         onImported={() => { invalidateDownstream(); invalidate(`vault/docs?tag=${slug}`); void docs.refresh(); }}
+        onImportStarted={(jobId) => update({ extraImportJobId: jobId })}
       />
 
       <div style={{ marginTop: 16 }}>
@@ -879,9 +900,9 @@ function SeedUploader({ state }: { state: DraftState }) {
         {docs.error && !docs.data && <ErrorBox compact message={errorMessage(docs.error)} onRetry={docs.refresh} />}
         {seeds.length === 0 && !docs.loading && !importing && <p className="muted small">No seeds yet.</p>}
         {seeds.map((d, i) => (
-          <div className="seed-row removable" key={d.id}>
+          <div className={`seed-row removable ${d.sameTitle ? 'same-title' : ''}`} key={d.id}>
             <span className="idx">{String(i + 1).padStart(2, '0')}</span>
-            <span className="truncate"><PaperTitle title={displayTitle({ ...d, title: d.title || d.id })} id={workId(d)} /></span>
+            <span className="truncate"><PaperTitle title={displayTitle({ ...d, title: d.title || d.id })} id={workId(d)} />{sameTitleTag(d) && <span className="seed-dup" title={sameTitleTag(d)!.title}>{sameTitleTag(d)!.label}</span>}</span>
             <span className="muted small">{d.pages ? `${d.pages} pages` : ''}</span>
             <span className="muted small">{d.authors.slice(0, 2).join(', ')}</span>
             <IconButton icon="trash" size="sm" label={`Remove "${d.title || d.id}" from the seeds`} disabled={importing || !!progress || removal.busyId !== null} onClick={() => void removal.remove(d.id, d.title)} />
