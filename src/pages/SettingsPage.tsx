@@ -34,10 +34,9 @@ export function SettingsPage() {
   });
 
   function signOut() {
-    // Clearing the cached address is not signing out: Cloudflare Access
-    // holds the session, and it would still be attached to the very next
-    // request -- the user would appear to sign out and then find
-    // themselves signed in as the same person. Hand off to Access.
+    // Clearing the cached address is not signing out: Cloudflare Access or
+    // the backend's Prosopia cookie holds the session, and it would still
+    // be attached to the very next request. endSession hands off to it.
     endSession();
   }
 

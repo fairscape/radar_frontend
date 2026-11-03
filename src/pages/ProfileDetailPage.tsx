@@ -27,8 +27,11 @@ type Tab = 'suggested' | 'papers' | 'interests' | 'about';
  * and what the source published about them. The primary action is
  * building another interest, which opens the wizard with this profile
  * preselected.
+ *
+ * ``check`` (``?check`` in the URL) opens "Check for new papers" on
+ * arrival; the Prosopia card's own check button lands here that way.
  */
-export function ProfileDetailPage({ id }: { id: number }) {
+export function ProfileDetailPage({ id, check = false }: { id: number; check?: boolean }) {
   // Set while Forget runs: the delete invalidates every researcher query,
   // and this page's (the row, its works, its suggestions) refetched a row
   // that was gone -- three 404s before the navigation away landed.
@@ -54,7 +57,17 @@ export function ProfileDetailPage({ id }: { id: number }) {
   // works not saved yet. The old Re-import imported everything the source
   // lists: papers deselected the first time came back, and every paper
   // was resolved against OpenAlex again.
-  const [checking, setChecking] = useState(false);
+  const [checking, setChecking] = useState(check);
+
+  // For a Prosopia profile, read the same listing in the background and
+  // say how many papers are new, so nobody has to click to find out
+  // there is nothing. Same cache key as NewPapersPanel, so opening the
+  // check after this is instant. Never imports; an error shows nothing.
+  const peek = !!r && r.source === 'prosopia' && !r.importing && !running;
+  const works = useQuery(peek ? `researchers/${id}/works` : null, () => getResearcherWorks(id));
+  const nNew = peek && works.data
+    ? prosopiaPickWorks(works.data.works as ProsopiaWork[]).filter((w) => !works.data!.saved_ids.includes(w.id)).length
+    : 0;
 
   async function forget() {
     if (!r) return;
@@ -119,6 +132,7 @@ export function ProfileDetailPage({ id }: { id: number }) {
         <div className="page-actions">
           <MarkSelect r={r} size="md" />
           <Button icon="refresh" onClick={() => setChecking(true)} disabled={importing || checking} title={`Read ${r.source === 'prosopia' ? 'the Prosopia profile' : 'OpenAlex for this ORCID'} again and pick the papers that are new`}>Check for new papers</Button>
+          {nNew > 0 && !checking && <span className="small" style={{ color: 'var(--accent)', alignSelf: 'center' }}>{nNew} new on Prosopia</span>}
           <Button variant="danger" icon="trash" onClick={forget} disabled={importing}>Forget</Button>
           <Button variant="primary" icon="plus" onClick={() => navigate(paths.wizardFrom('profile', r.id))} disabled={r.n_papers === 0 || importing} title={importing ? 'Wait for the import to finish: the interest would start with part of the papers' : r.n_papers === 0 ? 'No papers to build from yet' : undefined}>{TERMS.newInterest} from these papers</Button>
         </div>

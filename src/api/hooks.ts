@@ -5,6 +5,7 @@ import { getChatHistory, getBackendHealth, getChatProviders } from './endpoints/
 import { getProfileDetail, listDrafts, listProfileFeedback, listProfileRuns, listProfiles } from './endpoints/profiles';
 import { getDailyRadar } from './endpoints/radar';
 import { getResearcher, getResearcherSuggestions, listResearchers } from './endpoints/researchers';
+import { getMyProsopia } from './endpoints/users';
 import { getTagCounts, getVaultMeta, getVaultStats, listVaultDocs } from './endpoints/vault';
 
 export const keys = {
@@ -24,6 +25,7 @@ export const keys = {
   researcher: (id: number) => `researchers/${id}`,
   researcherSuggestions: (id: number) => `researchers/${id}/suggestions`,
   researcherTopics: (key: string) => `profiles/${key}/researcher-topics`,
+  myProsopia: 'users/me/prosopia',
   chatHistory: 'chat/history',
   health: 'health',
   providers: 'chat/providers',
@@ -101,4 +103,14 @@ export function useResearcher(id: number | null) {
 
 export function useResearcherSuggestions(id: number | null) {
   return useQuery(id != null ? keys.researcherSuggestions(id) : null, () => getResearcherSuggestions(id!));
+}
+
+/**
+ * The signed-in person's own Prosopia profile, when Prosopia sign-in
+ * named one (``self_rid``). An error counts the same as no profile: the
+ * card it feeds is optional, so callers read ``data?.profile`` and show
+ * nothing otherwise.
+ */
+export function useMyProsopia() {
+  return useQuery(keys.myProsopia, getMyProsopia);
 }
