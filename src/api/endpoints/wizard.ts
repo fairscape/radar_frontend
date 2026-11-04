@@ -1,6 +1,6 @@
 /** Draft-interest (wizard) endpoints. Shapes mirror ``rag_lib/api/schemas.py``. */
 import type { Card, CoherenceLabel, SavedDraft, SeedSimilarity, SweepRow, Topic, VaultDoc, YearSpan } from '../../types/radar';
-import { apiDelete, apiGet, apiPost } from '../client';
+import { apiDelete, apiGet, apiPost, apiPostOnLeave } from '../client';
 import { invalidate, invalidateUnshown } from '../../lib/query';
 import type { GatherRunStatus } from './profiles';
 
@@ -150,4 +150,33 @@ export async function deleteDraft(slug: string): Promise<{ ok: boolean }> {
   // 'researchers': a researcher's interests (and their count) list drafts.
   invalidate('profiles', 'vault', 'researchers');
   return res;
+}
+
+/**
+ * A new interest's draft is open in one tab at a time (FUNCTIONAL_SPEC
+ * W.L): the wizard tab that opens it holds it, says so every 30 s, and
+ * lets go as it leaves. 409 (``openElsewhere``) while another tab holds
+ * it; 404 once it is no draft (saved, or deleted, meanwhile). Which tab
+ * asks is the ``X-Radar-Tab`` header every request carries.
+ */
+// One after another: a release overtaken by the next hold (a remount)
+// would free the draft this tab just took again.
+let holdQueue: Promise<unknown> = Promise.resolve();
+function inTurn<T>(call: () => Promise<T>): Promise<T> {
+  const next = holdQueue.then(call, call);
+  holdQueue = next.catch(() => {});
+  return next;
+}
+
+export function holdDraft(slug: string): Promise<{ ok: boolean }> {
+  return inTurn(() => apiPost<{ ok: boolean }>(`/api/profiles/draft/${enc(slug)}/hold`));
+}
+
+export function releaseDraft(slug: string): Promise<{ ok: boolean }> {
+  return inTurn(() => apiPost<{ ok: boolean }>(`/api/profiles/draft/${enc(slug)}/release`));
+}
+
+/** The tab closes (or reloads) on the wizard: free the draft now, not 2 minutes on. */
+export function releaseDraftOnLeave(slug: string): void {
+  apiPostOnLeave(`/api/profiles/draft/${enc(slug)}/release`);
 }

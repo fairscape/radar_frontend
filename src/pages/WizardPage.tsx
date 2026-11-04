@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDrafts, useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
-import { ApiError } from '../api/client';
+import { ApiError, isDraftOpenElsewhere, onDraftOpenElsewhere } from '../api/client';
 import { createInterestFromResearcher } from '../api/endpoints/researchers';
 import { addSeeds, getProfileDetail, removeSeed as removeSeedOnServer, saveTopics } from '../api/endpoints/profiles';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
@@ -16,6 +16,9 @@ import {
   deleteDraft,
   getDraftCoherence,
   getDraftTopics,
+  holdDraft,
+  releaseDraft,
+  releaseDraftOnLeave,
   startSeedUmls,
   type DraftCoherence,
   type SeedUmlsStatus,
@@ -57,8 +60,77 @@ const SOURCES: { source: SeedSource; icon: import('../ui').IconName; title: stri
   { source: 'profile', icon: 'user', title: `A saved ${TERMS.profile}`, body: `Papers from a ${TERMS.profile} you already imported. No waiting: they are ready to use.` },
 ];
 
+type Hold = 'pending' | 'held' | 'elsewhere' | { saved: { key: string; name: string } } | 'deleted';
+
+/**
+ * One tab at a time on a new interest's draft (FUNCTIONAL_SPEC W.L, the
+ * user 2026-11-04): this tab holds draft ``slug`` while the wizard shows
+ * it -- says so every 30 s and when the tab comes back into view -- and
+ * lets go when it moves off it, or the tab closes. Another tab holding it
+ * ('elsewhere') stops this one before any step runs, Resume included;
+ * saved or deleted meanwhile, the page says which (it used to fail the
+ * next step with "Something went wrong"). ``retry``: Try again.
+ */
+function useDraftHold(slug: string | null): [Hold, () => void] {
+  const [hold, setHold] = useState<Hold>('pending');
+  const [attempt, setAttempt] = useState(0);
+  const now = useRef<Hold>('pending');
+  useEffect(() => {
+    if (!slug) return;
+    let alive = true;
+    const set = (h: Hold) => { if (alive) { now.current = h; setHold(h); } };
+    set('pending');
+    const ping = () => {
+      if (now.current !== 'pending' && now.current !== 'held') return;   // stopped: Try again starts over
+      holdDraft(slug).then(() => set('held'), async (e) => {
+        if (!alive) return;
+        if (isDraftOpenElsewhere(e)) { set('elsewhere'); return; }
+        if (e instanceof ApiError && e.status === 404) {
+          // This tab's own save went through: its job takes the page on.
+          const d = getDraft();
+          if (d.slug === slug && d.saveJobId) return;
+          const p = await getProfileDetail(slug).catch(() => null);
+          set(p && !p.profile.isDraft ? { saved: { key: p.profile.key, name: p.profile.name } } : 'deleted');
+          return;
+        }
+        // Offline, or the server erred: not a reason to stop. The steps'
+        // own writes are still refused while another tab holds it.
+        if (now.current === 'pending') set('held');
+      });
+    };
+    ping();
+    const onShow = () => { if (document.visibilityState === 'visible') ping(); };
+    const onHide = () => { if (now.current === 'held') releaseDraftOnLeave(slug); };
+    // A write refused for another tab's hold (its 2 minutes passed while
+    // this tab slept, and that tab took it): at once, not at the next check.
+    const offElsewhere = onDraftOpenElsewhere(() => { if (getDraft().slug === slug) set('elsewhere'); });
+    const timer = window.setInterval(ping, 30_000);
+    document.addEventListener('visibilitychange', onShow);
+    window.addEventListener('pageshow', ping);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      const held = now.current === 'held';
+      alive = false;
+      now.current = 'pending';
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onShow);
+      window.removeEventListener('pageshow', ping);
+      window.removeEventListener('pagehide', onHide);
+      offElsewhere();
+      if (held) void releaseDraft(slug).catch(() => {});
+    };
+  }, [slug, attempt]);
+  return [slug ? hold : 'pending', () => setAttempt((n) => n + 1)];
+}
+
 export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { draftSlug: string | null; source: string | null; researcher?: number | null; urlStep?: number | null }) {
   const { state, update, reset } = useDraft();
+  const [hold, retryHold] = useDraftHold(state.slug);
+  // Drafts this page did not make -- resumed, or already in this tab's
+  // store as it opened (a reload, or a duplicated tab) -- show no step
+  // until the hold answers: another tab may have them. One just made here
+  // is nobody else's, and its step stays up meanwhile.
+  const notMadeHere = useRef<Set<string>>(new Set(getDraft().slug ? [getDraft().slug!] : []));
 
   // ``?source=`` preselects where the seeds come from (from the home
   // page's entry points, or a profile's "new interest" button). It is a
@@ -120,6 +192,7 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
       // needs topics chosen, which this tab does not hold yet, so step 4
       // opens on the topics. Without this the link always landed on step 1.
       const step = urlStep != null && row.seeds > 0 ? Math.min(Math.max(1, Math.floor(urlStep)), 3) : 1;
+      notMadeHere.current.add(row.key);
       update({ slug: row.key, name: row.name, step, source: 'upload' });
       setResuming(true);
       return;
@@ -262,6 +335,35 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
     navigate(paths.interests);
   }
 
+  // Off this draft, back to the list: the draft stays on the server.
+  const leaveTo = (href: string) => { reset(); navigate(href); };
+  const draftName = state.name || state.slug || '';
+  if (state.slug && hold === 'elsewhere') {
+    return (
+      <div className="page">
+        <EmptyState icon="alert" title={`"${draftName}" is open in another tab or window`}
+          body="One tab works on a draft at a time. Finish it or leave the wizard there first. If that tab was closed without leaving (or the browser crashed), the draft is free again within 2 minutes."
+          action={<div className="row"><Button variant="primary" onClick={retryHold}>Try again</Button><Button onClick={() => leaveTo(paths.interests)}>Back to {TERMS.interests}</Button></div>} />
+      </div>
+    );
+  }
+  if (state.slug && hold === 'deleted') {
+    return (
+      <div className="page">
+        <EmptyState icon="alert" title={`"${draftName}" was deleted`} body="The draft is gone, perhaps deleted in another tab."
+          action={<Button onClick={() => leaveTo(paths.interests)}>All {TERMS.interests}</Button>} />
+      </div>
+    );
+  }
+  if (state.slug && typeof hold === 'object') {
+    return (
+      <div className="page">
+        <EmptyState icon="check" title={`"${hold.saved.name}" was saved, in another tab`} body={`The draft is now a saved ${TERMS.interest}.`}
+          action={<Button variant="primary" onClick={() => leaveTo(paths.interest(hold.saved.key))}>Open the {TERMS.interest}</Button>} />
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <nav className="crumbs"><Link href={paths.interests}>{TERMS.Interests}</Link><Icon name="chevron-right" size={12} /><span>{TERMS.newInterest}</span></nav>
@@ -290,7 +392,7 @@ export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { 
           })}
         </aside>
         <div>
-          {resuming ? <LoadingRows rows={3} /> : (
+          {resuming || (state.slug && hold === 'pending' && notMadeHere.current.has(state.slug)) ? <LoadingRows rows={3} /> : (
             <>
               {step === 1 && !state.slug && <UnfinishedDrafts />}
               {step === 1 && <StepSeeds state={state} preselectResearcher={researcher ?? null} />}

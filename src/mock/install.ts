@@ -573,6 +573,13 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     p.topics = [];
     return json({ ok: true });
   }
+  // One tab at a time (W.L): the mock is one tab's, so it always holds.
+  m = path.match(/^\/api\/profiles\/draft\/([^/]+)\/(hold|release)$/);
+  if (m && method === 'POST') {
+    const p = findProfile(decodeURIComponent(m[1]));
+    if (m[2] === 'hold' && (!p || !p.is_draft)) return err(404, `draft '${m[1]}' not found`);
+    return json({ ok: true });
+  }
   m = path.match(/^\/api\/profiles\/draft\/([^/]+)$/);
   if (m && method === 'DELETE') {
     const slug = decodeURIComponent(m[1]);

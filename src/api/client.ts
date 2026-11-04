@@ -10,6 +10,8 @@
  * backend uses its stub user.
  */
 
+import { tabId } from '../lib/tab';
+
 export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
   (import.meta.env.VITE_API_URL as string | undefined) ??
@@ -48,6 +50,34 @@ async function parseBody(resp: Response): Promise<unknown> {
     }
   }
   return await resp.text();
+}
+
+/**
+ * Which tab sends a request (``X-Radar-Tab``): a new interest's draft is
+ * open in one tab at a time (FUNCTIONAL_SPEC W.L), and the server tells
+ * the tab holding it from the others by this. Sent on every request, so
+ * no write can leave it out. ``tabNow`` for the page-leaving POST, which
+ * cannot wait (the id is settled long before a page goes).
+ */
+export const TAB_HEADER = 'X-Radar-Tab';
+let tabNow = '';
+void tabId().then((t) => { tabNow = t; });
+
+const draftElsewhereListeners = new Set<(body: unknown) => void>();
+
+/**
+ * Called when a request was refused because another tab holds the draft
+ * (409 with ``openElsewhere``): the wizard shows that instead of the
+ * failed step. Its own check every 30 s finds it too; this is at once.
+ */
+export function onDraftOpenElsewhere(cb: (body: unknown) => void): () => void {
+  draftElsewhereListeners.add(cb);
+  return () => { draftElsewhereListeners.delete(cb); };
+}
+
+export function isDraftOpenElsewhere(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409 && !!e.body && typeof e.body === 'object'
+    && (e.body as { openElsewhere?: unknown }).openElsewhere === true;
 }
 
 const sessionLostListeners = new Set<() => void>();
@@ -112,6 +142,7 @@ async function request<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   const isForm = init.body instanceof FormData;
+  const tab = await tabId();
   const resp = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     signal: signal ?? init.signal,
@@ -119,6 +150,7 @@ async function request<T>(
       Accept: 'application/json',
       ...(init.body && !isForm ? { 'Content-Type': 'application/json' } : {}),
       ...userEmailHeader(),
+      [TAB_HEADER]: tab,
       ...(init.headers ?? {}),
     },
   });
@@ -141,6 +173,9 @@ async function request<T>(
     if (resp.status === 503 && body && typeof body === 'object' && 'openalex' in body) {
       const status = (body as { openalex: unknown }).openalex;
       openAlexListeners.forEach((cb) => cb(status));
+    }
+    if (resp.status === 409 && body && typeof body === 'object' && (body as { openElsewhere?: unknown }).openElsewhere === true) {
+      draftElsewhereListeners.forEach((cb) => cb(body));
     }
     if ((init.method ?? 'GET') !== 'GET' && [400, 404, 409].includes(resp.status)) {
       writeRejectedListeners.forEach((cb) => cb());
@@ -193,7 +228,7 @@ export function apiPost<T>(path: string, body?: unknown, signal?: AbortSignal): 
 export function apiPostOnLeave(path: string): void {
   try {
     void fetch(`${API_BASE_URL}${path}`, {
-      method: 'POST', keepalive: true, headers: { Accept: 'application/json', ...userEmailHeader() },
+      method: 'POST', keepalive: true, headers: { Accept: 'application/json', ...userEmailHeader(), [TAB_HEADER]: tabNow },
     }).catch(() => {});
   } catch { /* the page is going either way */ }
 }
