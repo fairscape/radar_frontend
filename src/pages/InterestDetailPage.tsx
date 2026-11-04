@@ -27,7 +27,7 @@ import { UmlsConcept } from '../ui/UmlsAllOn';
 import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedUploads, openAlexStopped, sameTitleTag, seedKeys, seedSource, workId } from '../lib/unmatched';
 import { useOpenAlexPaused } from '../lib/openalex';
 import { notifyEmptyDrop } from '../lib/dropHint';
-import type { Profile, VaultDoc } from '../types/radar';
+import type { Profile, Seed, VaultDoc } from '../types/radar';
 import { Badge, Button, Callout, Dialog, EmptyState, ErrorBox, Field, Icon, IconButton, LoadingRows, NumberInput, Panel, Stat, Tabs, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { PaperTitle } from '../ui/pickers';
 import { VaultSeedPicker } from '../ui/VaultSeedPicker';
@@ -61,6 +61,17 @@ const QUERY_KIND: Record<string, string> = {
  * Whether a scan of this interest is running: one this tab started, or one
  * the server lists as unfinished.
  */
+
+/**
+ * The line under a seed: where it came from and, for an uploaded file,
+ * when it was uploaded (CR.4) -- so a PDF deleted and uploaded again reads
+ * as two files, the old one marked deleted below with its own upload time.
+ */
+function seedNote(s: Seed): string | null {
+  const from = seedSource(s);
+  if (!s.uploaded || !s.id.startsWith('local:upload:')) return from;
+  return `${from ?? 'Uploaded PDF'}, uploaded ${fmtDateTime(s.uploaded)}`;
+}
 export function useScanBusy(profileKey: string) {
   const tabJob = useRunningJob('scan', profileKey);
   // A scan this tab did not start (another tab, or before this tab opened)
@@ -290,15 +301,12 @@ export function SeedsTab({ profile, detail, editing = false, more }: {
     let ok = 0;
     const unmatched: string[] = [];
     const uploaded: VaultDoc[] = [];
-    // A PDF that is one of the seeds already: nothing is added, and the
-    // toast used to say "1 seed added" all the same.
-    const had = new Set(detail.seeds.map((s) => s.id));
-    const already: string[] = [];
+    // A PDF that is one of the seeds already is refused by the server
+    // (409, CR.10), and its message lands with the other failures.
     for (let i = 0; i < list.length; i++) {
       setSeedUpload(profile.key, { done: i, total: list.length, current: list[i].name });
       try {
         const doc = await uploadPdf(list[i], profile.key);
-        if (had.has(doc.id)) { already.push(list[i].name); continue; }
         if (isUnmatched(doc)) unmatched.push(list[i].name);
         uploaded.push(doc);
         ok += 1;
@@ -317,7 +325,6 @@ export function SeedsTab({ profile, detail, editing = false, more }: {
     // Each upload re-fits the interest on the server; the coherence and
     // topic views are what still need a Recompute.
     if (ok > 0) toast.success(`${plural(ok, 'seed')} added. Save changes to keep ${ok === 1 ? 'it' : 'them'}; the recommendations follow the new seeds from the next scan.`);
-    if (already.length > 0) toast.info(`Already a seed here: ${already.join(', ')}.`);
     noteUnmatchedUploads(unmatched, 'interest');
     noteNewVersions(uploaded);
   }
@@ -361,7 +368,7 @@ export function SeedsTab({ profile, detail, editing = false, more }: {
             <span className="truncate">
               <PaperTitle title={displayTitle(s)} id={workId(s)} />
               {sameTitleTag(s) && <span className="seed-dup" title={sameTitleTag(s)!.title}>{sameTitleTag(s)!.label}</span>}
-              {seedSource(s) && <span className="muted small" style={{ display: 'block' }}>{seedSource(s)}</span>}
+              {seedNote(s) && <span className="muted small" style={{ display: 'block' }}>{seedNote(s)}</span>}
             </span>
             <span className="muted mono small">{s.year || ''}</span>
             <span className="mono small" title="How similar this seed is to the other seeds (leave-one-out). The lowest values are the least typical papers." style={{ color: s.coh > 0 && profile.seedSimMin != null && s.coh <= profile.seedSimMin + 1e-6 && profile.seedSimMax != null && profile.seedSimMax - profile.seedSimMin > 0.02 ? 'var(--warn)' : 'var(--fg-3)' }}>
@@ -375,7 +382,7 @@ export function SeedsTab({ profile, detail, editing = false, more }: {
             <span className="idx">—</span>
             <span className="truncate">
               <s className="muted">{s.title || 'Untitled PDF'}</s> <Badge tone="warn">deleted</Badge>
-              <span className="muted small" style={{ display: 'block' }}>Deleted from the {TERMS.vault} {fmtRelative(s.deletedAt)}. The current recommendations still include it; the next scan works without it.</span>
+              <span className="muted small" style={{ display: 'block' }}>{s.uploaded ? `Uploaded ${fmtDateTime(s.uploaded)}; deleted` : 'Deleted'} from the {TERMS.vault} {fmtRelative(s.deletedAt)}. The current recommendations still include it; the next scan works without it.</span>
             </span>
           </div>
         ))}

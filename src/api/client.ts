@@ -15,6 +15,9 @@ export const API_BASE_URL: string =
   (import.meta.env.VITE_API_URL as string | undefined) ??
   '';
 
+/** The backend's 400 for an empty X-User-Email (rag_lib/api/deps.py, L12). */
+const NO_IDENTITY = 'X-User-Email is empty';
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -50,9 +53,10 @@ async function parseBody(resp: Response): Promise<unknown> {
 const sessionLostListeners = new Set<() => void>();
 
 /**
- * Called when a request came back as Cloudflare Access's login page: the
- * session lapsed mid-visit. ``App`` flips to "Session expired" rather than
- * handing a page of HTML to components that expected a list.
+ * Called when the session lapsed mid-visit: a 401 saying nobody is signed
+ * in, or a page of HTML where JSON was expected (a proxy's login page).
+ * ``App`` flips to the sign-in gate rather than leaving every panel on an
+ * error, or handing HTML to components that expected a list.
  */
 export function onSessionLost(cb: () => void): () => void {
   sessionLostListeners.add(cb);
@@ -84,6 +88,18 @@ export function onOpenAlexStatus(cb: (status: unknown) => void): () => void {
   return () => { openAlexListeners.delete(cb); };
 }
 
+/**
+ * The backend's "nobody is signed in" answers (deps.get_current_user).
+ * Only these end the session: a 401 can also mean something else -- the
+ * Anthropic key typed in for one topic generation was rejected -- and that
+ * must stay an error on that form, not a sign-out.
+ */
+const SIGNED_OUT_DETAILS = new Set(['not signed in', 'X-User-Email header is required']);
+
+function isSignedOut(body: unknown): boolean {
+  return !!body && typeof body === 'object' && SIGNED_OUT_DETAILS.has((body as { detail?: unknown }).detail as string);
+}
+
 function looksLikeLoginPage(resp: Response, body: unknown): boolean {
   if (typeof body !== 'string') return false;
   const ct = resp.headers.get('content-type') ?? '';
@@ -107,6 +123,20 @@ async function request<T>(
     },
   });
   const body = await parseBody(resp);
+  if (resp.status === 400 && body && typeof body === 'object' && (body as { detail?: unknown }).detail === NO_IDENTITY) {
+    // The proxy passed the identity header on empty: no one is signed in
+    // (the backend says 400 for it since L12). The same as no session.
+    sessionLostListeners.forEach((cb) => cb());
+    throw new ApiError(`${init.method ?? 'GET'} ${path}: no one is signed in`, 401, body);
+  }
+  if (resp.status === 401 && isSignedOut(body)) {
+    // The session cookie expired or was cleared mid-visit (14 days, or
+    // Sign out in another tab). Without this every panel showed "failed
+    // (401)" until a manual reload; the expired-Access case below used to
+    // be the only one, and the backend now answers JSON 401 instead.
+    sessionLostListeners.forEach((cb) => cb());
+    throw new ApiError(`${init.method ?? 'GET'} ${path}: the session has expired`, 401, body);
+  }
   if (!resp.ok) {
     if (resp.status === 503 && body && typeof body === 'object' && 'openalex' in body) {
       const status = (body as { openalex: unknown }).openalex;

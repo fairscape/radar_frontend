@@ -4,7 +4,7 @@
  * Mutations invalidate the query cache for the data they change so
  * every mounted view refreshes.
  */
-import { apiDelete, apiGet, apiPatch, apiPost, apiPostOnLeave, apiPut } from '../client';
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPostOnLeave, apiPut } from '../client';
 import { invalidate, invalidateWhere, markStale, setQueryData } from '../../lib/query';
 import type { YearSpan } from '../../types/radar';
 import type {
@@ -26,7 +26,7 @@ export interface ProfileDetail {
   profile: Profile;
   seeds: Seed[];
   /** Seeds whose PDF was deleted from the Vault: listed last, marked deleted, until the next scan (FUNCTIONAL_SPEC F1). */
-  deletedSeeds?: { id: string; title?: string | null; deletedAt: string }[];
+  deletedSeeds?: { id: string; title?: string | null; uploaded?: string | null; deletedAt: string }[];
   topics: Topic[];
   sweep: SweepRow[];
   coherenceBins: number[];
@@ -111,8 +111,16 @@ export function listProfiles(): Promise<Profile[]> {
   return apiGet<Profile[]>('/api/profiles');
 }
 
+/** null: no such interest of this user's. The server says 404 (L11) for
+ * one that does not exist and for someone else's alike; the pages show
+ * their "not found" state for null, as before. */
 export async function getProfileDetail(key: string): Promise<ProfileDetail | null> {
-  return (await apiGet<ProfileDetail | null>(`/api/profiles/${enc(key)}/detail`)) ?? null;
+  try {
+    return await apiGet<ProfileDetail>(`/api/profiles/${enc(key)}/detail`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
 }
 
 export async function updateProfileThreshold(key: string, threshold: number): Promise<Profile> {

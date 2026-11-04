@@ -28,7 +28,7 @@ type Tab = 'suggested' | 'papers' | 'interests' | 'about';
  * building another interest, which opens the wizard with this profile
  * preselected.
  */
-export function ProfileDetailPage({ id }: { id: number }) {
+export function ProfileDetailPage({ id, check = false }: { id: number; check?: boolean }) {
   // Set while Forget runs: the delete invalidates every researcher query,
   // and this page's (the row, its works, its suggestions) refetched a row
   // that was gone -- three 404s before the navigation away landed.
@@ -54,7 +54,9 @@ export function ProfileDetailPage({ id }: { id: number }) {
   // works not saved yet. The old Re-import imported everything the source
   // lists: papers deselected the first time came back, and every paper
   // was resolved against OpenAlex again.
-  const [checking, setChecking] = useState(false);
+  // ``check`` (``?check`` in the URL) opens it on arrival: the Prosopia
+  // card's own "Check for new papers" lands here that way.
+  const [checking, setChecking] = useState(check);
 
   async function forget() {
     if (!r) return;

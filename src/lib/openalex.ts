@@ -12,7 +12,7 @@ import { invalidateExact, setQueryData, useQuery } from './query';
 
 export interface OpenAlexStatus {
   available: boolean;
-  kind: 'quota' | 'auth' | 'down' | null;
+  kind: 'quota' | 'busy' | 'auth' | 'down' | null;
   until: string | null;
   message: string | null;
 }

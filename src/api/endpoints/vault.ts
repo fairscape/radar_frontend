@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPostMultipart } from '../client';
+import { ApiError, apiDelete, apiGet, apiPostMultipart } from '../client';
 import { invalidate } from '../../lib/query';
 import type { VaultDoc, VaultStats } from '../../types/radar';
 
@@ -38,7 +38,19 @@ if (typeof window !== 'undefined') {
  * Upload one PDF. With ``profileSlug`` the document is tagged to that
  * interest and, for drafts and live interests alike, becomes a seed.
  */
+/** The vault's limit, as the backend has it (RADAR_UPLOAD_MAX_MB = 50, in
+ * MiB); the proxy refuses anything over 55 MB before it arrives (L4).
+ * Change them together. */
+export const UPLOAD_MAX_MB = 50;
+
 export async function uploadPdf(file: File, profileSlug?: string): Promise<VaultDoc> {
+  // Refused here, not sent: a file over the limit would be cut off by the
+  // proxy part-way, which the browser can report as a lost connection.
+  if (file.size > UPLOAD_MAX_MB * 1024 * 1024) {
+    throw new ApiError(`POST /api/vault/upload: ${file.name} is too large`, 413, {
+      detail: `This file is larger than ${UPLOAD_MAX_MB} MB, the most the vault takes.`,
+    });
+  }
   const form = new FormData();
   form.append('file', file);
   if (profileSlug) form.append('profile_slug', profileSlug);

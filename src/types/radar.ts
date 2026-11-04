@@ -80,8 +80,6 @@ export interface VaultDoc {
   added: string;
   /** Which of your files of this paper it is (1 = first uploaded), when you have two or more; null otherwise. */
   version?: number | null;
-  /** Upload response only: these bytes were already in your vault. */
-  duplicate?: boolean | null;
   abstract?: string | null;
   /** ``pdf``: read from your uploaded file, as OpenAlex has none; null: OpenAlex's. */
   abstractSource?: string | null;
@@ -99,8 +97,9 @@ export interface Seed {
   title: string;
   year: number;
   coh: number;
-  /** As VaultDoc.version, with when that file was uploaded. */
+  /** As VaultDoc.version. */
   version?: number | null;
+  /** When this file was uploaded, for every uploaded seed (CR.4). */
   uploaded?: string | null;
   /** Where the seed came from; null for seeds added before this was recorded. */
   source?: 'upload' | 'researcher' | 'vault' | 'feed' | 'orcid' | 'prosopia' | null;

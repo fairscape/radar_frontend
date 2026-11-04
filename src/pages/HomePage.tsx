@@ -1,10 +1,11 @@
-import { useProfiles, useResearchers } from '../api/hooks';
+import { useMyProsopia, useProfiles, useResearchers } from '../api/hooks';
 import { errorMessage } from '../lib/format';
 import { paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import type { Profile } from '../types/radar';
 import { ErrorBox, Icon, Swatch, type IconName } from '../ui';
 import { Link } from '../ui/Link';
+import { MyProsopiaCard } from '../ui/MyProsopiaCard';
 import { CHAT_ENABLED } from '../lib/features';
 
 /**
@@ -34,6 +35,7 @@ export function HomePage() {
           <div>
             <h2>Add an {TERMS.interest}</h2>
             <p>Everything starts here. An {TERMS.interest} is a topic you want to follow, defined by a set of papers. Build one from:</p>
+            <MyProsopiaCard />
             <AddInterestCards />
             {profiles && profiles.length > 0 && <YourInterests live={live} drafts={drafts} />}
           </div>
@@ -81,6 +83,9 @@ const WAYS: { source: 'upload' | 'orcid' | 'prosopia' | 'profile'; icon: IconNam
 /** The ways into the wizard. Shared by the home page and empty states. */
 export function AddInterestCards() {
   const { data: researchers } = useResearchers();
+  // With the signed-in person's own profile offered above (MyProsopiaCard),
+  // the paste-a-slug way is for everyone else's.
+  const mine = !!useMyProsopia().data?.profile;
   // The fourth way only makes sense once a profile exists; until then
   // the card leads to the Profiles page, where one can be imported.
   const haveProfiles = (researchers?.length ?? 0) > 0;
@@ -89,7 +94,7 @@ export function AddInterestCards() {
       {WAYS.map((w) => (
         <Link key={w.source} href={w.source === 'profile' && !haveProfiles ? paths.profiles : paths.wizardFrom(w.source)} className="home-way">
           <Icon name={w.icon} size={18} />
-          <b>{w.title}</b>
+          <b>{w.source === 'prosopia' && mine ? "Someone else's Prosopia profile" : w.title}</b>
           <span>{w.source === 'profile' && researchers && !haveProfiles ? `Import a researcher under ${TERMS.Profiles} first; ORCID and Prosopia imports save one automatically.` : w.body}</span>
         </Link>
       ))}

@@ -34,10 +34,9 @@ export function SettingsPage() {
   });
 
   function signOut() {
-    // Clearing the cached address is not signing out: Cloudflare Access
-    // holds the session, and it would still be attached to the very next
-    // request -- the user would appear to sign out and then find
-    // themselves signed in as the same person. Hand off to Access.
+    // Clearing the cached address is not signing out: the backend's session
+    // cookie would still be attached to the very next request. endSession
+    // ends it at /auth/logout.
     endSession();
   }
 
@@ -104,7 +103,7 @@ export function SettingsPage() {
       </Panel>
 
       <Panel title="Session">
-        <p className="small muted" style={{ marginBottom: 10 }}>Signing out ends your Cloudflare Access session for this site. Your interests and vault stay on the server.</p>
+        <p className="small muted" style={{ marginBottom: 10 }}>Signing out ends your BioXplorer session on this browser. It does not sign you out of Google or Prosopia. Your interests and vault stay on the server.</p>
         <Button onClick={signOut}>Sign out</Button>
       </Panel>
     </div>

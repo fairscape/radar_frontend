@@ -15,6 +15,7 @@ export function errorMessage(e: unknown): string {
       }
     }
     if (e.status === 404) return 'Not found. It may have been deleted.';
+    if (e.status === 413) return 'This is larger than the server accepts.';
     if (e.status === 502 || e.status === 503) return 'A service BioXplorer depends on is unreachable right now.';
     if (e.status >= 500) return `The backend returned an error (${e.status}).`;
     return e.message;

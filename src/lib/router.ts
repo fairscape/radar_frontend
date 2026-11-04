@@ -152,9 +152,10 @@ export type Route =
   | { name: 'interestEdit'; key: string; step: number | null }
   | { name: 'wizard'; draft: string | null; source: string | null; researcher: number | null; step: number | null }
   | { name: 'profiles' }
-  | { name: 'profile'; id: number }
+  | { name: 'profile'; id: number; check: boolean }
   | { name: 'vault' }
   | { name: 'settings' }
+  | { name: 'privacy' }
   | { name: 'notfound'; path: string };
 
 export function matchRoute(full: string): Route {
@@ -188,9 +189,10 @@ export function matchRoute(full: string): Route {
   // "Profile" is a stored researcher (see terms.ts); interests live under /interests.
   if (path === '/profiles') return { name: 'profiles' };
   const pm = path.match(/^\/profiles\/(\d+)$/);
-  if (pm) return { name: 'profile', id: Number(pm[1]) };
+  if (pm) return { name: 'profile', id: Number(pm[1]), check: search.has('check') };
   if (path === '/vault' || path === '/library') return { name: 'vault' };
   if (path === '/settings') return { name: 'settings' };
+  if (path === '/privacy') return { name: 'privacy' };
   return { name: 'notfound', path };
 }
 
@@ -237,9 +239,11 @@ export const paths = {
   wizardFrom: (source: string, researcher?: number | null) =>
     `/interests/new?source=${encodeURIComponent(source)}${researcher != null ? `&researcher=${researcher}` : ''}`,
   profiles: '/profiles',
-  profile: (id: number) => `/profiles/${id}`,
+  /** ``check`` opens "Check for new papers" on arrival. */
+  profile: (id: number, check?: boolean) => `/profiles/${id}${check ? '?check' : ''}`,
   vault: '/vault',
   settings: '/settings',
+  privacy: '/privacy',
 };
 
 /** ``decodeURIComponent`` throws on a truncated escape (``/interests/foo%``); that is a wrong link, not a crash. */
