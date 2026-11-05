@@ -61,7 +61,7 @@ export interface NotInterestTopic {
   label: string | null;
   weight: number | null;
   similarity: number | null;
-  /** Other sources listing the same topic: ``openalex`` (a seed), ``umls``, ``pdf_content``, ``llm``, ``adopted``, ``profile_interest``. */
+  /** Other sources listing the same topic: ``openalex`` (a seed), ``umls``, ``llm``, ``adopted``, ``profile_interest``. */
   overlap: string[];
   /** Recorded once the profile is applied; before that, the default (``keep`` when it overlaps, else ``filter``). */
   choice: NotInterestChoice;

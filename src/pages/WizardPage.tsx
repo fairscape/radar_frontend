@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCanEdit, useOpensHere } from '../lib/writeLease';
+import { LostRightNote, ViewOnlyPage } from './ViewOnlyPage';
 import { useDrafts, useProfiles, useResearcher, useResearchers, useVaultDocs } from '../api/hooks';
 import { uploadPdf } from '../api/endpoints/vault';
 import { ApiError, isDraftOpenElsewhere, onDraftOpenElsewhere } from '../api/client';
@@ -32,6 +34,7 @@ import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
+import { ResearchTopics } from '../ui/ResearchTopics';
 import { UmlsAllOn, UmlsConcept } from '../ui/UmlsAllOn';
 import { useOpenAlexPaused } from '../lib/openalex';
 import { displayTitle, isUnmatched, noteNewVersions, noteUnmatchedImport, noteUnmatchedUploads, openAlexStopped, sameTitleTag, seedKeys, workId } from '../lib/unmatched';
@@ -123,7 +126,21 @@ function useDraftHold(slug: string | null): [Hold, () => void] {
   return [slug ? hold : 'pending', () => setAttempt((n) => n + 1)];
 }
 
-export function WizardPage({ draftSlug, source, researcher, urlStep = null }: { draftSlug: string | null; source: string | null; researcher?: number | null; urlStep?: number | null }) {
+/** Not opened in a view-only tab (W.A R2): it would open a draft or an edit copy. */
+export function WizardPage(props: { draftSlug: string | null; source: string | null; researcher?: number | null; urlStep?: number | null }) {
+  // Opened while this tab held the right: kept, read-only, if it goes (FC-2).
+  const canEdit = useCanEdit();
+  if (!useOpensHere()) return <ViewOnlyPage what="A new interest" />;
+  return <>
+    <LostRightNote />
+    {/* Every field and button off while the right is elsewhere; links still lead away. */}
+    <fieldset disabled={!canEdit} style={{ display: 'contents' }}>
+      <WizardPageOpen {...props} />
+    </fieldset>
+  </>;
+}
+
+function WizardPageOpen({ draftSlug, source, researcher, urlStep = null }: { draftSlug: string | null; source: string | null; researcher?: number | null; urlStep?: number | null }) {
   const { state, update, reset } = useDraft();
   const [hold, retryHold] = useDraftHold(state.slug);
   // Drafts this page did not make -- resumed, or already in this tab's
@@ -1242,7 +1259,7 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
       <UmlsNotice profileKey={slug} listed={topics.data} />
       {topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
-        <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics. Go back and add seeds with DOIs, or continue without topic filters (BioXplorer will fall back to a broader query)." />
+        <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex or UMLS topics. An interest needs at least one topic to search by. Generate research topics below with an Anthropic API key (without one they cannot be mapped), map them to OpenAlex topics and switch one on, or go back and add seeds that are on OpenAlex." />
       )}
       {list.length > 0 && (
         <>
@@ -1276,9 +1293,15 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
         </p>
       )}
       {list.length > 0 && selected.size === 0 && <NoTopicsChosen onBack={() => update({ step: 2 })} />}
+      {/* Claude's research topics, as in Edit interest (FUNCTIONAL_SPEC RT):
+          kept on the draft as they are generated or changed; mapped, they
+          join the list above as LLM topics, switched off. */}
+      <div style={{ marginTop: 16 }}>
+        <ResearchTopics profileKey={slug} autoSave />
+      </div>
       <div className="wizard-foot">
         <Button icon="arrow-left" onClick={() => update({ step: 2 })}>Back</Button>
-        <Button variant="primary" iconRight="arrow-right" disabled={!topics.data || (list.length > 0 && selected.size === 0)} onClick={() => update({ step: 4 })}>Next: set the threshold</Button>
+        <Button variant="primary" iconRight="arrow-right" disabled={!topics.data || selected.size === 0} onClick={() => update({ step: 4 })}>Next: set the threshold</Button>
       </div>
     </Panel>
   );
@@ -1340,11 +1363,11 @@ function StepThreshold({ state }: { state: DraftState }) {
   // Step 4 can be reached with no topics chosen: browser Forward after a
   // seed change cleared them (they are re-read from the new seeds). The
   // trial then scanned the old ones and the save was refused, so stop here
-  // and say why instead. An empty selection is fine only for seeds with no
-  // topics at all (the scan falls back to a broader query).
+  // and say why instead. Seeds with no topics at all are no exception: a
+  // scan searches by topics, so with none it finds nothing (user
+  // 2026-11-05, review BT4; it used to promise "a broader query").
   const topics = useQuery(`draft/${slug}/topics`, () => getDraftTopics(slug));
-  const needsTopics = state.selectedTopicIds === null
-    || (state.selectedTopicIds.length === 0 && (topics.data?.length ?? 1) > 0);
+  const needsTopics = state.selectedTopicIds === null || state.selectedTopicIds.length === 0;
 
   // ``years`` passed explicitly when it just changed: ``state`` in this
   // closure is still the render before the update.

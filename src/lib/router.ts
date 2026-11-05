@@ -56,6 +56,17 @@ function entryIdx(state: unknown): number | null {
   return typeof idx === 'number' ? idx : null;
 }
 
+/**
+ * Leaving the app altogether (Sign out): ask every page guard first, as a
+ * move inside the app would. True when nothing asks or the user agreed;
+ * the guards asked are dropped then, so the browser's own "Leave site?"
+ * does not ask a second time.
+ */
+export async function askToLeave(): Promise<boolean> {
+  const guard = currentGuard();
+  return guard ? guard() : true;
+}
+
 /** Ask ``guard`` before leaving the page; returns the function that stops asking. */
 export function addLeaveGuard(guard: LeaveGuard, name?: string, within?: (to: string) => boolean, unload?: () => boolean): () => void {
   guards.set(guard, { name, within, unload });

@@ -138,6 +138,23 @@ export function invalidate(...prefixes: string[]): void {
   }
 }
 
+/**
+ * After a write the server refused for the state it found (App's
+ * ``onWriteRejected``): what is on screen may be out of date, so it is all
+ * re-read -- except the entries that fetch only when asked (``once``),
+ * shown or in flight. Those are the queries whose fetcher is a POST (a
+ * draft's coherence, an edit's recompute, a dry run's scores), and the
+ * refused request may be one of them: re-read, it was refused again, which
+ * re-read it again, without end (B1-1). Two shown at once would set each
+ * other off the same way. A GET in flight still gets its follow-up fetch.
+ */
+export function invalidateAfterRefusal(): void {
+  for (const [key, entry] of cache) {
+    if (entry.once && (entry.subs.size > 0 || entry.inflight)) continue;
+    invalidateEntry(key, entry);
+  }
+}
+
 /** As ``invalidate``, for the entries no component is showing: they refetch when next shown. */
 export function invalidateUnshown(...prefixes: string[]): void {
   for (const [key, entry] of cache) {

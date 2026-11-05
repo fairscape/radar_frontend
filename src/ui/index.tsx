@@ -18,6 +18,7 @@ import {
 import { Icon, type IconName } from './Icon';
 import { dismissToast, toast, useToasts } from '../lib/toast';
 import { errorMessage, swatchFor } from '../lib/format';
+import { useCanEdit, VIEW_ONLY_TEXT } from '../lib/writeLease';
 
 export { Icon } from './Icon';
 export type { IconName } from './Icon';
@@ -34,6 +35,15 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   iconRight?: IconName;
   /** Act on every click of a quick series too (a stepper); see lib/clicks. */
   repeat?: boolean;
+  /** Changes something: off while another tab or device holds the account (W.A). */
+  write?: boolean;
+}
+
+/** ``disabled`` and ``title`` of a write control in a view-only tab. */
+function useWriteGate(write: boolean | undefined, disabled: boolean | undefined, title: string | undefined) {
+  const can = useCanEdit();
+  const off = !!write && !can;
+  return { disabled: disabled || off, title: off ? VIEW_ONLY_TEXT : title, viewOnly: off };
 }
 
 export function Button({
@@ -47,14 +57,17 @@ export function Button({
   disabled,
   type = 'button',
   repeat,
+  write,
+  title,
   ...rest
 }: ButtonProps) {
+  const gate = useWriteGate(write, disabled, title);
   const cls = ['btn', `btn-${variant}`, `btn-${size}`, loading ? 'is-loading' : '', className ?? '']
     .filter(Boolean)
     .join(' ');
   const iconSize = size === 'sm' ? 14 : 16;
   return (
-    <button type={type} className={cls} disabled={disabled || loading} aria-busy={loading || undefined} data-repeat={repeat || undefined} {...rest}>
+    <button type={type} className={cls} disabled={gate.disabled || loading} aria-busy={loading || undefined} data-repeat={repeat || undefined} data-write={write || undefined} title={gate.title} {...rest}>
       {loading ? <Spinner size={iconSize} /> : icon ? <Icon name={icon} size={iconSize} /> : null}
       {children != null && <span className="btn-label">{children}</span>}
       {iconRight && !loading && <Icon name={iconRight} size={iconSize} />}
@@ -68,15 +81,20 @@ export function IconButton({
   size = 'md',
   className,
   repeat,
+  write,
+  disabled,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; label: string; size?: 'sm' | 'md'; repeat?: boolean }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; label: string; size?: 'sm' | 'md'; repeat?: boolean; write?: boolean }) {
+  const gate = useWriteGate(write, disabled, label);
   return (
     <button
       type="button"
       className={`icon-btn icon-btn-${size} ${className ?? ''}`}
       aria-label={label}
-      title={label}
+      title={gate.title}
+      disabled={gate.disabled}
       data-repeat={repeat || undefined}
+      data-write={write || undefined}
       {...rest}
     >
       <Icon name={icon} size={size === 'sm' ? 14 : 16} />

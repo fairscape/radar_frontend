@@ -24,6 +24,48 @@ import { SettingsPage } from './SettingsPage';
 import { NotFoundPage } from './NotFoundPage';
 import { CHAT_ENABLED } from '../lib/features';
 import { useOpenAlexPaused, useOpenAlexStatusFromErrors } from '../lib/openalex';
+import { handedOverAt, useLease, VIEW_ONLY_TEXT } from '../lib/writeLease';
+
+/**
+ * While another tab or device holds this account (W.A R2): this tab only
+ * views, and says so at the top of every page. When it is handed the right
+ * (R4) it says that for a few seconds.
+ */
+function ViewOnlyBanner() {
+  const lease = useLease();
+  const [, tick] = useState(0);
+  const handed = lease === 'editing' ? handedOverAt() : null;
+  const showHanded = handed != null && Date.now() - handed < HANDED_SHOW_MS;
+  useEffect(() => {
+    if (!showHanded) return;
+    const t = window.setTimeout(() => tick((n) => n + 1), HANDED_SHOW_MS - (Date.now() - handed!));
+    return () => window.clearTimeout(t);
+  }, [showHanded, handed]);
+  if (lease === 'viewing') {
+    return (
+      <div className="callout callout-warn view-only-banner" role="status" data-testid="view-only">
+        <Icon name="info" size={16} />
+        <div className="callout-body">
+          <div className="callout-title">View only</div>
+          <div className="callout-text">{VIEW_ONLY_TEXT}</div>
+        </div>
+      </div>
+    );
+  }
+  if (showHanded) {
+    return (
+      <div className="callout callout-ok view-only-banner" role="status" data-testid="can-edit-now">
+        <Icon name="check" size={16} />
+        <div className="callout-body">
+          <div className="callout-title">This tab can change things now</div>
+          <div className="callout-text">The other tab or device was closed or signed out.</div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+const HANDED_SHOW_MS = 10_000;
 
 /** While OpenAlex is paused (quota, API key): nothing that needs it runs. */
 function OpenAlexBanner() {
@@ -37,6 +79,7 @@ function OpenAlexBanner() {
         <div className="callout-title">OpenAlex is unavailable</div>
         <div className="callout-text">
           {paused.kind === 'auth' ? 'OpenAlex is refusing requests without an API key.'
+            : paused.kind === 'key' ? 'OpenAlex rejected the configured API key (wrong, revoked or expired).'
             : paused.kind === 'busy' ? 'OpenAlex is busy (too many requests at once).'
             : "OpenAlex's daily request limit has been reached."}
           {' '}Uploading PDFs, scans and imports are paused{paused.until ? ` until ${new Date(paused.until).toLocaleString()}` : ''}.
@@ -78,6 +121,7 @@ export function Shell({ route, email }: { route: Route; email: string }) {
     <div className="app">
       <Sidebar route={route} email={email} />
       <div className="main">
+        <ViewOnlyBanner />
         <OpenAlexBanner />
         <JobsStrip />
         {route.name === 'home' && <HomePage />}
@@ -137,7 +181,7 @@ function Sidebar({ route, email }: { route: Route; email: string }) {
         ))}
         <div className="nav-section">
           <span className="nav-section-label">Your {TERMS.interests}</span>
-          <IconButton icon="plus" label={TERMS.newInterest} size="sm" onClick={() => navigate(paths.wizard())} />
+          <IconButton write icon="plus" label={TERMS.newInterest} size="sm" onClick={() => navigate(paths.wizard())} />
         </div>
         {profiles && profiles.length === 0 && <div className="nav-empty">None yet. <Link href={paths.wizard()}>Add one</Link></div>}
         {live.map((p) => {

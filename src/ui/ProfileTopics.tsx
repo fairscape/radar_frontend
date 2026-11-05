@@ -66,7 +66,7 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
       <Callout tone="warn" title={`Using ${who}'s profile topics`} icon="user">
         <p style={{ margin: '0 0 6px' }}>The profile lists no topics BioXplorer can read just now: it may have been re-imported without research interests, or it has only text concepts and the topic mapper is unavailable. Its topics and marks stay in the list as last read. Remove them if they are out of date.</p>
         <div className="row" style={{ marginTop: 10 }}>
-          <Button size="sm" onClick={() => toggle.run(false)} loading={toggle.busy}>Remove profile topics</Button>
+          <Button write size="sm" onClick={() => toggle.run(false)} loading={toggle.busy}>Remove profile topics</Button>
         </div>
       </Callout>
     );
@@ -84,8 +84,8 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
       {t.labels_unmapped && <p className="small muted" style={{ margin: '6px 0 0' }}>The profile's text concepts could not be matched to topics just now (the topic mapper is unavailable); the ones matched before stay in the list.</p>}
       <div className="row" style={{ marginTop: 10 }}>
         {d.applied
-          ? <Button size="sm" onClick={() => toggle.run(false)} loading={toggle.busy} disabled={choose.busy}>Remove profile topics</Button>
-          : <Button size="sm" variant="primary" icon="plus" onClick={() => toggle.run(true)} loading={toggle.busy} disabled={choose.busy}>Use profile topics</Button>}
+          ? <Button write size="sm" onClick={() => toggle.run(false)} loading={toggle.busy} disabled={choose.busy}>Remove profile topics</Button>
+          : <Button write size="sm" variant="primary" icon="plus" onClick={() => toggle.run(true)} loading={toggle.busy} disabled={choose.busy}>Use profile topics</Button>}
       </div>
     </Callout>
   );
@@ -94,7 +94,6 @@ export function ProfileTopicsBox({ profileKey, saved = false, unsavedTicks = fal
 const OVERLAP_LABEL: Record<string, string> = {
   openalex: 'the seed papers',
   umls: 'UMLS concepts',
-  pdf_content: "a PDF's text",
   llm: 'Claude research topics',
   adopted: 'a forgotten profile',
   profile_interest: "the profile's own interests",
@@ -151,9 +150,9 @@ function NotInterestList({ topics: t, applied, saved, busy, onChoose }: {
               </span>
               <span className="ni-act">
                 {r.choice === 'add'
-                  ? <Button size="sm" variant="ghost" disabled={!applied || busy} onClick={() => onChoose(r, 'keep')} title="Keep it as the other sources have it; tick “Filter out” to filter it instead">Don't add</Button>
+                  ? <Button write size="sm" variant="ghost" disabled={!applied || busy} onClick={() => onChoose(r, 'keep')} title="Keep it as the other sources have it; tick “Filter out” to filter it instead">Don't add</Button>
                   : !(r.in_list && r.on)
-                    ? <Button size="sm" variant="ghost" icon="plus" disabled={!applied || busy} onClick={() => onChoose(r, 'add')}>Add as topic</Button>
+                    ? <Button write size="sm" variant="ghost" icon="plus" disabled={!applied || busy} onClick={() => onChoose(r, 'add')}>Add as topic</Button>
                     : null}
               </span>
             </li>

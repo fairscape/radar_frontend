@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SignInProvider } from '../api/endpoints/auth';
-import { EMAIL_RE, setUserEmail } from '../lib/userEmail';
+import { clearTabSignedOut, EMAIL_RE, isTabSignedOut, setUserEmail } from '../lib/userEmail';
 import { Button, Field, Icon, Input } from '../ui';
 
 /**
@@ -29,7 +29,8 @@ function takeSigninError(): string | null {
   return code == null ? null : (SIGNIN_ERRORS[code] ?? SIGNIN_ERRORS.failed);
 }
 
-export function LoginPage({ providers = [] }: { providers?: SignInProvider[] }) {
+/** ``expired``: this tab was signed in and its session ran out (B1-4). */
+export function LoginPage({ providers = [], expired = false }: { providers?: SignInProvider[]; expired?: boolean }) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [signinError] = useState(takeSigninError);
@@ -48,6 +49,7 @@ export function LoginPage({ providers = [] }: { providers?: SignInProvider[] }) 
       setError('Enter a valid email address.');
       return;
     }
+    clearTabSignedOut();
     setUserEmail(v);
   }
 
@@ -73,9 +75,16 @@ export function LoginPage({ providers = [] }: { providers?: SignInProvider[] }) 
           <div className="login-card">
             <h2>Sign in</h2>
             <p className="lede">Your interests, vault and feed belong to your email address.</p>
+            {expired && !signinError && (
+              <div className="login-expired" role="alert">
+                <b>Session expired</b>
+                <span>Sign in again to continue. You will come back to the page you were on; changes you had not saved there are lost.</span>
+              </div>
+            )}
             {signinError && <p className="field-error" role="alert">{signinError}</p>}
+            {isTabSignedOut() && <OtherTabsStillSignedIn />}
             {providers.includes('google') && (
-              <a className="prosopia-signin signin-option" href="/auth/login/google">
+              <a className="prosopia-signin signin-option" href="/auth/login/google" onClick={clearTabSignedOut}>
                 <span className="prosopia-signin__mark"><GoogleMark /></span>
                 <span className="prosopia-signin__text">
                   <span className="prosopia-signin__label">Sign in with Google</span>
@@ -84,7 +93,7 @@ export function LoginPage({ providers = [] }: { providers?: SignInProvider[] }) 
               </a>
             )}
             {providers.includes('prosopia') && (
-              <a className="prosopia-signin signin-option" href="/auth/login/prosopia">
+              <a className="prosopia-signin signin-option" href="/auth/login/prosopia" onClick={clearTabSignedOut}>
                 <span className="prosopia-signin__mark"><ProsopiaMark /></span>
                 <span className="prosopia-signin__text">
                   <span className="prosopia-signin__label">Sign in with Prosopia</span>
@@ -106,6 +115,7 @@ export function LoginPage({ providers = [] }: { providers?: SignInProvider[] }) 
         >
           <h2>Sign in</h2>
           <p className="lede">There is no password. Your email identifies your interests, vault and feed.</p>
+          {isTabSignedOut() && <OtherTabsStillSignedIn />}
           <Field label="Email" error={error}>
             <Input
               type="email"
@@ -145,5 +155,19 @@ function GoogleMark() {
       <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
       <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
     </svg>
+  );
+}
+
+export const OTHER_TABS_NOTE = 'This tab is signed out. Other BioXplorer tabs in this browser were still signed in as you, so they stay signed in. Close them, or sign out there too.';
+
+/** Signed out in this tab only, as other tabs of this browser were still
+ *  signed in (W.A R6): say so, so a shared computer is not left signed in
+ *  by mistake (review FC-3). */
+export function OtherTabsStillSignedIn() {
+  return (
+    <div className="login-expired" role="status" data-testid="other-tabs-signed-in">
+      <b>Other tabs are still signed in</b>
+      <span>{OTHER_TABS_NOTE}</span>
+    </div>
   );
 }

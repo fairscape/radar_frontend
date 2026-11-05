@@ -46,7 +46,7 @@ export function MyProsopiaCard() {
       </div>
       <div className="my-prosopia-actions">
         {rid == null ? (
-          <Button variant="primary" icon="upload" onClick={() => importNow.run()} loading={importNow.busy} title={`Save ${p.name} as a ${TERMS.profile}, with every paper`}>Import</Button>
+          <Button write variant="primary" icon="upload" onClick={() => importNow.run()} loading={importNow.busy} title={`Save ${p.name} as a ${TERMS.profile}, with every paper`}>Import</Button>
         ) : (
           <>
             <Button icon="refresh" onClick={() => navigate(paths.profile(rid, true))}>Check for new papers</Button>

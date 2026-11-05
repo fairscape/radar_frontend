@@ -7,6 +7,7 @@ import { SCAN_PER_TOPIC, startScan, useJobs } from '../lib/jobs';
 import { navigate, paths, useSearchParam } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { canEdit, VIEW_ONLY_TEXT } from '../lib/writeLease';
 import type { Bucket, Card, CardState, Profile } from '../types/radar';
 import { Badge, Button, Callout, EmptyState, ErrorBox, Field, Icon, Kbd, LoadingRows, NumberInput, Segmented, Select } from '../ui';
 import { Link } from '../ui/Link';
@@ -164,6 +165,8 @@ export function FeedPage() {
   }, [data]);
   async function act(card: Card, target: 'saved' | 'dismissed') {
     const k = keyOf(card);
+    // The keys (s, x) as well as the buttons: a view-only tab (W.A).
+    if (!canEdit()) { toast.info(VIEW_ONLY_TEXT); return; }
     if (inFlight.current.has(k)) return;
     inFlight.current.add(k);
     const prev = stateOf(card);
@@ -265,7 +268,7 @@ export function FeedPage() {
         </div>
         <div className="page-actions">
           <Button icon="refresh" onClick={() => refresh()} loading={fetching && !loading} title="Reload the feed">Refresh</Button>
-          <Button variant="primary" icon="play" onClick={() => setScanOpen((o) => !o)} disabled={live.length === 0} title={live.length === 0 ? `Create an ${TERMS.interest} first` : 'Look for new papers now'}>
+          <Button write variant="primary" icon="play" onClick={() => setScanOpen((o) => !o)} disabled={live.length === 0} title={live.length === 0 ? `Create an ${TERMS.interest} first` : 'Look for new papers now'}>
             Scan now
           </Button>
         </div>
@@ -346,7 +349,7 @@ export function FeedPage() {
                 icon="radar"
                 title="No papers yet"
                 body={<>BioXplorer scans an {TERMS.interest} only when you ask. Run a scan to fill the feed.</>}
-                action={<Button variant="primary" icon="play" onClick={() => setScanOpen(true)}>Scan now</Button>}
+                action={<Button write variant="primary" icon="play" onClick={() => setScanOpen(true)}>Scan now</Button>}
               />
             ) : cards.length === 0 ? (
               <EmptyState icon="search" title="Nothing matches these filters" action={<Button onClick={() => { setProfFilter('all'); setBucket('all'); setYearFrom(null); }}>Clear filters</Button>} />
@@ -449,7 +452,7 @@ function ScanPanel({ profiles, defaultKey, onClose }: { profiles: Profile[]; def
       </Field>
       <p className="small muted" style={{ margin: 0 }}>Takes each topic's {SCAN_PER_TOPIC} most cited papers from that window.</p>
       <div className="row">
-        <Button variant="primary" icon="play" onClick={go} loading={busy} disabled={!!already || !daysOk} title={already ? 'A scan is already running for this interest' : !daysOk ? 'Days 1–365' : undefined}>
+        <Button write variant="primary" icon="play" onClick={go} loading={busy} disabled={!!already || !daysOk} title={already ? 'A scan is already running for this interest' : !daysOk ? 'Days 1–365' : undefined}>
           {already ? 'Already running' : 'Start scan'}
         </Button>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -561,10 +564,10 @@ function PaperCard({
         )}
       </div>
       <div className="paper-actions">
-        <Button size="sm" icon={state === 'saved' ? 'check' : 'bookmark'} className={state === 'saved' ? 'on-saved' : ''} onClick={onSave} loading={busy} aria-pressed={state === 'saved'} title={state === 'saved' ? 'Click to un-save' : 'Keep this paper (S)'}>
+        <Button write size="sm" icon={state === 'saved' ? 'check' : 'bookmark'} className={state === 'saved' ? 'on-saved' : ''} onClick={onSave} loading={busy} aria-pressed={state === 'saved'} title={state === 'saved' ? 'Click to un-save' : 'Keep this paper (S)'}>
           {state === 'saved' ? 'Saved' : 'Save'}
         </Button>
-        <Button size="sm" icon="x" className={state === 'dismissed' ? 'on-dismissed' : ''} onClick={onDismiss} loading={busy} aria-pressed={state === 'dismissed'} title={state === 'dismissed' ? 'Click to restore' : 'Not useful (X)'}>
+        <Button write size="sm" icon="x" className={state === 'dismissed' ? 'on-dismissed' : ''} onClick={onDismiss} loading={busy} aria-pressed={state === 'dismissed'} title={state === 'dismissed' ? 'Click to restore' : 'Not useful (X)'}>
           {state === 'dismissed' ? 'Dismissed' : 'Dismiss'}
         </Button>
       </div>

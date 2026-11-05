@@ -23,9 +23,11 @@
  * computer asleep) frees the interest 2 minutes on.
  */
 import { useEffect, useRef, useState } from 'react';
+import { useCanEdit, useOpensHere } from '../lib/writeLease';
+import { LostRightNote, ViewOnlyPage } from './ViewOnlyPage';
 import { useProfileDetail, useProfiles } from '../api/hooks';
-import { discardEdit, discardEditOnLeave, editAlive, editState, openEdit, previewTopics, recomputeCoherence, saveEdit, saveTopics, scanTopics } from '../api/endpoints/profiles';
-import { ApiError } from '../api/client';
+import { discardEdit, discardEditOnLeave, editAlive, editState, isUnsavedElsewhere, openEdit, previewTopics, recomputeCoherence, saveEdit, saveTopics, scanTopics } from '../api/endpoints/profiles';
+import { ApiError, isEditingElsewhere } from '../api/client';
 import { UmlsNotice } from '../ui/UmlsNotice';
 import { ProsopiaTag, prosopiaNote } from '../ui/ProsopiaTopics';
 import { errorMessage, plural } from '../lib/format';
@@ -54,7 +56,21 @@ const STEPS = [
   { n: 4, label: 'Threshold', hint: 'how strict' },
 ];
 
-export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; urlStep: number | null }) {
+/** Not opened in a view-only tab (W.A R2): it would open a draft or an edit copy. */
+export function EditInterestPage(props: { profileKey: string; urlStep: number | null }) {
+  // Opened while this tab held the right: kept, read-only, if it goes (FC-2).
+  const canEdit = useCanEdit();
+  if (!useOpensHere()) return <ViewOnlyPage what="Edit interest" />;
+  return <>
+    <LostRightNote />
+    {/* Every field and button off while the right is elsewhere; links still lead away. */}
+    <fieldset disabled={!canEdit} style={{ display: 'contents' }}>
+      <EditInterestPageOpen {...props} />
+    </fieldset>
+  </>;
+}
+
+function EditInterestPageOpen({ profileKey, urlStep }: { profileKey: string; urlStep: number | null }) {
   const { data: profiles } = useProfiles();
   const listed = profiles?.find((p) => p.key === profileKey);
   // A draft is edited in the wizard, which owns its unsaved choices.
@@ -64,7 +80,7 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
 
   // The copy's slug once it is made; ``saved`` once Save changes went through.
   const [copy, setCopy] = useState<string | null>(null);
-  const [openError, setOpenError] = useState<{ message: string; missing: boolean; locked: boolean } | null>(null);
+  const [openError, setOpenError] = useState<{ message: string; missing: boolean; locked: boolean; unsaved?: boolean } | null>(null);
   const [tab, setTab] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [attempt, setAttempt] = useState(0);   // Edit again, or Retry
@@ -75,7 +91,24 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
   useEffect(() => {
     let alive = true;
     setCopy(null); setOpenError(null); setSaved(false);
-    tabId().then((t) => { setTab(t); return openEdit(profileKey, t); }).then(
+    tabId().then(async (t) => {
+      setTab(t);
+      try {
+        return await openEdit(profileKey, t);
+      } catch (e) {
+        // Another tab left unsaved changes here (it went quiet for 2
+        // minutes): they go only if the user says so (user 2026-11-05).
+        if (!alive || !isUnsavedElsewhere(e)) throw e;
+        const ok = await confirmDialog({
+          title: 'Discard the unsaved changes in another tab?',
+          body: <p>Another tab or device has unsaved changes to "{listed?.name ?? profileKey}" in Edit interest, and has not been heard from for over 2 minutes (closed without leaving, or asleep). Editing here discards those changes; that tab is told when it comes back.</p>,
+          confirmLabel: 'Discard them and edit here',
+          danger: true,
+        });
+        if (!ok) throw e;
+        return openEdit(profileKey, t, true);
+      }
+    }).then(
       (c) => {
         if (!alive) { void discardEdit(c.slug).catch(() => {}); return; }
         live.current = c.slug;
@@ -85,7 +118,7 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
         if (!alive) return;
         const status = e instanceof ApiError ? e.status : 0;
         setOpenError({ message: errorMessage(e), missing: status === 404,
-          locked: status === 409 && /another tab/.test(errorMessage(e)) });
+          locked: status === 409 && (isUnsavedElsewhere(e) || /another tab/.test(errorMessage(e))), unsaved: isUnsavedElsewhere(e) });
       },
     );
     return () => {
@@ -115,7 +148,9 @@ export function EditInterestPage({ profileKey, urlStep }: { profileKey: string; 
     return (
       <div className="page">
         <EmptyState icon="alert" title={`"${listed?.name ?? profileKey}" is being edited in another tab or window`}
-          body="One tab edits an interest at a time. Save or leave the edit there first. If that tab was closed without leaving (or the browser crashed), the interest is free again within 2 minutes."
+          body={openError.unsaved
+            ? 'Another tab or device has unsaved changes to it in Edit interest and has not been heard from for over 2 minutes. Save or leave the edit there, or choose Try again and discard those changes.'
+            : 'One tab edits an interest at a time. Save or leave the edit there first. If that tab was closed without leaving (or the browser crashed), choose Try again after 2 minutes: you are asked before its unsaved changes are discarded.'}
           action={<div className="row"><Button variant="primary" onClick={() => setAttempt((n) => n + 1)}>Try again</Button><Link href={paths.interest(profileKey)} className="btn">Back to the {TERMS.interest}</Link></div>} />
       </div>
     );
@@ -155,8 +190,13 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
   const [gone, setGone] = useState(false);
   useEffect(() => {
     const ping = () => {
-      // 404: discarded; 409: another tab's (one duplicated from this).
-      editAlive(copyKey, tab).catch((e) => { if (e instanceof ApiError && (e.status === 404 || e.status === 409)) setGone(true); });
+      // 404: discarded; 409: another tab's (one duplicated from this). Not
+      // a 409 for the right to change things: this page lost it for a while
+      // (R1); the copy is still its own and kept, read-only meanwhile.
+      editAlive(copyKey, tab).catch((e) => {
+        if (isEditingElsewhere(e)) return;
+        if (e instanceof ApiError && (e.status === 404 || e.status === 409)) setGone(true);
+      });
     };
     const onShow = () => { if (document.visibilityState === 'visible') ping(); };
     const timer = window.setInterval(ping, 30_000);
@@ -238,15 +278,15 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
         : researchUnsaved ? 'Save or discard the research topics first (step 3)' : undefined;
 
   const profile: Profile | undefined = detail?.profile;
-  // The copy is gone: this page went unheard for 2 minutes (the computer
-  // asleep, the connection down) and another tab found it left behind
-  // (E.7 R5), or the interest was deleted in another tab. Said, rather
+  // The copy is gone: another tab, told that it would drop this page's
+  // unsaved changes, opened Edit interest on the interest (this page had
+  // gone unheard for 2 minutes), or the interest was deleted in another tab. Said, rather
   // than every step failing with "not found".
   if (detail === null || gone) {
     return (
       <div className="page">
         <EmptyState icon="alert" title="This edit was closed"
-          body={`This edit is no longer open and its changes were discarded: this page may have gone unheard for over 2 minutes (the computer slept, or the connection dropped), or the ${TERMS.interest} was deleted elsewhere. "${original?.name ?? profileKey}" is as it was last saved.`}
+          body={`This edit is no longer open and its unsaved changes were discarded: while this page went unheard for over 2 minutes (the computer slept, or the connection dropped), another tab or device opened Edit interest on it and chose to discard them, or the ${TERMS.interest} was deleted elsewhere. "${original?.name ?? profileKey}" is as it was last saved.`}
           action={<div className="row"><Button variant="primary" onClick={onReopen}>Edit again</Button><Link href={paths.interest(profileKey)} className="btn">Back to the {TERMS.interest}</Link></div>} />
       </div>
     );
@@ -493,7 +533,8 @@ function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: (
   useEffect(() => () => onBusy(false), [onBusy]);
   const apply = (ids: Set<string>) => {
     if (write.busy) return;
-    if (list.length > 0 && ids.size === 0) { toast.info('Keep at least one topic on: a scan searches by them.'); return; }
+    // Even with an empty list (BT4): the save refuses an interest with no topic on.
+    if (ids.size === 0) { toast.info('Keep at least one topic on: a scan searches by them.'); return; }
     void write.run(ids);
   };
   const toggle = (id: string) => {

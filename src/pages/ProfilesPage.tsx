@@ -7,6 +7,7 @@ import { researcherJobKey, startResearcherImport, useJob, useJobs, type Job } fr
 import { paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
+import { canEdit, useCanEdit, VIEW_ONLY_TEXT } from '../lib/writeLease';
 import type { Researcher, ResearcherMark } from '../types/researchers';
 import { Badge, Button, Callout, EmptyState, ErrorBox, Icon, IconButton, LoadingRows, Panel, Segmented, Select, Spinner } from '../ui';
 import { Link } from '../ui/Link';
@@ -90,13 +91,14 @@ export function MarkSelect({ r, size = 'sm' }: { r: Researcher; size?: 'sm' | 'm
   // old mark until the list was re-read), the server's once it answers.
   const [value, setValue] = useState<string>(r.mark ?? '');
   useEffect(() => { setValue(r.mark ?? ''); }, [r.mark]);
+  const writable = useCanEdit();
   return (
     <Select
       className={size === 'sm' ? 'compact' : undefined}
       value={value}
-      disabled={busy}
+      disabled={busy || !writable}
       aria-label={`Mark ${r.name}`}
-      title="Mark this profile as you, or as a researcher you follow: it is highlighted and moves to the top of its group. Clearing the mark moves it to the top of the unmarked ones."
+      title={!writable ? VIEW_ONLY_TEXT : "Mark this profile as you, or as a researcher you follow: it is highlighted and moves to the top of its group. Clearing the mark moves it to the top of the unmarked ones."}
       onChange={async (e) => {
         const mark = (e.target.value || null) as ResearcherMark | null;
         setValue(mark ?? '');
@@ -162,6 +164,8 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
 
   function commit(next: number[]) {
     if (next.join(',') === ids.join(',')) return;
+    // Dragging as well as the arrows: a view-only tab (W.A).
+    if (!canEdit()) { toast.info(VIEW_ONLY_TEXT); return; }
     setOrder(next);
     pending.current += 1;
     chain.current = chain.current.then(async () => {
@@ -240,8 +244,8 @@ function ResearcherList({ researchers, runningIds }: { researchers: Researcher[]
               <span className="grab" title="Drag to move this profile in the list" aria-hidden="true" onPointerDown={() => setArmed(id)} onPointerUp={() => setArmed(null)}><Icon name="grip" size={14} /></span>
               <MarkSelect r={r} />
               <span className="spacer" />
-              <IconButton icon="arrow-left" size="sm" className="move-btn" label={`Move ${r.name} ${oneColumn ? 'up' : 'earlier'}`} disabled={i === 0} onClick={() => moveBy(id, -1)} />
-              <IconButton icon="arrow-right" size="sm" className="move-btn" label={`Move ${r.name} ${oneColumn ? 'down' : 'later'}`} disabled={i === ids.length - 1} onClick={() => moveBy(id, 1)} />
+              <IconButton write icon="arrow-left" size="sm" className="move-btn" label={`Move ${r.name} ${oneColumn ? 'up' : 'earlier'}`} disabled={i === 0} onClick={() => moveBy(id, -1)} />
+              <IconButton write icon="arrow-right" size="sm" className="move-btn" label={`Move ${r.name} ${oneColumn ? 'down' : 'later'}`} disabled={i === ids.length - 1} onClick={() => moveBy(id, 1)} />
             </div>
           </div>
         );

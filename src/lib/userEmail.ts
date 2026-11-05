@@ -18,6 +18,8 @@ import { useSyncExternalStore } from 'react';
 import { resetDraft } from './draft';
 import { resetJobs } from './jobs';
 import { clearQueryCache } from './query';
+import { askToLeave } from './router';
+import { otherSignedInTabs, stopLease } from './writeLease';
 import type { SignInProvider } from '../api/endpoints/auth';
 
 const KEY = 'userEmail';
@@ -31,6 +33,11 @@ let signedInWith: SignInProvider | null = null;
 /** Set once by ``App`` from ``GET /auth/config``: who issued the session cookie. */
 export function setSignedInWith(p: SignInProvider | null): void {
   signedInWith = p;
+}
+
+/** Who issued the session cookie, when /auth/config said (null: a header-model setup, or dev). */
+export function getSignedInWith(): SignInProvider | null {
+  return signedInWith;
 }
 
 export function getUserEmail(): string | null {
@@ -99,7 +106,33 @@ export function forgetSessionState(): void {
 }
 
 /**
- * Sign out for real.
+ * This tab signed out on its own (W.A R6): the browser's sign-in stays for
+ * its other tabs. Per tab (sessionStorage), so a reload stays signed out;
+ * a sign-in button clears it.
+ */
+const TAB_SIGNED_OUT = 'radar.tabSignedOut';
+
+export function isTabSignedOut(): boolean {
+  try { return window.sessionStorage.getItem(TAB_SIGNED_OUT) === '1'; } catch { return false; }
+}
+
+/** False when it cannot be kept (storage blocked): the reload would sign back in, so Sign out goes all the way. */
+function markTabSignedOut(): boolean {
+  try { window.sessionStorage.setItem(TAB_SIGNED_OUT, '1'); return window.sessionStorage.getItem(TAB_SIGNED_OUT) === '1'; } catch { return false; }
+}
+
+export function clearTabSignedOut(): void {
+  try { window.sessionStorage.removeItem(TAB_SIGNED_OUT); } catch { /* blocked: nothing was set */ }
+}
+
+/**
+ * Sign out.
+ *
+ * With other signed-in tabs of this browser open, only this tab leaves
+ * (FUNCTIONAL_SPEC W.A R6, user 11-04: "A 登出时，B 保留登录"): it lets go
+ * of the right to change things, which goes to one of them, and shows the
+ * sign-in page; the session cookie and the shared cached address stay.
+ * The last signed-in tab signs the browser out for real:
  *
  * Clearing the cached address alone leaves the real session intact (the
  * Access session, or the backend's Prosopia cookie), so the next request
@@ -107,7 +140,23 @@ export function forgetSessionState(): void {
  * finds themselves signed in as the same person. Hand off to whichever
  * holds the session and let it drop it.
  */
-export function signOut(): void {
+export async function signOut(): Promise<void> {
+  // Unsaved work on the page asks first. Clearing first and asking after
+  // (the browser's "Leave site?") left a tab still signed in, its jobs and
+  // draft gone, when the answer was Stay (B1-5).
+  if (!(await askToLeave())) return;
+  if (await otherSignedInTabs() && markTabSignedOut()) {
+    await stopLease({ release: true });
+    resetJobs();
+    resetDraft();
+    clearQueryCache();
+    try {
+      for (const k of SESSION_KEYS) window.sessionStorage.removeItem(k);
+    } catch { /* blocked: nothing was kept either */ }
+    window.location.reload();
+    return;
+  }
+  await stopLease({ release: true });
   // Read before clearUserEmail(): afterwards there is no one to clear for.
   const who = getUserEmail();
   clearUserEmail();

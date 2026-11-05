@@ -8,7 +8,7 @@
  * provider behind the current session cookie, if any.
  */
 
-import { apiGet } from '../client';
+import { API_BASE_URL } from '../client';
 
 export type SignInProvider = 'google' | 'prosopia';
 export const SIGN_IN_PROVIDERS: SignInProvider[] = ['google', 'prosopia'];
@@ -18,6 +18,17 @@ export interface AuthConfig {
   signed_in_with: SignInProvider | null;
 }
 
-export function getAuthConfig(): Promise<AuthConfig> {
-  return apiGet<AuthConfig>('/auth/config');
+/**
+ * Asked with a bare fetch, not ``apiGet``: behind a header-model proxy that
+ * forwards only /api, /auth/config is the SPA's own index.html, and
+ * ``request()`` reads an HTML answer as "the session ended" -- the gate
+ * dropped the signed-in person on a page with no way in. Anything but a
+ * JSON object here just means no sign-in buttons.
+ */
+export async function getAuthConfig(): Promise<AuthConfig> {
+  const none: AuthConfig = { providers: [], signed_in_with: null };
+  const resp = await fetch(`${API_BASE_URL}/auth/config`, { headers: { Accept: 'application/json' } });
+  if (!resp.ok || !(resp.headers.get('content-type') ?? '').includes('json')) return none;
+  const body: unknown = await resp.json().catch(() => null);
+  return body && typeof body === 'object' ? { ...none, ...(body as Partial<AuthConfig>) } : none;
 }

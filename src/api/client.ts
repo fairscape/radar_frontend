@@ -5,12 +5,12 @@
  * ``src/api/endpoints/*``. Reads the backend base URL from
  * ``VITE_API_BASE_URL`` (Phase 10) and falls back to the legacy
  * ``VITE_API_URL`` so Phase 11 wizard code that pre-dates this rename
- * keeps working. Sends ``X-User-Email`` from ``localStorage.userEmail``
- * if present — Phase 12 fills that key; until then it's null and the
- * backend uses its stub user.
+ * keeps working. Identity is the session cookie (records/21); the dev
+ * server and the mock alone still name the user with ``X-User-Email``.
  */
 
 import { tabId } from '../lib/tab';
+import { idleHeader } from '../lib/activity';
 
 export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
@@ -19,6 +19,19 @@ export const API_BASE_URL: string =
 
 /** The backend's 400 for an empty X-User-Email (rag_lib/api/deps.py, L12). */
 const NO_IDENTITY = 'X-User-Email is empty';
+
+/**
+ * ``fetch`` itself failed: no answer came back (offline, the backend down,
+ * DNS). Browsers word it differently -- "Failed to fetch", "NetworkError
+ * when attempting to fetch resource", Safari's "Load failed" -- so it is
+ * recognised by where it came from, not by its text (B1-7).
+ */
+export class NetworkError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = 'NetworkError';
+  }
+}
 
 export class ApiError extends Error {
   status: number;
@@ -30,8 +43,14 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Dev only (the typed address of LoginPage's email box, the mock). A built
+ * app never names its user: identity is the session cookie, and a header
+ * read from localStorage would be whatever anyone wrote there -- safe only
+ * while a proxy strips it (B1-2).
+ */
 function userEmailHeader(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
+  if (!(import.meta.env.DEV || import.meta.env.VITE_USE_MOCK === '1') || typeof window === 'undefined') return {};
   try {
     const email = window.localStorage.getItem('userEmail');
     return email ? { 'X-User-Email': email } : {};
@@ -78,6 +97,23 @@ export function onDraftOpenElsewhere(cb: (body: unknown) => void): () => void {
 export function isDraftOpenElsewhere(e: unknown): boolean {
   return e instanceof ApiError && e.status === 409 && !!e.body && typeof e.body === 'object'
     && (e.body as { openElsewhere?: unknown }).openElsewhere === true;
+}
+
+const editingElsewhereListeners = new Set<() => void>();
+
+/**
+ * Called when a change was refused because another tab or device holds
+ * this account's right to change things (409 with ``editingElsewhere``,
+ * FUNCTIONAL_SPEC W.A): this tab is view-only (lib/writeLease).
+ */
+export function onEditingElsewhere(cb: () => void): () => void {
+  editingElsewhereListeners.add(cb);
+  return () => { editingElsewhereListeners.delete(cb); };
+}
+
+export function isEditingElsewhere(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409 && !!e.body && typeof e.body === 'object'
+    && (e.body as { editingElsewhere?: unknown }).editingElsewhere === true;
 }
 
 const sessionLostListeners = new Set<() => void>();
@@ -143,17 +179,26 @@ async function request<T>(
 ): Promise<T> {
   const isForm = init.body instanceof FormData;
   const tab = await tabId();
-  const resp = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    signal: signal ?? init.signal,
-    headers: {
-      Accept: 'application/json',
-      ...(init.body && !isForm ? { 'Content-Type': 'application/json' } : {}),
-      ...userEmailHeader(),
-      [TAB_HEADER]: tab,
-      ...(init.headers ?? {}),
-    },
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      signal: signal ?? init.signal,
+      headers: {
+        Accept: 'application/json',
+        ...(init.body && !isForm ? { 'Content-Type': 'application/json' } : {}),
+        ...userEmailHeader(),
+        [TAB_HEADER]: tab,
+        ...idleHeader(),
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (e) {
+    // A TypeError is how every browser reports no answer (offline, refused,
+    // DNS); an abort, or anything else, is passed on as it is.
+    if (e instanceof TypeError) throw new NetworkError(e);
+    throw e;
+  }
   const body = await parseBody(resp);
   if (resp.status === 400 && body && typeof body === 'object' && (body as { detail?: unknown }).detail === NO_IDENTITY) {
     // The proxy passed the identity header on empty: no one is signed in
@@ -177,7 +222,13 @@ async function request<T>(
     if (resp.status === 409 && body && typeof body === 'object' && (body as { openElsewhere?: unknown }).openElsewhere === true) {
       draftElsewhereListeners.forEach((cb) => cb(body));
     }
-    if ((init.method ?? 'GET') !== 'GET' && [400, 404, 409].includes(resp.status)) {
+    const elsewhere = resp.status === 409 && !!body && typeof body === 'object'
+      && (body as { editingElsewhere?: unknown }).editingElsewhere === true;
+    if (elsewhere) {
+      // Refused for who is asking, not for what it found: nothing on
+      // screen is out of date, so no re-read (that is writeRejected).
+      editingElsewhereListeners.forEach((cb) => cb());
+    } else if ((init.method ?? 'GET') !== 'GET' && [400, 404, 409].includes(resp.status)) {
       writeRejectedListeners.forEach((cb) => cb());
     }
     throw new ApiError(
@@ -228,7 +279,7 @@ export function apiPost<T>(path: string, body?: unknown, signal?: AbortSignal): 
 export function apiPostOnLeave(path: string): void {
   try {
     void fetch(`${API_BASE_URL}${path}`, {
-      method: 'POST', keepalive: true, headers: { Accept: 'application/json', ...userEmailHeader(), [TAB_HEADER]: tabNow },
+      method: 'POST', keepalive: true, headers: { Accept: 'application/json', ...userEmailHeader(), [TAB_HEADER]: tabNow, ...idleHeader() },
     }).catch(() => {});
   } catch { /* the page is going either way */ }
 }

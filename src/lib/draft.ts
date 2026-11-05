@@ -100,6 +100,12 @@ export function getDraft(): DraftState {
   return current;
 }
 
+/** Called on every change of the draft store (resetDraft included). */
+export function subscribeDraft(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => { listeners.delete(cb); };
+}
+
 /**
  * Set draft fields from outside the wizard (a page that just created a
  * draft on the server and is about to open it). Going through the

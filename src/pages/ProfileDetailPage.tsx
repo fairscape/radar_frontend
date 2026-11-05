@@ -121,8 +121,8 @@ export function ProfileDetailPage({ id, check = false }: { id: number; check?: b
         <div className="page-actions">
           <MarkSelect r={r} size="md" />
           <Button icon="refresh" onClick={() => setChecking(true)} disabled={importing || checking} title={`Read ${r.source === 'prosopia' ? 'the Prosopia profile' : 'OpenAlex for this ORCID'} again and pick the papers that are new`}>Check for new papers</Button>
-          <Button variant="danger" icon="trash" onClick={forget} disabled={importing}>Forget</Button>
-          <Button variant="primary" icon="plus" onClick={() => navigate(paths.wizardFrom('profile', r.id))} disabled={r.n_papers === 0 || importing} title={importing ? 'Wait for the import to finish: the interest would start with part of the papers' : r.n_papers === 0 ? 'No papers to build from yet' : undefined}>{TERMS.newInterest} from these papers</Button>
+          <Button write variant="danger" icon="trash" onClick={forget} disabled={importing}>Forget</Button>
+          <Button write variant="primary" icon="plus" onClick={() => navigate(paths.wizardFrom('profile', r.id))} disabled={r.n_papers === 0 || importing} title={importing ? 'Wait for the import to finish: the interest would start with part of the papers' : r.n_papers === 0 ? 'No papers to build from yet' : undefined}>{TERMS.newInterest} from these papers</Button>
         </div>
       </header>
 
@@ -309,7 +309,7 @@ function SuggestionCard({ suggestion: s, researcherId, researcherName, byId }: {
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <div className="row">
-          <Button variant="primary" icon="plus" onClick={() => create.run()} loading={create.busy} disabled={picked.size === 0 || !name.trim()}>Create {TERMS.interest} with {plural(picked.size, 'paper')}</Button>
+          <Button write variant="primary" icon="plus" onClick={() => create.run()} loading={create.busy} disabled={picked.size === 0 || !name.trim()}>Create {TERMS.interest} with {plural(picked.size, 'paper')}</Button>
           <Button variant="ghost" onClick={() => setOpen((o) => !o)}>{open ? 'Hide papers' : 'Choose papers'}</Button>
           {create.error && <span className="field-error">{create.error}</span>}
         </div>
@@ -388,7 +388,7 @@ function NewPapersPanel({ researcher: r, onClose }: { researcher: Researcher; on
             </div>
           )}
           <div className="row">
-            <Button variant="primary" icon="upload" onClick={() => add.run()} loading={add.busy} disabled={sel.size === 0}>Import {plural(sel.size, 'paper')}</Button>
+            <Button write variant="primary" icon="upload" onClick={() => add.run()} loading={add.busy} disabled={sel.size === 0}>Import {plural(sel.size, 'paper')}</Button>
             {add.error && <span className="field-error">{add.error}</span>}
           </div>
           <p className="small muted">{TERMS.Interests} built from this {TERMS.profile} keep their seeds. To use a new paper in one, add it on that {TERMS.interest}'s Seeds step.</p>

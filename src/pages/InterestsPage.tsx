@@ -5,7 +5,7 @@ import { deleteDraft } from '../api/endpoints/wizard';
 import { getDraft, resetDraft } from '../lib/draft';
 import { errorMessage } from '../lib/format';
 import { useJobs } from '../lib/jobs';
-import { paths } from '../lib/router';
+import { navigate, paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import type { Profile } from '../types/radar';
@@ -33,7 +33,7 @@ export function InterestsPage() {
           <p className="page-sub">Each {TERMS.interest} is a set of seed papers, the topics BioXplorer queries for it, and a score threshold. BioXplorer scans an {TERMS.interest} when you start a scan.</p>
         </div>
         <div className="page-actions">
-          <Link href={paths.wizard()} className="btn btn-primary"><Icon name="plus" size={16} /> {TERMS.newInterest}</Link>
+          <Button write variant="primary" icon="plus" onClick={() => navigate(paths.wizard())}>{TERMS.newInterest}</Button>
         </div>
       </header>
 
@@ -137,8 +137,8 @@ function DraftRow({ draft, info }: { draft: Profile; info?: DraftSummary }) {
         )}
       </div>
       <div className="row">
-        <Link href={paths.wizard(draft.key)} className="btn btn-sm btn-primary">Resume</Link>
-        <Button size="sm" variant="danger" icon="trash" onClick={remove} loading={deleting}>Delete</Button>
+        <Button write size="sm" variant="primary" onClick={() => navigate(paths.wizard(draft.key))}>Resume</Button>
+        <Button write size="sm" variant="danger" icon="trash" onClick={remove} loading={deleting}>Delete</Button>
       </div>
     </div>
   );

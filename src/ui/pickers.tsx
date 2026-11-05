@@ -532,7 +532,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
           {job?.status === 'error' && <ErrorBox compact title="Import failed" message={job.error} />}
           {typeof footer === 'function' ? footer({ savedProfile: current.savedProfile ?? null }) : footer}
           <div className="row">
-            <Button variant="primary" icon="upload" onClick={() => go.run()} loading={go.busy || running} disabled={nPicked === 0}>{startLabel} {plural(nPicked, 'paper')}</Button>
+            <Button write variant="primary" icon="upload" onClick={() => go.run()} loading={go.busy || running} disabled={nPicked === 0}>{startLabel} {plural(nPicked, 'paper')}</Button>
             {go.error && <span className="field-error">{go.error}</span>}
           </div>
         </div>

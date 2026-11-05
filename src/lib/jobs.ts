@@ -15,7 +15,7 @@ import type { ResearcherSource } from '../types/researchers';
 import { getDraftDryRunStatus, startDraftDryRun, type DraftDryRun } from '../api/endpoints/wizard';
 import type { ProsopiaImportResult } from '../types/prosopia';
 import type { YearSpan } from '../types/radar';
-import { ApiError } from '../api/client';
+import { ApiError, onSessionLost } from '../api/client';
 import { errorMessage, parseServerTime, plural } from './format';
 import { invalidate } from './query';
 import { toast } from './toast';
@@ -111,6 +111,11 @@ const inflight = new Set<string>();
 // not finish the previous person's job (toast, invalidation) under the new one.
 let generation = 0;
 let timer: number | null = null;
+// No session (expired, or signed out in another tab): polling stops until
+// the identity gate is through again (resumeJobs), instead of a 401 every
+// 2.5 s on the sign-in page (B1-6). Signing in is a page load, which starts
+// afresh anyway.
+let paused = false;
 
 function load(): Job[] {
   if (typeof window === 'undefined') return [];
@@ -145,7 +150,7 @@ function patch(id: string, p: Partial<Job>) {
 }
 
 function ensurePolling() {
-  const anyRunning = jobs.some((j) => j.status === 'running');
+  const anyRunning = !paused && jobs.some((j) => j.status === 'running');
   if (anyRunning && timer === null) {
     timer = window.setInterval(tick, POLL_MS);
     void tick();
@@ -230,6 +235,7 @@ async function pollOne(job: Job) {
       if (gen !== generation) return;
       const run = runs.find((r) => r.id === job.runId);
       if (!run) throw new Error('run not found');
+      answered(job);
       if (!run.finished_at) {
         if (isStale(job, run)) return fail(job, STALE_MESSAGE);
         patch(job.id, progressFrom(job, run));
@@ -249,6 +255,7 @@ async function pollOne(job: Job) {
     if (job.kind === 'dryrun') {
       const status = await getDraftDryRunStatus(job.profileKey, job.runId);
       if (gen !== generation) return;
+      answered(job);
       if (!status.run.finished_at) {
         if (isStale(job, status.run)) return fail(job, STALE_MESSAGE);
         patch(job.id, progressFrom(job, status.run));
@@ -264,6 +271,7 @@ async function pollOne(job: Job) {
     }
     const status = await getProsopiaImportStatus(job.runId);
     if (gen !== generation) return;
+    answered(job);
     if (!status.run.finished_at) {
       if (isStale(job, status.run)) return fail(job, STALE_MESSAGE);
       patch(job.id, progressFrom(job, status.run));
@@ -295,6 +303,8 @@ async function pollOne(job: Job) {
     // No session (expired, or signed out in another tab): every poll comes
     // back as the login page. The job is still running on the server;
     // the next poll after signing in again picks it up.
+    // Polling pauses through onSessionLost (below), which a 401 for no
+    // session fires; any 401 is not counted as a failure.
     if (e instanceof ApiError && e.status === 401) return;
     const n = (failures.get(job.id) ?? 0) + 1;
     failures.set(job.id, n);
@@ -302,6 +312,32 @@ async function pollOne(job: Job) {
       fail(job, `Lost contact with the job: ${errorMessage(e)}`);
     }
   }
+}
+
+/**
+ * The server answered for ``job``: it is reachable, so earlier misses do
+ * not count towards giving up. Only ``MAX_POLL_FAILURES`` in a row do; a
+ * two-hour scan used to be reported failed after six blips spread over it,
+ * and then never followed to its end (B1-3).
+ */
+function answered(job: Job) {
+  failures.delete(job.id);
+}
+
+/** Stop polling while no one is signed in (B1-6). */
+export function pauseJobs(): void {
+  paused = true;
+  if (timer !== null) {
+    window.clearInterval(timer);
+    timer = null;
+  }
+}
+
+/** Signed in again: follow the running jobs again. */
+export function resumeJobs(): void {
+  if (!paused) return;
+  paused = false;
+  ensurePolling();
 }
 
 function finish(job: Job, p: Partial<Job>) {
@@ -510,4 +546,7 @@ export function useRunningJob(kind: JobKind, profileKey: string | null): Job | u
     : undefined;
 }
 
-if (typeof window !== 'undefined') ensurePolling();
+if (typeof window !== 'undefined') {
+  onSessionLost(pauseJobs);
+  ensurePolling();
+}

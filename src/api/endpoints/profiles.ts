@@ -172,8 +172,16 @@ function inTurn<T>(call: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export function openEdit(key: string, tab: string): Promise<{ slug: string; editOf: string }> {
-  return inTurn(() => apiPost<{ slug: string; editOf: string }>(`/api/profiles/${enc(key)}/edit`, { tab }));
+/** ``discardUnsaved``: the user confirmed dropping another tab's left-behind
+ *  copy with its unsaved changes (409 ``unsavedElsewhere`` first). */
+export function openEdit(key: string, tab: string, discardUnsaved = false): Promise<{ slug: string; editOf: string }> {
+  return inTurn(() => apiPost<{ slug: string; editOf: string }>(`/api/profiles/${enc(key)}/edit`,
+    discardUnsaved ? { tab, discard_unsaved: true } : { tab }));
+}
+
+export function isUnsavedElsewhere(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409 && !!e.body && typeof e.body === 'object'
+    && (e.body as { unsavedElsewhere?: unknown }).unsavedElsewhere === true;
 }
 
 /** The edit page is still open: keeps the interest for this tab (first

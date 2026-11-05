@@ -3,8 +3,8 @@
  *
  * Such a paper is still a seed, scored from its own text (a PDF's title
  * and body, a Prosopia paper's summary). What it lacks is an OpenAlex
- * record: an uploaded PDF's topics are then read from its text instead
- * (marked PDF in the topic list), and a Prosopia paper adds none.
+ * record, so it brings no OpenAlex topics (none are guessed from its text
+ * since 2026-11-04).
  */
 import { ApiError } from '../api/client';
 import { plural } from './format';
@@ -73,8 +73,8 @@ export function noteUnmatchedUploads(files: string[], where: 'vault' | 'draft' |
   const next = where === 'vault'
     ? `${it} kept with ${files.length === 1 ? 'its' : 'their'} own text.`
     : where === 'draft'
-      ? `${it} kept as ${files.length === 1 ? 'a seed' : 'seeds'}, scored from the PDF's own text; topics to search are read from that text where it is clear enough (marked PDF under Topics).`
-      : `${it} kept as ${files.length === 1 ? 'a seed' : 'seeds'}, scored from the PDF's own text. Topics read from it appear under Edit interest → Topics, switched off until you choose them.`;
+      ? `${it} kept as ${files.length === 1 ? 'a seed' : 'seeds'}, scored from the PDF's own text, with no OpenAlex topics.`
+      : `${it} kept as ${files.length === 1 ? 'a seed' : 'seeds'}, scored from the PDF's own text, with no OpenAlex topics.`;
   toast.info(`Not found on OpenAlex: ${names(files)}. ${next}`);
 }
 

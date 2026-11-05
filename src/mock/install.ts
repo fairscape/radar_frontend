@@ -12,6 +12,7 @@
  */
 import type { Card, ChatTurn, Profile, Topic, VaultDoc } from '../types/radar';
 import type { Researcher, ResearcherPaper } from '../types/researchers';
+import { _setLastUseForTest } from '../lib/activity';
 
 interface MockRun {
   id: number;
@@ -488,7 +489,41 @@ function err(status: number, detail: string): Response {
   return json({ detail }, status);
 }
 
-async function handle(method: string, url: URL, init: RequestInit | undefined, email: string | null): Promise<Response> {
+// The mock's draft holds (W.L), shared by this browser's tabs as the real
+// backend's are by everyone's: slug -> the tab that has it and when it last
+// said so. Free again after HOLD_STALE_MS, as draft_lock.STALE is.
+const HOLDS_KEY = 'radar-mock-holds';
+const HOLD_STALE_MS = 120_000;
+function readHolds(): Record<string, { tab: string; at: number }> {
+  try { return JSON.parse(window.localStorage.getItem(HOLDS_KEY) ?? '{}'); } catch { return {}; }
+}
+function writeHolds(h: Record<string, { tab: string; at: number }>): void {
+  try { window.localStorage.setItem(HOLDS_KEY, JSON.stringify(h)); } catch { /* storage blocked: one tab, as before */ }
+}
+
+// The mock's account lease (W.A), shared by this browser's tabs: email ->
+// the tab holding it and when it last said so (rag_lib/api/write_lease.py).
+const LEASE_KEY = 'radar-mock-lease';
+const MOCK_RELEASE_GRACE_MS = 5_000;
+const LEASE_EXEMPT = [
+  /^\/api\/users\/me\/lease(?:\/release)?$/,
+  /^\/api\/profiles\/(?!draft\/|drafts\/)[^/]+\/dry-run$/,
+  /^\/api\/profiles\/drafts\/discard-edits$/,
+  /^\/api\/profiles\/draft\/[^/]+\/release$/,
+];
+function readLeases(): Record<string, { tab: string; at: number }> {
+  try { return JSON.parse(window.localStorage.getItem(LEASE_KEY) ?? '{}'); } catch { return {}; }
+}
+function claimLease(email: string, tab: string): boolean {
+  const all = readLeases();
+  const held = all[email];
+  if (held && held.tab !== tab && Date.now() - held.at < HOLD_STALE_MS) return false;
+  all[email] = { tab, at: Date.now() };
+  try { window.localStorage.setItem(LEASE_KEY, JSON.stringify(all)); } catch { /* one tab, then */ }
+  return true;
+}
+
+async function handle(method: string, url: URL, init: RequestInit | undefined, email: string | null, tab = ''): Promise<Response> {
   const path = url.pathname;
   const q = url.searchParams;
   const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : null;
@@ -497,15 +532,44 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
   if (path === '/api/health') {
     return json({ status: 'ok', version: '0.9.3-mock', ollama_model: null, llm_provider: 'anthropic', llm_model: 'claude-sonnet-5' });
   }
-  if (!email) return err(401, 'X-User-Email header required');
+  if (!email) return err(401, 'X-User-Email header is required');
   const st = stateFor(email);
   const findProfile = (key: string) => st.profiles.find((p) => p.slug === key);
 
+  const letGo = (grace: boolean) => {
+    const all = readLeases();
+    if (all[st.email]?.tab !== tab) return;
+    // As write_lease.release: with grace the tab holds it RELEASE_GRACE more seconds.
+    if (grace) all[st.email] = { tab, at: Math.min(all[st.email].at, Date.now() - HOLD_STALE_MS + MOCK_RELEASE_GRACE_MS) };
+    else delete all[st.email];
+    try { window.localStorage.setItem(LEASE_KEY, JSON.stringify(all)); } catch { /* */ }
+  };
+  if (path === '/api/users/me/lease' && method === 'POST') {
+    return json({ editing: claimLease(st.email, tab) });
+  }
+  if (path === '/api/users/me/lease/release' && method === 'POST') {
+    letGo(q.get('grace') === '1');
+    return json({ ok: true });
+  }
+  // As write_lease.check: a change is refused while another tab holds it, and never takes it.
+  const heldBy = readLeases()[st.email];
+  if (method !== 'GET' && !LEASE_EXEMPT.some((re) => re.test(path)) && heldBy && heldBy.tab !== tab && Date.now() - heldBy.at < HOLD_STALE_MS) {
+    return new Response(JSON.stringify({
+      detail: 'This account is being changed in another tab or on another device; this tab can only view. It can change things once that one is closed or signed out (within 2 minutes if it was closed without signing out).',
+      editingElsewhere: true,
+    }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+  }
+
   if (path === '/api/users/me') {
     if (method === 'PATCH') {
+      // As routers/users.py: null changes nothing; anything else must
+      // look like an address (400), empty included.
       const m = body?.mailto;
-      if (typeof m === 'string' && m && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)) return err(422, 'mailto must be a valid email address');
-      st.mailto = (m as string) || st.email;
+      if (typeof m === 'string') {
+        const v = m.trim();
+        if (!v.includes('@') || v.includes(' ')) return err(400, `mailto must be an email address, got '${m}'`);
+        st.mailto = v;
+      }
     }
     return json({ id: 1, email: st.email, mailto: st.mailto, created_at: nowIso(-86400000 * 40) });
   }
@@ -573,11 +637,28 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     p.topics = [];
     return json({ ok: true });
   }
-  // One tab at a time (W.L): the mock is one tab's, so it always holds.
+  // One tab at a time (W.L), between this browser's tabs.
   m = path.match(/^\/api\/profiles\/draft\/([^/]+)\/(hold|release)$/);
   if (m && method === 'POST') {
-    const p = findProfile(decodeURIComponent(m[1]));
-    if (m[2] === 'hold' && (!p || !p.is_draft)) return err(404, `draft '${m[1]}' not found`);
+    const slug = decodeURIComponent(m[1]);
+    const p = findProfile(slug);
+    if (!p || !p.is_draft) return err(404, `draft '${slug}' not found`);
+    const holds = readHolds();
+    const key = `${st.email}:${slug}`;
+    const held = holds[key];
+    const other = held && held.tab !== tab && Date.now() - held.at < HOLD_STALE_MS;
+    if (m[2] === 'hold') {
+      if (other) {
+        return new Response(JSON.stringify({
+          detail: `'${p.name}' is open in another tab or window. Finish or leave it there first; a tab closed without leaving frees it within 2 minutes.`,
+          openElsewhere: true,
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+      }
+      holds[key] = { tab, at: Date.now() };
+    } else if (!other) {
+      delete holds[key];
+    }
+    writeHolds(holds);
     return json({ ok: true });
   }
   m = path.match(/^\/api\/profiles\/draft\/([^/]+)$/);
@@ -592,9 +673,14 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
   if (path === '/api/profiles' && method === 'POST') {
     const p = findProfile(String(body?.slug));
     if (!p || !p.is_draft) return err(404, `draft '${body?.slug}' not found`);
+    const sel = new Set((body?.selected_topic_ids as string[] | undefined) ?? []);
+    // As wizard.commit_draft (BT4): never saved with no topic on, even an empty list.
+    if (!p.topics.some((t) => sel.has(t.id))) {
+      return err(400, p.topics.length ? 'switch on at least one topic: a scan searches by them'
+        : 'no topic to search by: generate research topics with an Anthropic API key and map them to OpenAlex topics, then switch one on, or add seeds that are on OpenAlex');
+    }
     p.is_draft = false;
     p.threshold = Number(body?.threshold ?? 0.9);
-    const sel = new Set((body?.selected_topic_ids as string[] | undefined) ?? []);
     p.topics = p.topics.map((t) => ({ ...t, on: sel.has(t.id) }));
     p.coherence = coherenceOf(p).median;
     return json(toProfile(p));
@@ -662,6 +748,38 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
     }
     if (sub === 'topic-yield') {
       return json({ ok: true, key: p.slug, days: Number(q.get('days') ?? 30), topics: p.topics.map((t, i) => ({ topic_id: t.id, display_name: t.name, on: t.on, n_candidates: t.on ? 12 - i * 3 : 0, n_shown: t.on ? 8 - i * 2 : 0, n_saved: t.on && i === 0 ? 2 : 0, n_dismissed: i === 1 ? 3 : 0, last_fetched_at: t.on ? nowIso(-86400000 * (i + 1)) : null })) });
+    }
+    // Research topics (Prosopia method), as rag_lib/api/routers/profiles.py:
+    // generate is a preview (nothing kept), PUT keeps, llm-topics maps a
+    // saved Claude-generated list into the topic list, switched off.
+    // Step 3 waits for the seeds' UMLS reading; the mock has read them all.
+    if (sub === 'umls' && (method === 'GET' || method === 'POST')) {
+      return json({ enabled: true, total: p.seeds.length, done: p.seeds.length, pending: 0, failed: 0, running: false, topics_available: true, topics_reason: null, topics_n: 0 });
+    }
+    if (sub === 'terms' && method === 'GET') return json(mockTerms.get(p.id) ?? emptyTerms());
+    if (sub === 'terms/generate' && method === 'POST') {
+      await new Promise((r) => window.setTimeout(r, 500));
+      const llm = typeof body?.api_key === 'string' && body.api_key.trim() !== '';
+      const labels = llm ? ['Neonatal sepsis prediction', 'Heart rate variability', 'Bedside monitoring'] : ['Neonatal care', 'Monitoring signals'];
+      return json({ ...emptyTerms(), source: llm ? 'rp-sdk-llm' : 'rp-sdk-cluster', model: llm ? 'claude-mock' : null,
+        generated_at: nowIso(), terms: labels.map((label) => ({ label })), saved: false });
+    }
+    if (sub === 'terms' && method === 'PUT') {
+      const prev = mockTerms.get(p.id) ?? emptyTerms();
+      const kept = { ...prev, terms: body?.terms ?? [], removed: body?.removed ?? [], not_interests: body?.not_interests ?? [],
+        source: body?.source ?? prev.source ?? 'manual', model: body?.model ?? prev.model, generated_at: body?.generated_at ?? prev.generated_at,
+        edited: !!body?.edited, saved: true, stale: false };
+      mockTerms.set(p.id, kept);
+      return json(kept);
+    }
+    if (sub === 'llm-topics' && method === 'POST') {
+      const t = mockTerms.get(p.id);
+      if (!t || t.source !== 'rp-sdk-llm' || !t.terms.length) return err(400, 'generate research topics with Claude and save them first');
+      const added = t.terms
+        .map((x: { label: string }, i: number) => ({ id: `T2${String(i).padStart(4, '0')}`, name: `${x.label} (OpenAlex)`, count: 0, on: false, source: 'llm', llm_label: x.label }))
+        .filter((x: { id: string }) => !p.topics.some((y) => y.id === x.id));
+      p.topics = [...p.topics, ...added];
+      return json({ added, topics: p.topics, n_labels: t.terms.length });
     }
     return err(404, `no route ${method} ${path}`);
   }
@@ -1021,16 +1139,34 @@ async function handle(method: string, url: URL, init: RequestInit | undefined, e
   return err(404, `no mock route for ${method} ${path}`);
 }
 
+// Research topics per profile id (the mock state has no field for them).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockTerms = new Map<number, any>();
+function emptyTerms() {
+  return { source: null, model: null, generated_at: null, stale: false, terms: [], removed: [], not_interests: [], edited: false, saved: true };
+}
+
 export function installMock(): void {
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const url = new URL(urlStr, window.location.origin);
+    // No sign-in providers in the mock: the dev email box, as on a
+    // header-model backend (it was passed on to whatever the dev proxy reached).
+    if (url.pathname === '/auth/config') return json({ providers: [], signed_in_with: null });
     if (!url.pathname.startsWith('/api/')) return realFetch(input, init);
     const method = (init?.method ?? 'GET').toUpperCase();
     const headers = new Headers(init?.headers ?? {});
     const email = headers.get('X-User-Email');
-    await new Promise((r) => window.setTimeout(r, 120 + Math.random() * 180));
+    const tab = headers.get('X-Radar-Tab') ?? '';
+    // radar.mock.slowMs (sessionStorage): every answer that much later, to
+    // see what a slow server does. Both it and failNext are read per request.
+    let slow = 0;
+    try { slow = Number(window.sessionStorage.getItem('radar.mock.slowMs') ?? 0) || 0; } catch { /* */ }
+    // A keepalive request (the page is going) is handled at once, as the
+    // real server gets it even after the page is gone (review FC-6).
+    if (!init?.keepalive) await new Promise((r) => window.setTimeout(r, 120 + Math.random() * 180 + slow));
+    failPatterns = loadFailPatterns();
     const failing = failPatterns.findIndex((re) => re.test(`${method} ${url.pathname}`));
     if (failing >= 0) {
       failPatterns.splice(failing, 1);
@@ -1038,7 +1174,7 @@ export function installMock(): void {
       return err(500, `Simulated failure for ${method} ${url.pathname}`);
     }
     try {
-      return await handle(method, url, init, email);
+      return await handle(method, url, init, email, tab);
     } catch (e) {
       return err(500, e instanceof Error ? e.message : String(e));
     } finally {
@@ -1051,6 +1187,8 @@ export function installMock(): void {
       saveFailPatterns();
     },
     state: (email: string) => stateFor(email),
+    // Pretend nobody has used this tab for ``msAgo`` (an idle tab keeps the right; only its sign-in is not renewed).
+    idleFor: (msAgo: number) => _setLastUseForTest(msAgo),
   };
   failPatterns = loadFailPatterns();
   restoreStates();

@@ -1,4 +1,4 @@
-import { ApiError } from '../api/client';
+import { ApiError, NetworkError } from '../api/client';
 
 /** A sentence a user can act on, from whatever an endpoint threw. */
 export function errorMessage(e: unknown): string {
@@ -20,7 +20,7 @@ export function errorMessage(e: unknown): string {
     if (e.status >= 500) return `The backend returned an error (${e.status}).`;
     return e.message;
   }
-  if (e instanceof TypeError && /fetch|network/i.test(e.message)) {
+  if (e instanceof NetworkError || (e instanceof TypeError && /fetch|network|load failed/i.test(e.message))) {
     return "Can't reach the BioXplorer backend. Is it running?";
   }
   return e instanceof Error ? e.message : String(e);

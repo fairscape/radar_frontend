@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, onSessionLost, onWriteRejected } from './api/client';
-import { invalidate } from './lib/query';
+import { invalidateAfterRefusal } from './lib/query';
 import { getAuthConfig, SIGN_IN_PROVIDERS, type SignInProvider } from './api/endpoints/auth';
 import { getMe } from './api/endpoints/users';
 import { useThemeEffect } from './lib/theme';
-import { forgetSessionState, getUserEmail, setSignedInWith, setUserEmail, useUserEmail } from './lib/userEmail';
-import { useRoute } from './lib/router';
+import { clearTabSignedOut, forgetSessionState, getUserEmail, isTabSignedOut, setSignedInWith, setUserEmail, useUserEmail } from './lib/userEmail';
+import { setPublicPage, startLease, stopLease } from './lib/writeLease';
+import { resumeJobs } from './lib/jobs';
+import { navigate, useRoute } from './lib/router';
 import { TERMS } from './lib/terms';
-import { LoginPage } from './pages/LoginPage';
+import { LoginPage, OTHER_TABS_NOTE } from './pages/LoginPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { Shell } from './pages/Shell';
 import { Button, ConfirmHost, Spinner, Toaster } from './ui';
@@ -50,6 +52,39 @@ function emailOf(u: unknown): string | null {
   return null;
 }
 
+/**
+ * Where a tab was when its session ran out mid-visit, so signing in again
+ * brings it back there rather than to the start page (the backend's
+ * callback always lands on ``/``). Per tab (sessionStorage), for the same
+ * person only, and for half an hour (B1-4).
+ */
+const RETURN_KEY = 'radar.returnTo';
+const RETURN_MS = 30 * 60 * 1000;
+
+function rememberReturnTo(who: string | null): void {
+  if (!who) return;
+  try {
+    const path = window.location.pathname + window.location.search;
+    window.sessionStorage.setItem(RETURN_KEY, JSON.stringify({ path, who: who.toLowerCase(), at: Date.now() }));
+  } catch { /* storage blocked: the start page, as before */ }
+}
+
+function takeReturnTo(email: string): string | null {
+  try {
+    const raw = window.sessionStorage.getItem(RETURN_KEY);
+    window.sessionStorage.removeItem(RETURN_KEY);
+    if (!raw) return null;
+    const r = JSON.parse(raw) as { path?: unknown; who?: unknown; at?: unknown };
+    if (typeof r.path !== 'string' || typeof r.at !== 'number' || r.who !== email.toLowerCase()) return null;
+    if (Date.now() - r.at > RETURN_MS) return null;
+    // Only a path of this app: never another origin (``//host``) or the auth routes.
+    if (!r.path.startsWith('/') || r.path.startsWith('//') || r.path.startsWith('/auth')) return null;
+    return r.path;
+  } catch {
+    return null;
+  }
+}
+
 function Splash({ children }: { children: ReactNode }) {
   return (
     <div className="col" style={{ alignItems: 'center', gap: 12, padding: 64 }}>
@@ -62,6 +97,11 @@ export function App() {
   useThemeEffect();
   const route = useRoute();
   const [gate, setGate] = useState<Gate>({ k: 'loading' });
+  // The session ran out while this tab was signed in (not a first visit):
+  // the sign-in page says so (B1-4).
+  const [expired, setExpired] = useState(false);
+  const gateRef = useRef<Gate>(gate);
+  gateRef.current = gate;
   // undefined until /auth/config answers, so the anonymous gate does not
   // flash the wrong login page first.
   const [providers, setProviders] = useState<SignInProvider[] | undefined>(undefined);
@@ -87,6 +127,13 @@ export function App() {
 
   const resolve = useCallback(() => {
     const mine = ++attempt.current;
+    if (isTabSignedOut()) {
+      // This tab signed out on its own while others of this browser stayed
+      // signed in (W.A R6): it stays out, reloads included, until its
+      // sign-in button is clicked.
+      setGate({ k: 'anonymous' });
+      return;
+    }
     setGate({ k: 'loading' });
     getMe()
       .then((u) => {
@@ -137,12 +184,36 @@ export function App() {
   }, [resolve, cached]);
   useEffect(() => onSessionLost(() => {
     attempt.current += 1;        // a resolve still in flight must not land afterwards
+    if (gateRef.current.k === 'ready') {
+      rememberReturnTo(gateRef.current.email);
+      setExpired(true);
+    }
+    void stopLease();
     setGate({ k: 'anonymous' });
   }), []);
+  // Signed in again after it ran out: back where the tab was.
+  // /privacy has no Shell: no banner, nothing to change. It takes no part
+  // in the right to change things, nor answers for Sign out (FC-4).
+  const publicPage = route.name === 'privacy';
+  useEffect(() => {
+    setPublicPage(publicPage);
+    if (gate.k !== 'ready') return;
+    if (publicPage) { void stopLease({ release: true }); return; }
+    // Ask for the right to change things (W.A); stopped on any way out.
+    startLease();
+  }, [gate, publicPage]);
+  useEffect(() => {
+    if (gate.k !== 'ready') return;
+    setExpired(false);
+    resumeJobs();
+    const to = takeReturnTo(gate.email);
+    const here = window.location.pathname + window.location.search;
+    if (to && to !== here && (here === '/' || here === '')) navigate(to, { replace: true });
+  }, [gate]);
   // A write refused for the state it found: what is on screen is out of
   // date (another tab), so all of it is re-read. Mounted entries refetch;
   // the rest are forgotten (see invalidate).
-  useEffect(() => onWriteRejected(() => invalidate('')), []);
+  useEffect(() => onWriteRejected(() => invalidateAfterRefusal()), []);
 
   // A backend without the /auth routes behind a proxy that serves the SPA
   // for unknown paths answers with HTML, so only known provider names
@@ -181,11 +252,15 @@ export function App() {
     // Dev has no Access in front of it, so the manual gate is the only way
     // in there. A build behind the proxy reaches this only when the session
     // expired mid-visit, and reloading sends the browser to Access.
-    body = providers?.length ? <LoginPage providers={providers} /> : import.meta.env.DEV ? <LoginPage /> : (
+    // Without sign-in buttons (no /auth routes, or /auth/config did not
+    // answer) "Session expired" only after a session this tab had: a first
+    // visit was told it had expired (B1-8).
+    body = providers?.length ? <LoginPage providers={providers} expired={expired} /> : import.meta.env.DEV ? <LoginPage /> : (
       <Splash>
-        <h2 style={{ margin: 0 }}>Session expired</h2>
-        <p style={{ color: 'var(--fg-3)', margin: 0 }}>Sign in again to continue.</p>
-        <Button variant="primary" onClick={() => window.location.reload()}>Sign in</Button>
+        <h2 style={{ margin: 0 }}>{expired ? 'Session expired' : 'Sign in'}</h2>
+        <p style={{ color: 'var(--fg-3)', margin: 0 }}>{expired ? 'Sign in again to continue.' : 'Sign in to continue.'}</p>
+        {!expired && isTabSignedOut() && <p style={{ color: 'var(--fg-3)', margin: 0, maxWidth: 420, textAlign: 'center' }} data-testid="other-tabs-signed-in">{OTHER_TABS_NOTE}</p>}
+        <Button variant="primary" onClick={() => { clearTabSignedOut(); window.location.reload(); }}>Sign in</Button>
       </Splash>
     );
   } else {

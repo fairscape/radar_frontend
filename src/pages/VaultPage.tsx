@@ -167,7 +167,7 @@ function DeleteUpload({ doc }: { doc: VaultDoc }) {
   };
   return (
     <div>
-      <Button size="sm" variant="ghost" icon="trash" loading={busy} disabled={busy} onClick={() => void run()}>Delete PDF</Button>
+      <Button write size="sm" variant="ghost" icon="trash" loading={busy} disabled={busy} onClick={() => void run()}>Delete PDF</Button>
     </div>
   );
 }
@@ -228,7 +228,7 @@ function ChatPanel({ profiles, defaultScope }: { profiles: import('../types/rada
     <div className="vault-col">
       <div className="vault-col-head">
         <span className="row" style={{ gap: 6 }}><Icon name="chat" size={14} /> Ask your {TERMS.vault}</span>
-        <IconButton icon="trash" label="Clear chat history" size="sm" onClick={clear} disabled={turns.length === 0} />
+        <IconButton write icon="trash" label="Clear chat history" size="sm" onClick={clear} disabled={turns.length === 0} />
       </div>
       <div className="chat-msgs" ref={bodyRef}>
         {history.error && !history.data && <ErrorBox compact message={errorMessage(history.error)} onRetry={history.refresh} />}
@@ -264,7 +264,7 @@ function ChatPanel({ profiles, defaultScope }: { profiles: import('../types/rada
             aria-label="Question"
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
           />
-          <Button variant="primary" icon="send" onClick={send} loading={sending} disabled={!query.trim()}>Ask</Button>
+          <Button write variant="primary" icon="send" onClick={send} loading={sending} disabled={!query.trim()}>Ask</Button>
         </div>
         <div className="chat-foot">
           <span>{configured.length > 1 ? (

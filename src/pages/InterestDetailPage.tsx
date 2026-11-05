@@ -146,9 +146,9 @@ export function InterestDetailPage({ profileKey, urlTab = null }: { profileKey: 
           <p className="page-sub">{health.hint}{profile.researcherId != null && <BuiltFrom id={profile.researcherId} />}</p>
         </div>
         <div className="page-actions">
-          <Button icon="sliders" onClick={() => navigate(paths.interestEdit(profile.key))} title="Go through the steps again: seeds, check, topics, threshold">Edit interest</Button>
+          <Button write icon="sliders" onClick={() => navigate(paths.interestEdit(profile.key))} title="Go through the steps again: seeds, check, topics, threshold">Edit interest</Button>
           <Button icon="radar" onClick={() => goToFeedFor(profile.key)}>View in feed</Button>
-          <Button variant="primary" icon="play" onClick={() => setScanOpen(true)} disabled={scanBusy} title={scanBusy ? 'A scan is already running' : 'Look for new papers now'}>
+          <Button write variant="primary" icon="play" onClick={() => setScanOpen(true)} disabled={scanBusy} title={scanBusy ? 'A scan is already running' : 'Look for new papers now'}>
             {scanBusy ? 'Scanning…' : 'Scan now'}
           </Button>
           <DeleteInterestButton profile={profile} busy={scanBusy} />
@@ -214,7 +214,7 @@ function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; deta
           <p>Saving or dismissing a paper in the feed is recorded below for this {TERMS.interest}. It does not change the seeds, the scores or the threshold; saved papers are listed under Saved and in the Vault.</p>
         </div>
       </Panel>
-      <Panel title="Recent activity" actions={<Button size="sm" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>}>
+      <Panel title="Recent activity" actions={<Button write size="sm" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>}>
         {last ? (
           <div className="stack" style={{ gap: 6, fontSize: 13.5 }}>
             <div className="row spread"><span>Last scan</span><span>{fmtRelative(last.finished_at)}</span></div>
@@ -355,7 +355,7 @@ export function SeedsTab({ profile, detail, editing = false, more }: {
 
   return (
     <div className="two-col">
-      <Panel title="Seed papers" description="What this interest is made of." actions={editing ? <Button size="sm" icon="refresh" onClick={() => recompute.run()} loading={recompute.busy} title="Recompute coherence from the current seeds">Recompute</Button> : undefined}>
+      <Panel title="Seed papers" description="What this interest is made of." actions={editing ? <Button write size="sm" icon="refresh" onClick={() => recompute.run()} loading={recompute.busy} title="Recompute coherence from the current seeds">Recompute</Button> : undefined}>
         {!editing && (
           <SectionNote>
             To add or remove seeds, use <Link href={paths.interestEdit(profile.key, 1)}>Edit interest</Link>: the changes are kept when you save them there.
@@ -374,7 +374,7 @@ export function SeedsTab({ profile, detail, editing = false, more }: {
             <span className="mono small" title="How similar this seed is to the other seeds (leave-one-out). The lowest values are the least typical papers." style={{ color: s.coh > 0 && profile.seedSimMin != null && s.coh <= profile.seedSimMin + 1e-6 && profile.seedSimMax != null && profile.seedSimMax - profile.seedSimMin > 0.02 ? 'var(--warn)' : 'var(--fg-3)' }}>
               {s.coh > 0 ? fmtScore(s.coh) : '—'}
             </span>
-            {editing && <IconButton icon="trash" size="sm" label={`Remove "${s.title || s.id}" from the seeds`} disabled={removing !== null || !!progress || detail.seeds.length <= 1} onClick={() => void remove(s.id, s.title)} />}
+            {editing && <IconButton write icon="trash" size="sm" label={`Remove "${s.title || s.id}" from the seeds`} disabled={removing !== null || !!progress || detail.seeds.length <= 1} onClick={() => void remove(s.id, s.title)} />}
           </div>
         ))}
         {(detail.deletedSeeds ?? []).map((s) => (
@@ -619,7 +619,7 @@ export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, 
       actions={readOnly || editing ? undefined : (
         <>
           <Button size="sm" variant="ghost" onClick={() => setValue(savedThreshold)} disabled={!dirty}>Reset</Button>
-          <Button size="sm" variant="primary" onClick={() => save.run()} loading={save.busy} disabled={!dirty || !exactOk} title={exactOk ? undefined : 'Enter a threshold between 0 and 1'}>Save threshold</Button>
+          <Button write size="sm" variant="primary" onClick={() => save.run()} loading={save.busy} disabled={!dirty || !exactOk} title={exactOk ? undefined : 'Enter a threshold between 0 and 1'}>Save threshold</Button>
         </>
       )}
     >
@@ -629,12 +629,12 @@ export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, 
         <YearRange value={years} onChange={setYears} newOnlyLabel="Any year" disabled={readOnly} />
         {editing && savedYears && <p className="small muted" style={{ margin: '6px 0 0' }}>To fetch papers from these years, save the changes first.</p>}
         <div className="row" style={{ gap: 8, marginTop: 8 }}>
-          {yearsDirty && !editing && <Button size="sm" variant="primary" icon="check" loading={saveYears.busy} onClick={() => saveYears.run()}>Save years</Button>}
+          {yearsDirty && !editing && <Button write size="sm" variant="primary" icon="check" loading={saveYears.busy} onClick={() => saveYears.run()}>Save years</Button>}
           {yearsDirty && !editing && <Button size="sm" variant="ghost" onClick={() => setYears(savedYears)}>Reset</Button>}
           {needsBackfill && (
             <>
               <span className="small muted">{oldestStored == null ? 'No papers stored yet.' : `The oldest paper stored is from ${oldestStored}.`}</span>
-              <Button size="sm" icon="play" loading={fetchYears.busy} onClick={() => fetchYears.run()}>Fetch papers from {yearsLabel(savedYears!)}</Button>
+              <Button write size="sm" icon="play" loading={fetchYears.busy} onClick={() => fetchYears.run()}>Fetch papers from {yearsLabel(savedYears!)}</Button>
             </>
           )}
         </div>
@@ -645,7 +645,7 @@ export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, 
       {scoresQ.data && scoresQ.data.scores.length === 0 && storedPapers.length === 0 && (
         editing
           ? <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Save the changes, then scan; come back to tune the threshold once papers are found." />
-          : <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Run a scan first, then come back to tune the threshold." action={<Button icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} />
+          : <EmptyState compact icon="radar" title="No gathered papers to calibrate against" body="Run a scan first, then come back to tune the threshold." action={<Button write icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} />
       )}
       {scoresQ.data && shownScores.length === 0 && storedPapers.length > 0 && (
         // Papers are stored, none from the years chosen above.
@@ -665,7 +665,7 @@ export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, 
           {scoresQ.data.papers && scoresQ.data.papers.length > 0 && !scoresQ.data.papers.some((p) => p.score < profile.threshold) && (
             <Callout tone="info">
               Nothing below <b className="mono">{profile.threshold.toFixed(3)}</b> is stored yet: earlier scans kept only the papers above the threshold. Scans now keep everything, so after the next one a lower threshold shows what it adds.{' '}
-              {!editing && <Button size="sm" variant="ghost" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>}
+              {!editing && <Button write size="sm" variant="ghost" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>}
             </Callout>
           )}
           {scoresQ.data.papers && scoresQ.data.papers.length > 0 && (
@@ -729,7 +729,7 @@ function SavedTab({ profile }: { profile: Profile }) {
                   </td>
                   <td className="small">{fmtRelative(p.saved_at)}</td>
                   <td className="r">
-                    <Button size="sm" variant="ghost" loading={busy.has(p.id)} disabled={busy.has(p.id)} onClick={() => void unsave(p.id, p.title || p.id)} title="Take it off this list; it stays in the Vault">Unsave</Button>
+                    <Button write size="sm" variant="ghost" loading={busy.has(p.id)} disabled={busy.has(p.id)} onClick={() => void unsave(p.id, p.title || p.id)} title="Take it off this list; it stays in the Vault">Unsave</Button>
                   </td>
                 </tr>
               ))}
@@ -744,7 +744,7 @@ function SavedTab({ profile }: { profile: Profile }) {
 function ScansTab({ profile, onScan, busy }: { profile: Profile; onScan: () => void; busy: boolean }) {
   const { data: runs, loading, error, refresh } = useProfileRuns(profile.key, 30);
   return (
-    <Panel title="Scans" description="Every gather pass for this interest, newest first. Scans run only when you start one." actions={<Button size="sm" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} className="panel-flush">
+    <Panel title="Scans" description="Every gather pass for this interest, newest first. Scans run only when you start one." actions={<Button write size="sm" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>} className="panel-flush">
       <div style={{ padding: '0 18px 12px' }}>
         {error && !runs && <ErrorBox compact message={errorMessage(error)} onRetry={refresh} />}
         {loading && !runs && <LoadingRows rows={3} />}
@@ -850,7 +850,7 @@ function ScanDialogBody({ profile, open, onClose }: { profile: Profile; open: bo
       open={open}
       title={`Scan "${profile.name}" now`}
       onClose={onClose}
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" icon="play" onClick={() => go.run()} loading={go.busy} disabled={!daysOk} title={daysOk ? undefined : 'Days 1–365'}>Start scan</Button></>}
+      footer={<><Button onClick={onClose}>Cancel</Button><Button write variant="primary" icon="play" onClick={() => go.run()} loading={go.busy} disabled={!daysOk} title={daysOk ? undefined : 'Days 1–365'}>Start scan</Button></>}
     >
       <div className="stack">
         <p>BioXplorer will query OpenAlex for recent papers on this {TERMS.interest}'s topics, score them, and add the results to your feed: each topic's {SCAN_PER_TOPIC} most cited papers from the window. This usually takes a few minutes.</p>
@@ -895,7 +895,7 @@ function DeleteInterestButton({ profile, busy }: { profile: Profile; busy: boole
     }
   }
   return (
-    <Button variant="danger" icon="trash" onClick={remove} loading={deleting} disabled={busy || deleting}
+    <Button write variant="danger" icon="trash" onClick={remove} loading={deleting} disabled={busy || deleting}
       title={busy ? 'Wait for the running scan to finish' : `Delete this ${TERMS.interest}`}>
       Delete
     </Button>

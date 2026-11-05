@@ -136,7 +136,7 @@ export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded
         ))}
       </div>
       <div className="row">
-        <Button size="sm" icon="plus" disabled={chosen.size === 0 || disabled} loading={attach.busy} onClick={() => void attach.run()}>
+        <Button write size="sm" icon="plus" disabled={chosen.size === 0 || disabled} loading={attach.busy} onClick={() => void attach.run()}>
           {chosen.size > 0 ? `Add ${plural(chosen.size, 'paper')} as seeds` : 'Tick papers to add them'}
         </Button>
         {attach.error && <span className="field-error">{attach.error}</span>}
