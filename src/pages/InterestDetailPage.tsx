@@ -442,7 +442,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
     <Panel title="Topics" description="What BioXplorer asks OpenAlex for. Aggregated from the seeds; chosen when the interest was created.">
       <SectionNote>
         To switch topics on or off, or pick up topics that new seeds brought in, use{' '}
-        <Link href={paths.interestEdit(profile.key, 3)}>Edit interest → Topics</Link>. Changes apply from the next scan.
+        <Link href={paths.interestEdit(profile.key, 3)}>Edit interest → Topics</Link>. A topic switched off takes the papers it found out of the feed once you save (unless another of their topics is on); a topic switched on is searched from the next scan.
       </SectionNote>
       {detail.topics.length === 0 ? (
         <p className="muted small">No topics. In Edit interest, add seeds whose OpenAlex records resolve.</p>

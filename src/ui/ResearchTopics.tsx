@@ -28,6 +28,7 @@ import { rtDrop, rtEntry, rtSet, rtToken, useRtEntry } from '../lib/rtDraft';
 import { addLeaveGuard } from '../lib/router';
 import { toast } from '../lib/toast';
 import { Badge, Button, Callout, Dialog, ErrorBox, Field, Icon, Input, LoadingRows, Panel, confirmDialog, useAction, useClearOnChange } from './index';
+import { looksLikeSecret, SECRET_MESSAGE } from '../lib/secretText';
 
 const SOURCE_LABEL: Record<string, string> = {
   prosopia: 'from the Prosopia profile',
@@ -56,6 +57,7 @@ export function ResearchTopics({ profileKey, readOnly = false, autoSave = false,
   const [removed, setRemoved] = useState<InterestTerm[]>([]);
   const [notInterests, setNotInterests] = useState<string[]>([]);
   const [adding, setAdding] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
   const [dialog, setDialog] = useState(false);
   const shown = preview ?? q.data ?? null;
   // Reset the edits only when what is shown actually changed. Every
@@ -87,8 +89,13 @@ export function ResearchTopics({ profileKey, readOnly = false, autoSave = false,
   };
   const strike = (i: number) => apply(list.filter((_, j) => j !== i), [...removed, list[i]]);
   const restore = (i: number) => apply([...list, removed[i]], removed.filter((_, j) => j !== i));
+  // Struck out stays (to put back); this takes it off the stored record for good (user 2026-11-06).
+  const purge = (i: number) => apply(list, removed.filter((_, j) => j !== i));
   const add = (label: string) => {
     if (autoSave && saving) return;
+    // A key typed here was saved as a topic (2026-11-06): refused, and out of the box.
+    if (looksLikeSecret(label)) { setAdding(''); setAddError(SECRET_MESSAGE); return; }
+    setAddError(null);
     // Adding a struck-out topic by name puts it back rather than duplicating it.
     const k = removed.findIndex((t) => t.label.toLowerCase() === label.toLowerCase());
     if (k >= 0) restore(k);
@@ -250,21 +257,23 @@ export function ResearchTopics({ profileKey, readOnly = false, autoSave = false,
             </span>
           ))}
           {removed.map((t, i) => (
-            <span key={`off-${t.label}-${i}`} className="topic-toggle topic-struck" title="Removed — not used. Click ↺ to put it back.">
+            <span key={`off-${t.label}-${i}`} className="topic-toggle topic-struck" title="Removed — not used. ↺ puts it back; the bin deletes it for good.">
               <s>{t.label}</s>
               {!readOnly && <button type="button" className="linklike" aria-label={`Put "${t.label}" back`} title="Put back" disabled={locked} onClick={() => restore(i)}><Icon name="refresh" size={11} /></button>}
+              {!readOnly && <button type="button" className="linklike" aria-label={`Delete "${t.label}" for good`} title="Delete for good (it cannot be put back)" disabled={locked} onClick={() => purge(i)}><Icon name="trash" size={11} /></button>}
             </span>
           ))}
         </div>
       )}
       {d && !readOnly && (
         <div className="row" style={{ gap: 6, marginTop: 10 }}>
-          <Input value={adding} onChange={(e) => setAdding(e.target.value)} maxLength={200} placeholder="Add a topic" aria-label="Add a research topic" disabled={locked}
+          <Input value={adding} onChange={(e) => { setAdding(e.target.value); setAddError(null); }} maxLength={200} autoComplete="off" placeholder="Add a topic" aria-label="Add a research topic" disabled={locked}
             onKeyDown={(e) => { if (e.key === 'Enter' && adding.trim()) add(adding.trim()); }} />
           <Button write size="sm" disabled={!adding.trim() || locked} loading={autoSave && saving} onClick={() => add(adding.trim())}>Add</Button>
           {!autoSave && !preview && editedSincePreviewOrSave && <Button write size="sm" variant="primary" icon="check" loading={saving} onClick={() => void save()}>Save changes</Button>}
         </div>
       )}
+      {addError && <p className="field-error" role="alert" style={{ margin: '6px 0 0' }}>{addError}</p>}
       {notInterests.length > 0 && (
         <p className="small muted" style={{ marginTop: 10 }}>Not interested in: {notInterests.join(' · ')}</p>
       )}

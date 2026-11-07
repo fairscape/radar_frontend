@@ -45,6 +45,7 @@ import { Button, Callout, EmptyState, ErrorBox, Field, Icon, IconButton, Input, 
 import { Link } from '../ui/Link';
 import { CoherenceHistogram, JobProgress, ThresholdHistogram, agreementTone, axisFor } from '../ui/domain';
 import { LookupPicker, ORCID_LOOKUP, PROSOPIA_LOOKUP, PaperLink, PaperPickList, PaperTitle, SaveProfileCheck, papersOf, type Lookup, type PickWork } from '../ui/pickers';
+import { refuseSecret } from '../lib/secretText';
 
 const STEPS = [
   { n: 1, label: 'Seeds', hint: 'name it, add papers' },
@@ -478,6 +479,7 @@ function StepSeeds({ state, preselectResearcher }: { state: DraftState; preselec
   const importJob = useJob(state.importJobId);
   const create = useAction(async () => {
     if (!name.trim()) throw new Error('Give it a name first.');
+    refuseSecret(name);
     const before = getDraft().slug;
     const d = await createDraft(name.trim());
     // A name already in use gets a " (2)": say so, it is easy to miss.

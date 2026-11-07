@@ -436,9 +436,9 @@ function ScanOutdated({ profileKey, editing = false, busy = false, onScan }: { p
         <span>
           {d.seeds
             ? <>The recommendations and their scores still come from the seed papers at the last scan, not the seeds {now}.</>
-            : <>The recommendations still come from the topics searched at the last scan, not the topics {now}.</>}
-          {d.seeds && d.topics && <> They were also found through the topics searched then.</>}{' '}
-          {editing ? 'Click Save changes below; you can scan right after.' : 'Scan to rescore them.'}
+            : <>A topic switched on since the last scan has not been searched yet, so its papers are not in the recommendations.</>}
+          {d.seeds && d.topics && <> A topic switched on since then has not been searched yet either.</>}{' '}
+          {editing ? 'Click Save changes below; you can scan right after.' : d.seeds ? 'Scan to rescore them.' : 'Scan to search it.'}
         </span>
         {!editing && onScan && <Button size="sm" icon="play" onClick={onScan} disabled={busy}>{busy ? 'Scanning…' : 'Scan now'}</Button>}
       </div>
@@ -544,7 +544,7 @@ function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: (
   };
 
   return (
-    <Panel title="What should BioXplorer search for?" description="Topics aggregated from the seeds' OpenAlex records. Each scan asks OpenAlex for papers in the topics that are on. Papers already found stay; a change applies from the first scan after you save.">
+    <Panel title="What should BioXplorer search for?" description="Topics aggregated from the seeds' OpenAlex records. Each scan asks OpenAlex for papers in the topics that are on. Switching a topic off takes the papers it found out of the feed once you save (none of their topics on); switching it back on brings them back. A topic switched on is searched from the first scan after you save.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
       <UmlsNotice profileKey={profile.key} listed={topics.data} />
       {!topics.data && topics.loading && <LoadingRows rows={3} />}

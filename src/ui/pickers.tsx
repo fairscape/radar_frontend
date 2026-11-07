@@ -18,6 +18,7 @@ import type { OrcidWork, ProsopiaWork, SavedProfileRef } from '../types/prosopia
 import { Button, Callout, EmptyState, ErrorBox, Field, Input, useAction, useClearOnChange } from './index';
 import { JobProgress } from './domain';
 import { paperHref, PaperLink } from './paperLink';
+import { looksLikeSecret, refuseSecret } from '../lib/secretText';
 export { paperHref, PaperLink };
 
 /** A paper offered for import, whichever service listed it. */
@@ -428,7 +429,10 @@ function recall(key: string | undefined): string {
   const k = storageKey(key);
   if (!k) return '';
   try {
-    return window.localStorage.getItem(k) ?? '';
+    const v = window.localStorage.getItem(k) ?? '';
+    // One remembered before the rule (2026-11-06) is dropped, not shown.
+    if (looksLikeSecret(v)) { window.localStorage.removeItem(k); return ''; }
+    return v;
   } catch {
     return '';
   }
@@ -436,7 +440,7 @@ function recall(key: string | undefined): string {
 
 function remember(key: string | undefined, value: string): void {
   const k = storageKey(key);
-  if (!k || !value) return;
+  if (!k || !value || looksLikeSecret(value)) return;
   try {
     window.localStorage.setItem(k, value);
   } catch {
@@ -476,6 +480,7 @@ export function LookupPicker({ lookup, start, startLabel = 'Import', job, initia
   const running = job?.status === 'running';
 
   const find = useAction(async () => {
+    refuseSecret(raw);
     if (!key) return;
     const res = await lookup.find(key);
     remember(lookup.rememberAs, raw.trim());

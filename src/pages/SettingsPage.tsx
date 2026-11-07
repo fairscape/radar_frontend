@@ -7,6 +7,7 @@ import { addLeaveGuard } from '../lib/router';
 import { toast } from '../lib/toast';
 import { EMAIL_RE, getSignedInWith, signOut as endSession } from '../lib/userEmail';
 import { Badge, Button, ErrorBox, Field, Input, LoadingRows, Panel, Segmented, confirmDialog, useAction } from '../ui';
+import { refuseSecret } from '../lib/secretText';
 
 function signedInHint(): string {
   const by = getSignedInWith();
@@ -31,6 +32,7 @@ export function SettingsPage() {
 
   const save = useAction(async () => {
     const v = mailto.trim();
+    refuseSecret(v);
     if (!EMAIL_RE.test(v)) throw new Error('Enter a valid email address.');
     const u = await updateMe({ mailto: v });
     setUser(u);

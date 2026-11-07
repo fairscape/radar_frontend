@@ -19,6 +19,7 @@ import type { OrcidWork, ProsopiaWork } from '../types/prosopia';
 import type { Researcher } from '../types/researchers';
 import { TopicChips } from '../ui/ProfileTopics';
 import { MarkBadge, MarkSelect } from './ProfilesPage';
+import { refuseSecret } from '../lib/secretText';
 
 type Tab = 'suggested' | 'papers' | 'interests' | 'about';
 
@@ -281,6 +282,7 @@ function SuggestionCard({ suggestion: s, researcherId, researcherName, byId }: {
   const [picked, setPicked] = useState<Set<string>>(() => new Set(s.paper_ids));
   const create = useAction(async () => {
     if (picked.size === 0 || !name.trim()) return;
+    refuseSecret(name);
     const res = await createInterestFromResearcher(researcherId, { name: name.trim(), openalex_ids: Array.from(picked) });
     toast.success(`Draft "${res.draft.name}" created with ${plural(res.n_seeds, 'seed')}.`);
     // Hand the wizard the draft directly; the interests list it would
