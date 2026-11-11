@@ -61,14 +61,21 @@ export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded
     setChosen(new Set());
     const rejected = new Set(res.rejected);
     const added = inVault.filter((d) => ids.includes(d.id) && !rejected.has(d.id));
-    if (added.length > 0) onAdded?.(added);
+    // The server does not attach a second version of a work already a
+    // seed, nor a record sharing its DOI (CR.10), and does not list those
+    // as rejected: ``attached`` is what went in. Which ones it skipped it
+    // does not say, so the refetched seed list is left to show them.
+    const already = Math.max(0, added.length - res.attached);
+    if (already === 0 && added.length > 0) onAdded?.(added);
+    else if (res.attached > 0) onAdded?.([]);
+    const alreadyNote = already > 0 ? ` ${plural(already, 'paper')} ${already === 1 ? 'was' : 'were'} already a seed in another version, so not added again.` : '';
     if (res.rejected.length > 0) {
       const byId = new Map(inVault.map((d) => [d.id, d.title || d.id]));
       const names = res.rejected.slice(0, 3).map((id) => `"${byId.get(id) ?? id}"`).join(', ');
       const more = res.rejected.length > 3 ? ` and ${res.rejected.length - 3} more` : '';
-      toast.error(`Added ${plural(res.attached, 'paper')}. ${names}${more} could not be added: the server does not count ${res.rejected.length === 1 ? 'it' : 'them'} as yours.`);
+      toast.error(`Added ${plural(res.attached, 'paper')}. ${names}${more} could not be added: the server does not count ${res.rejected.length === 1 ? 'it' : 'them'} as yours.${alreadyNote}`);
     } else {
-      toast.success(`Added ${plural(ids.length, 'paper')} from your Vault.${res.rescored ? ` The ${plural(res.rescored, 'paper')} already found were re-scored against the new seeds.` : ''}`);
+      toast.success(`Added ${plural(res.attached, 'paper')} from your Vault.${alreadyNote}${res.rescored ? ` The ${plural(res.rescored, 'paper')} already found were re-scored against the new seeds.` : ''}`);
     }
   });
   useClearOnChange(attach, [chosen]);
@@ -129,7 +136,7 @@ export function VaultSeedPicker({ profileKey, seedIds, disabled = false, onAdded
             />
             <span>
               <PaperTitle title={displayTitle({ ...d, title: d.title || d.id })} id={workId(d)} />
-              <div className="v">{[d.pages > 0 ? `${d.pages} pages` : null, d.venue, d.authors.slice(0, 2).join(', ')].filter(Boolean).join(' · ')}</div>
+              <div className="v">{[d.pages > 0 ? plural(d.pages, 'page') : null, d.venue, d.authors.slice(0, 2).join(', ')].filter(Boolean).join(' · ')}</div>
             </span>
             <span />
           </label>

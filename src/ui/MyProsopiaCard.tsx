@@ -1,4 +1,5 @@
 import { useMyProsopia } from '../api/hooks';
+import { existingResearcher } from '../api/endpoints/researchers';
 import { fmtDate, plural } from '../lib/format';
 import { startResearcherImport } from '../lib/jobs';
 import { invalidate } from '../lib/query';
@@ -23,7 +24,18 @@ export function MyProsopiaCard() {
   const p = data?.profile;
   const importNow = useAction(async () => {
     if (!p) return;
-    const job = await startResearcherImport('prosopia', p.slug, p.name);
+    let job;
+    try {
+      job = await startResearcherImport('prosopia', p.slug, p.name);
+    } catch (e) {
+      // Already stored (under the same ORCID, say): open that one, rather
+      // than leaving the card on an Import that is refused (B5-3).
+      const known = existingResearcher(e);
+      if (!known) throw e;
+      invalidate('users/me/prosopia', 'researchers');
+      navigate(paths.profile(known.id));
+      return;
+    }
     invalidate('users/me/prosopia');
     if (job.researcherId != null) navigate(paths.profile(job.researcherId));
   });

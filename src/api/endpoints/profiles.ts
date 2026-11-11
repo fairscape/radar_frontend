@@ -17,7 +17,6 @@ import type {
   Topic,
   TopicYieldResponse,
 } from '../../types/radar';
-import type { NotInterestChoice, ProfileResearcherTopics } from '../../types/researchers';
 import type { DraftCoherence, DryRunPaper } from './wizard';
 
 export type { DraftCoherence } from './wizard';
@@ -123,7 +122,22 @@ export async function getProfileDetail(key: string): Promise<ProfileDetail | nul
   }
 }
 
-export async function updateProfileThreshold(key: string, threshold: number): Promise<Profile> {
+// Threshold and year writes still on their way. Save changes waits for
+// them: a threshold written as its step closed (browser Back right after
+// moving the bar) reached the copy after the save, and was lost (B3-5).
+const settingWrites = new Set<Promise<unknown>>();
+function tracked<T>(p: Promise<T>): Promise<T> {
+  settingWrites.add(p);
+  const done = () => { settingWrites.delete(p); };
+  p.then(done, done);
+  return p;
+}
+
+export function updateProfileThreshold(key: string, threshold: number): Promise<Profile> {
+  return tracked(writeThreshold(key, threshold));
+}
+
+async function writeThreshold(key: string, threshold: number): Promise<Profile> {
   const res = await apiPatch<Profile>(`/api/profiles/${enc(key)}`, { threshold });
   // 'researchers': a researcher's page lists the interests built from them.
   invalidate('profiles', 'radar', 'researchers');
@@ -136,12 +150,6 @@ export async function recomputeCoherence(key: string): Promise<DraftCoherence> {
   return res;
 }
 
-export async function recomputeTopics(key: string): Promise<Topic[]> {
-  const res = await apiPost<Topic[]>(`/api/profiles/${enc(key)}/recompute-topics`);
-  // `draft/<key>/`: Edit interest's topic step reads the list under that prefix.
-  invalidate('profiles', `draft/${key}/`);
-  return res;
-}
 
 /** A saved interest's topics re-aggregated from its seeds; writes nothing. New ones come back off. */
 export function previewTopics(key: string): Promise<Topic[]> {
@@ -174,9 +182,15 @@ function inTurn<T>(call: () => Promise<T>): Promise<T> {
 
 /** ``discardUnsaved``: the user confirmed dropping another tab's left-behind
  *  copy with its unsaved changes (409 ``unsavedElsewhere`` first). */
-export function openEdit(key: string, tab: string, discardUnsaved = false): Promise<{ slug: string; editOf: string }> {
-  return inTurn(() => apiPost<{ slug: string; editOf: string }>(`/api/profiles/${enc(key)}/edit`,
+export async function openEdit(key: string, tab: string, discardUnsaved = false): Promise<{ slug: string; editOf: string }> {
+  const res = await inTurn(() => apiPost<{ slug: string; editOf: string }>(`/api/profiles/${enc(key)}/edit`,
     discardUnsaved ? { tab, discard_unsaved: true } : { tab }));
+  // Opening discards this tab's left-behind copies and, when the user said
+  // so, another tab's: with them go the papers and researchers only those
+  // copies brought in (draft_owned.discard), so the Vault and the
+  // researcher list change (B3-4).
+  invalidate('vault', 'researchers');
+  return res;
 }
 
 export function isUnsavedElsewhere(e: unknown): boolean {
@@ -210,6 +224,7 @@ export function editState(copySlug: string): Promise<{ changed: boolean }> {
 
 /** Save changes: the copy is written onto the interest and deleted. No scan. */
 export async function saveEdit(copySlug: string, originalKey: string): Promise<Profile> {
+  await Promise.allSettled([...settingWrites]);
   const res = await apiPost<Profile>(`/api/profiles/draft/${enc(copySlug)}/save-edit`);
   invalidate('profiles', 'vault', 'radar', 'researchers', `draft/${copySlug}/`, `draft/${originalKey}/`);
   return res;
@@ -275,32 +290,8 @@ export async function saveTerms(key: string, terms: InterestTerm[], removed: Int
   return res;
 }
 
-/** The topics the researcher this interest was built from declares on their profile, and whether they are applied. */
-export function getResearcherTopics(key: string): Promise<ProfileResearcherTopics> {
-  return apiGet<ProfileResearcherTopics>(`/api/profiles/${enc(key)}/researcher-topics`);
-}
 
-/**
- * Apply (or drop) the researcher's profile topics on a draft or a saved
- * interest: wanted topics join the list switched on, not-wanted ones are
- * switched off. Returns the new list.
- */
-export async function setResearcherTopics(key: string, enabled: boolean): Promise<Topic[]> {
-  const res = await apiPut<Topic[]>(`/api/profiles/${enc(key)}/researcher-topics`, { enabled });
-  invalidate('profiles', `draft/${key}/`);
-  return res;
-}
 
-/**
- * What one topic the researcher's profile does not want does on this
- * interest: filtered out, kept as the other sources have it, or added as a
- * topic. The profile's topics must be applied. Returns the new list.
- */
-export async function setNotInterestChoice(key: string, topicId: string, choice: NotInterestChoice): Promise<Topic[]> {
-  const res = await apiPut<Topic[]>(`/api/profiles/${enc(key)}/researcher-topics/not-interest`, { topic_id: topicId, choice });
-  invalidate('profiles', `draft/${key}/`);
-  return res;
-}
 
 /** Switch a saved interest's topics: exactly ``selectedIds`` on (409 if none). */
 export async function saveTopics(key: string, selectedIds: string[]): Promise<Topic[]> {
@@ -309,11 +300,6 @@ export async function saveTopics(key: string, selectedIds: string[]): Promise<To
   return res;
 }
 
-export async function refitProfile(key: string): Promise<{ ok: true; key: string; cost: string }> {
-  const res = await apiPost<{ ok: true; key: string; cost: string }>(`/api/profiles/${enc(key)}/refit`);
-  invalidate('profiles', 'radar');
-  return res;
-}
 
 /**
  * Attach papers the user already has -- uploads, a researcher's papers, or
@@ -381,7 +367,11 @@ export function backfill(key: string, years: YearSpan): Promise<{ ok: true; run_
 }
 
 /** Set the years an interest's feed draws from; null clears the range. */
-export async function updateProfileYears(key: string, years: YearSpan | null): Promise<Profile> {
+export function updateProfileYears(key: string, years: YearSpan | null): Promise<Profile> {
+  return tracked(writeYears(key, years));
+}
+
+async function writeYears(key: string, years: YearSpan | null): Promise<Profile> {
   const res = await apiPatch<Profile>(`/api/profiles/${enc(key)}`, { years: years ? { year_from: years.from, year_to: years.to } : { year_from: null, year_to: null } });
   invalidate('profiles', 'radar', 'researchers');
   return res;
@@ -429,14 +419,6 @@ export interface Schedule {
   updated_at: string | null;
 }
 
-export async function updateSchedule(
-  key: string,
-  body: { cron?: string; tz?: string; enabled?: boolean },
-): Promise<Schedule> {
-  const res = await apiPatch<Schedule>(`/api/profiles/${enc(key)}/schedule`, body);
-  invalidate('profiles');
-  return res;
-}
 
 /** ``POST /api/profiles/{key}/llm-topics``: the OpenAlex topics added (off) and the list now. */
 export interface LlmTopicsResult {

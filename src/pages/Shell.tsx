@@ -127,11 +127,13 @@ export function Shell({ route, email }: { route: Route; email: string }) {
         {route.name === 'home' && <HomePage />}
         {route.name === 'feed' && <FeedPage />}
         {route.name === 'interests' && <InterestsPage />}
-        {route.name === 'interest' && <InterestDetailPage profileKey={route.key} urlTab={route.tab} />}
-        {route.name === 'interestEdit' && <EditInterestPage profileKey={route.key} urlStep={route.step} />}
+        {/* Keyed by the object shown: going from one to another (a job's Open,
+            the address bar) carried the first one's state onto the second (B5-5). */}
+        {route.name === 'interest' && <InterestDetailPage key={route.key} profileKey={route.key} urlTab={route.tab} />}
+        {route.name === 'interestEdit' && <EditInterestPage key={route.key} profileKey={route.key} urlStep={route.step} />}
         {route.name === 'wizard' && <WizardPage draftSlug={route.draft} source={route.source} researcher={route.researcher} urlStep={route.step} />}
         {route.name === 'profiles' && <ProfilesPage />}
-        {route.name === 'profile' && <ProfileDetailPage id={route.id} check={route.check} />}
+        {route.name === 'profile' && <ProfileDetailPage key={route.id} id={route.id} check={route.check} />}
         {route.name === 'vault' && <VaultPage />}
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'notfound' && <NotFoundPage path={route.path} />}

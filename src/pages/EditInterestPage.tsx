@@ -38,7 +38,7 @@ import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
 import { UmlsAllOn, UmlsConcept } from '../ui/UmlsAllOn';
-import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, confirmDialog, useAction } from '../ui';
+import { Button, Callout, EmptyState, ErrorBox, Icon, LoadingRows, Panel, confirmDialog, useAction, useClearOnChange } from '../ui';
 import { CoherenceHistogram } from '../ui/domain';
 import { Link } from '../ui/Link';
 import { PaperLink } from '../ui/paperLink';
@@ -179,6 +179,8 @@ function EditInterestPageOpen({ profileKey, urlStep }: { profileKey: string; url
   );
 }
 
+const SAVE_WAIT = 'Wait for the save to finish.';
+
 /** The steps, on the copy ``copyKey`` of saved interest ``profileKey``. */
 function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
   profileKey: string; copyKey: string; tab: string; urlStep: number | null; onSaved: () => void; onReopen: () => void;
@@ -221,7 +223,15 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
   const importing = useSeedImport(copyKey);
   const importingRef = useRef(importing);
   importingRef.current = importing;
-  const step = urlStep ?? 1;
+  const askedStep = urlStep ?? 1;
+  // Save changes on its way: leaving said "discarded" over a save that
+  // still went through, then moved a page that was gone (B3-2). Nor does
+  // the step shown move then: Back/Forward inside the edit page is no
+  // leaving, and a step mounted for a moment sent its own requests to the
+  // copy being saved (review N-2); the URL is put back below.
+  const savingRef = useRef(false);
+  const shownStep = useRef(askedStep);
+  const step = savingRef.current ? shownStep.current : askedStep;
   // A threshold or year range not yet on the copy; a topic tick on its way.
   const [thresholdPending, setThresholdPending] = useState(false);
   const [topicsBusy, setTopicsBusy] = useState(false);
@@ -242,6 +252,7 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
   // discards the changes (E.7). Moving between the steps is not leaving.
   const editPath = paths.interestEdit(profileKey);
   useEffect(() => addLeaveGuard(async () => {
+    if (savingRef.current) { toast.info(SAVE_WAIT); return false; }
     if (uploadingRef.current) { toast.info('Wait for the uploads to finish.'); return false; }
     if (importingRef.current) { toast.info('Wait for the import to finish.'); return false; }
     // A value still on its way, or research topics not kept, count too.
@@ -254,23 +265,56 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
       confirmLabel: 'Discard changes',
       danger: true,
     });
-  }, 'edit-copy', (to) => to.split('?')[0] === editPath, () => mayLose.current), [copyKey, editPath]);
+  }, 'edit-copy', (to) => to.split('?')[0] === editPath, () => mayLose.current || savingRef.current), [copyKey, editPath]);
 
   // Not while a value is on its way to the copy: leaving the step dropped
   // a threshold set less than a moment before (its write was still waiting).
   const go = (n: number) => {
+    if (save.busy) { toast.info(SAVE_WAIT); return; }
     if (uploading) { toast.info('Wait for the uploads to finish.'); return; }
     if (importing) { toast.info('Wait for the import to finish.'); return; }
     if (thresholdPending || topicsBusy) { toast.info(thresholdPending ? 'Applying the threshold…' : 'Applying the topics…'); return; }
     navigate(paths.interestEdit(profileKey, n));
   };
   const cancel = () => navigate(paths.interest(profileKey));
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
+  // The copy is done with (saved onto the interest, or gone): nothing more
+  // is written to it, not even a threshold a closing step 4 still held.
+  const closed = useRef(false);
+  if (gone || detail === null) closed.current = true;
+  const ownMove = useRef(false);
   const save = useAction(async () => {
     await saveEdit(copyKey, profileKey);
+    closed.current = true;
     toast.success('Changes saved. The recommendations still come from the last scan; scan to bring them in line.');
+    if (!mounted.current) return;
     onSaved();
+    ownMove.current = true;
     navigate(paths.interestEdit(profileKey, 4), { replace: true });
   });
+  savingRef.current = save.busy;
+  // A refused save's reason went on showing over every later change, step
+  // and fix, until Save was clicked again: it goes once what the copy holds
+  // changes, or the step. Not on every refetch: a refused write refetches
+  // everything at once, and the reason flashed and was gone (review R-1).
+  const copyContent = detail ? JSON.stringify([
+    detail.seeds.map((s) => s.id), detail.topics.map((t) => [t.id, t.on]),
+    detail.profile.threshold, detail.profile.yearFrom ?? null, detail.profile.yearTo ?? null,
+  ]) : null;
+  useClearOnChange(save, [copyContent, step]);
+  // Back/Forward while the save runs: the URL goes back to the step shown,
+  // as the step rail is held (review R-4).
+  useEffect(() => {
+    if (askedStep === shownStep.current) return;
+    if (savingRef.current && !ownMove.current) {
+      toast.info(SAVE_WAIT);
+      navigate(paths.interestEdit(profileKey, shownStep.current), { replace: true });
+      return;
+    }
+    ownMove.current = false;
+    shownStep.current = askedStep;
+  }, [askedStep, profileKey]);
   const saveTitle = uploading ? 'Wait for the uploads to finish'
     : importing ? 'Wait for the import to finish'
     : thresholdPending ? 'Applying the threshold…'
@@ -312,13 +356,15 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
           <p className="page-sub">Nothing changes until you click Save changes; Cancel, or leaving the page, discards the changes. Saving does not scan: you choose when to look for papers with the new settings.</p>
         </div>
         <div className="page-actions">
-          <Button onClick={cancel} disabled={uploading || importing} title={uploading ? 'Wait for the uploads to finish' : importing ? 'Wait for the import to finish' : undefined}>Cancel</Button>
+          <Button onClick={cancel} disabled={uploading || importing || save.busy} title={save.busy ? SAVE_WAIT : uploading ? 'Wait for the uploads to finish' : importing ? 'Wait for the import to finish' : undefined}>Cancel</Button>
           {/* Step 4 has its own, at the foot: two on one screen read as two different saves. */}
           {step !== 4 && saveButton}
         </div>
       </header>
       {save.error && <div style={{ marginBottom: 12 }}><ErrorBox compact title="Couldn't save the changes" message={save.error} /></div>}
 
+      {/* Nothing else is done while the save runs (user 2026-11-08). */}
+      <fieldset disabled={save.busy} style={{ display: 'contents' }}>
       <div className="wizard">
         <aside className="wizard-rail" aria-label="Steps">
           {STEPS.map((s) => (
@@ -363,7 +409,8 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
           {step === 4 && (
             <>
               <ScanOutdated profileKey={profile.key} editing />
-              <ThresholdTab profile={profile} onScan={() => {}} editOf={profileKey} onPending={setThresholdPending} />
+              <ThresholdTab profile={profile} onScan={() => {}} editOf={profileKey} onPending={setThresholdPending}
+                mayWrite={() => !closed.current && !savingRef.current} />
               <div className="wizard-foot">
                 <Button icon="arrow-left" onClick={() => go(3)}>Back</Button>
                 {saveButton}
@@ -372,6 +419,7 @@ function EditCopy({ profileKey, copyKey, tab, urlStep, onSaved, onReopen }: {
           )}
         </div>
       </div>
+      </fieldset>
     </div>
   );
 }
@@ -525,6 +573,7 @@ function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: (
   const nNew = list.filter((t) => t.new).length;
   const nUnmatched = list.filter((t) => t.unmatched).length;
 
+  // check-classes-ok: its input is each tick, and every tick runs it again, which clears the error.
   const write = useAction(async (ids: Set<string>) => {
     await saveTopics(profile.key, [...ids]);
     await topics.refresh();

@@ -9,6 +9,15 @@
  *
  * ``window.__radarMock`` exposes ``failNext(pattern)`` so error paths
  * can be provoked from a browser console or a smoke test.
+ *
+ * For looking at the pages only: behaviour is checked on the test site,
+ * against the real backend. Known differences (frontend review
+ * 2026-11-07, B2-2/B2-3/B3-3/B4-4/B5-4), among others: commit goes live
+ * at once with no ``saveRunId`` (so every save says "already saved");
+ * most Edit interest routes and the draft's topics/seeds routes answer
+ * 404; key-like text is accepted; save/dismiss toggle instead of setting;
+ * no Vault delete; no draft or edit lock; no researcher works or
+ * ``/me/prosopia``.
  */
 import type { Card, ChatTurn, Profile, Topic, VaultDoc } from '../types/radar';
 import type { Researcher, ResearcherPaper } from '../types/researchers';

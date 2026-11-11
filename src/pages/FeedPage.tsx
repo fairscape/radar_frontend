@@ -578,10 +578,12 @@ function PaperCard({
 function Signal({ label, value, hint }: { label: string; value: number; hint: string }) {
   const v = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
   return (
-    <div className="signal" title={hint}>
+    <div className="signal" title={Number.isFinite(value) ? `${hint} (${value})` : hint}>
       <span>{label}</span>
       <span className="signal-bar"><i style={{ width: `${Math.max(3, v * 100)}%` }} /></span>
-      <span className="num">{value.toFixed(2)}</span>
+      {/* Cut, never rounded up, as every score: 0.8996 read "0.90" beside a
+          0.900 threshold it does not reach (B4-3). The full value on hover. */}
+      <span className="num">{Number.isFinite(value) ? fmtScore(value) : '—'}</span>
     </div>
   );
 }

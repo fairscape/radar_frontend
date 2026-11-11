@@ -17,13 +17,21 @@ const RULES = [
   {
     name: 'score shown rounded to nearest',
     why: 'a score beside a bar must be shown rounded down: use fmtScore (lib/format.ts)',
-    re: /\b(score|similarity|centroidCos|score_blended|score_raw|coh|seedSimMin|seedSimMax|seed_similarity\.(?:min|max)|band\.(?:min|max))\b[\w?.)\]! ]*\)?\.toFixed\(/,
+    re: /\b(score|similarity|centroidCos|score_blended|score_raw|coh|seedSimMin|seedSimMax|seed_similarity\.(?:min|max)|(?:seedB|b)and\.(?:min|max))\b[\w?.)\]! ]*\)?\.toFixed\(|className="(?:num|sc)"[^>]*>\{[^}]*\.toFixed\(/,
     allow: [/VaultPage\.tsx/, /^src\/mock\//],  // chat-retrieval scores, mock data: no bar beside them
   },
   {
     name: 'count with a fixed plural',
     why: 'a number before a noun needs its singular too: use plural() (lib/format.ts)',
-    re: /\{[^{}]*\b(n_\w+|\w*[cC]ount|\w*\.length|n)\}\s*(?:(?:new|more|saved|unmatched|other)\s+)?(papers|seeds|topics|interests|profiles|researchers|scans|drafts|cards|docs|groups|pages)\b/,
+    // In JSX ({n} papers) and in templates (${n} papers); a count held in a
+    // field named after what it counts (p.seeds, stats.docs, nSeeds) too.
+    re: /\{[^{}]*\b(n_\w+|\w*[cC]ount|\w*\.length|n|c|\w+\.(?:seeds|docs|pages|papers|nSeeds|n_papers)(?:\.toLocaleString\(\))?)\}\s*(?:(?:new|more|saved|unmatched|other)\s+)?(papers|seeds|topics|interests|profiles|researchers|scans|drafts|cards|docs|groups|pages)\b/,
+    allow: [],
+  },
+  {
+    name: 'error cleared on a refetch',
+    why: "a query's data is a new object on every refetch (and a refused write refetches everything): clear on what the data holds, not the object",
+    re: /useClearOnChange\(\w+,\s*\[[^\]]*(?:\b\w+Q\.data|\bdetail|\bdata)\s*[,\]]/,
     allow: [],
   },
   {
@@ -91,6 +99,10 @@ const NO_REFRESH = {
   postChat: 'chat: out of this check',
   clearChatHistory: 'chat: out of this check',
   updateMe: 'SettingsPage keeps the returned user',
+  holdDraft: 'lock state only (edit_tab/edit_seen_at): no read returns it',
+  releaseDraft: 'lock state only: no read returns it',
+  editAlive: 'heartbeat of the edit copy: changes no cached data',
+  discardLeftEdits: 'Shell refreshes vault and researchers when it discarded any',
 };
 const EP = path.join(ROOT, 'api', 'endpoints');
 for (const f of fs.readdirSync(EP)) {
@@ -102,6 +114,19 @@ for (const f of fs.readdirSync(EP)) {
     if (m[1] in NO_REFRESH) continue;
     problems.push(`src/api/endpoints/${f}: ${m[1]} writes but refreshes no cache -- invalidate what it changed, or list it in NO_REFRESH with the reason`);
   }
+}
+
+// A page shown for one object of a route parameter is keyed by it: from
+// one object to another (a job's Open, the address bar) React kept the
+// page and carried the first one's state onto the second (B5-5). The
+// wizard keeps its draft in a store and follows the URL itself.
+{
+  const shell = fs.readFileSync(path.join(ROOT, 'pages', 'Shell.tsx'), 'utf8').split('\n');
+  shell.forEach((line, i) => {
+    const m = /route\.name === '(\w+)' && <(\w+)([^>]*)>/.exec(line);
+    if (!m || m[1] === 'wizard' || !/=\{route\.(key|id)\}/.test(m[3])) return;
+    if (!/\bkey=\{route\.(key|id)\}/.test(m[3])) problems.push(`src/pages/Shell.tsx:${i + 1}: page for one object not keyed by it -- add key={route.${/route\.id/.test(m[3]) ? 'id' : 'key'}}`);
+  });
 }
 
 if (problems.length) {

@@ -6,7 +6,7 @@ import { kindLabel, stepLabel, type Job, jobEstimate, fmtSeconds } from '../lib/
 import { paths } from '../lib/router';
 import { Link } from './Link';
 import { PaperLink } from './paperLink';
-import { fmtDuration, fmtScore } from '../lib/format';
+import { fmtDuration, fmtScore, plural } from '../lib/format';
 
 /**
  * Plain-language reading of how well an interest's seeds agree.
@@ -137,6 +137,7 @@ export function ThresholdHistogram({
   seedBand,
   suggested,
   periodLabel = 'would pass',
+  disabled = false,
 }: {
   scores: number[];
   value: number;
@@ -150,6 +151,8 @@ export function ThresholdHistogram({
   seedBand?: SeedBand | null;
   suggested?: number | null;
   periodLabel?: string;
+  /** The bar cannot be moved (a save is on its way with the value shown). */
+  disabled?: boolean;
 }) {
   const pctOf = (v: number) => `${Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100))}%`;
   const counts = useMemo(() => {
@@ -186,7 +189,7 @@ export function ThresholdHistogram({
           <div
             className="hist-band"
             style={{ left: pctOf(seedBand.min), width: `calc(${pctOf(seedBand.max)} - ${pctOf(seedBand.min)})` }}
-            title={`Your seed papers score ${seedBand.min.toFixed(3)}–${seedBand.max.toFixed(3)} against this interest`}
+            title={`Your seed papers score ${fmtScore(seedBand.min)}–${fmtScore(seedBand.max)} against this interest`}
           >
             <span className="hist-band-label">your seeds</span>
           </div>
@@ -205,7 +208,7 @@ export function ThresholdHistogram({
                 key={i}
                 className={`hist-bar ${start >= value - 1e-9 ? 'hot' : 'muted'}`}
                 style={{ height: `${Math.max(2, (c / peak) * 100)}%` }}
-                title={`${c} papers scored ${start.toFixed(3)}–${(start + (max - min) / bins).toFixed(3)}`}
+                title={`${plural(c, 'paper')} scored ${start.toFixed(3)}–${(start + (max - min) / bins).toFixed(3)}`}
               />
             );
           })}
@@ -219,6 +222,7 @@ export function ThresholdHistogram({
         step={0.001}
         value={value}
         aria-label="Threshold"
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
       />
       <div className="hist-axis">

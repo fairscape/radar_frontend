@@ -209,7 +209,7 @@ function OverviewTab({ profile, detail, onScan, busy }: { profile: Profile; deta
     <div className="two-col">
       <Panel title="How this interest works">
         <div className="stack" style={{ fontSize: 13.5, color: 'var(--fg-2)' }}>
-          <p>BioXplorer queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> {detail.topics.filter((t) => t.on).length === 1 ? 'topic' : 'topics'} and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{profile.threshold.toFixed(3)}</b> reaches the feed{profile.seedSimMin != null && <>; papers at <b>{fmtScore(profile.seedSimMin)}</b> or more are as close as your own seeds</>}.</p>
+          <p>BioXplorer queries OpenAlex for <b>{detail.topics.filter((t) => t.on).length}</b> {detail.topics.filter((t) => t.on).length === 1 ? 'topic' : 'topics'} and scores each new paper by how similar it is to your <b>{detail.seeds.length}</b> seed {detail.seeds.length === 1 ? 'paper' : 'papers'}. Anything at or above <b>{fmtScore(profile.threshold)}</b> under a topic that is on reaches the feed{profile.seedSimMin != null && <>; papers at <b>{fmtScore(profile.seedSimMin)}</b> or more are as close as your own seeds</>}.</p>
           <p>BioXplorer does not scan on a schedule. Press Scan now to look for new papers.</p>
           <p>Saving or dismissing a paper in the feed is recorded below for this {TERMS.interest}. It does not change the seeds, the scores or the threshold; saved papers are listed under Saved and in the Vault.</p>
         </div>
@@ -501,8 +501,10 @@ const noChange = () => {};
  * waits until the changes are saved (E.6 R3). ``onPending`` says while a
  * value is not on the copy yet, so Save changes waits for it.
  */
-export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, canFetch = !readOnly, editOf, onPending }: {
+export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, canFetch = !readOnly, editOf, onPending, mayWrite }: {
   profile: Profile; onScan: () => void; busy?: boolean; readOnly?: boolean; canFetch?: boolean; editOf?: string; onPending?: (pending: boolean) => void;
+  /** Edit interest: whether the copy still takes writes (not saved, saving or gone). */
+  mayWrite?: () => boolean;
 }) {
   const scoresKey = editOf ?? profile.key;
   const editing = editOf != null;
@@ -590,6 +592,20 @@ export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, 
   useEffect(() => {
     if (editing && yearsDirty && !saveYears.busy && !saveYears.error) void apply.current.years();
   }, [editing, yearsDirty, saveYears.busy, saveYears.error, years]);
+  // Leaving the step (browser Back, which no guard asks inside Edit
+  // interest) cleared the timer above and the value set less than a moment
+  // before was lost (B3-5): it is written now instead. Save changes waits
+  // for it (``updateProfileThreshold`` is tracked).
+  const flushOnLeave = useRef(() => {});
+  flushOnLeave.current = () => {
+    if (!editOf || !dirty || !exactOk || save.busy || save.error) return;
+    if (mayWrite && !mayWrite()) return;
+    // Only to another step: leaving Edit interest discards the copy.
+    if (window.location.pathname !== paths.interestEdit(editOf).split('?')[0]) return;
+    const v = Number(value.toFixed(3));
+    updateProfileThreshold(profile.key, v).catch((e) => toast.error(`Couldn't apply the threshold ${v.toFixed(3)}: ${errorMessage(e)}`));
+  };
+  useEffect(() => () => flushOnLeave.current(), []);
   const pending = editing && ((dirty && exactOk) || yearsDirty || save.busy || saveYears.busy);
   useEffect(() => { onPending?.(pending); }, [pending, onPending]);
   useEffect(() => () => onPending?.(false), [onPending]);
@@ -614,7 +630,7 @@ export function ThresholdTab({ profile, onScan, busy = false, readOnly = false, 
       description={readOnly
         ? 'The similarity a paper needs to reach your feed. Scans keep every paper they find; the threshold decides which ones you see. To change it or the publication years, use Edit interest.'
         : editing
-          ? 'The similarity a paper needs to reach your feed, over the papers this interest has found so far. Scans keep every paper they find; the threshold decides which ones you see. A new threshold or year range applies to the feed when you save the changes. The shaded band is where your own seed papers score; the suggested value sits just below it.'
+          ? 'The similarity a paper needs to reach your feed, over the papers this interest has found so far, counted with its saved topics: topics switched on or off in step 3 change these counts once saved. Scans keep every paper they find; the threshold decides which ones you see. A new threshold or year range applies to the feed when you save the changes. The shaded band is where your own seed papers score; the suggested value sits just below it.'
           : 'The similarity a paper needs to reach your feed. Scans keep every paper they find; the threshold decides which ones you see, and saving applies at once. The shaded band is where your own seed papers score; the suggested value sits just below it.'}
       actions={readOnly || editing ? undefined : (
         <>
@@ -873,7 +889,7 @@ function DeleteInterestButton({ profile, busy }: { profile: Profile; busy: boole
       body: (
         <p>
           Its {plural(profile.seeds, 'seed')}, its stored papers and their scores, your saves and dismissals for it, and its scan history are all removed.
-          The papers stay in your vault if anything else holds them (an upload, a {TERMS.profile}, another {TERMS.interest}). This cannot be undone.
+          The papers themselves stay in your {TERMS.vault}: only deleting them there removes them. This cannot be undone.
         </p>
       ),
       confirmLabel: `Delete ${TERMS.interest}`,

@@ -1,5 +1,5 @@
 import { useMyProsopia, useProfiles, useResearchers } from '../api/hooks';
-import { errorMessage } from '../lib/format';
+import { errorMessage, plural } from '../lib/format';
 import { paths } from '../lib/router';
 import { TERMS } from '../lib/terms';
 import type { Profile } from '../types/radar';
@@ -109,7 +109,7 @@ function YourInterests({ live, drafts }: { live: Profile[]; drafts: Profile[] })
       {live.map((p) => (
         <Link key={p.key} href={paths.interest(p.key)} className="home-yours-row">
           <Swatch hue={p.hue} /> <span className="truncate">{p.name}</span>
-          <span className="small muted">{p.seeds} seeds</span>
+          <span className="small muted">{plural(p.seeds, 'seed')}</span>
         </Link>
       ))}
       {drafts.map((p) => (

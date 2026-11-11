@@ -60,11 +60,16 @@ function entryIdx(state: unknown): number | null {
  * Leaving the app altogether (Sign out): ask every page guard first, as a
  * move inside the app would. True when nothing asks or the user agreed;
  * the guards asked are dropped then, so the browser's own "Leave site?"
- * does not ask a second time.
+ * does not ask a second time. ``past``: guards of these names let Sign out
+ * through (the wizard's first scan, which the server finishes on its own).
  */
-export async function askToLeave(): Promise<boolean> {
-  const guard = currentGuard();
-  return guard ? guard() : true;
+export async function askToLeave(past: string[] = []): Promise<boolean> {
+  const guard = currentGuard(past);
+  const ok = guard ? await guard() : true;
+  // Leaving the app: the guards passed by name go too, or the browser's
+  // own "Leave site?" would still ask for them.
+  if (ok) for (const [g, o] of [...guards]) if (o.name && past.includes(o.name)) guards.delete(g);
+  return ok;
 }
 
 /** Ask ``guard`` before leaving the page; returns the function that stops asking. */

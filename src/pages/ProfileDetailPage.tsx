@@ -66,7 +66,7 @@ export function ProfileDetailPage({ id, check = false }: { id: number; check?: b
       body: (
         <>
           <p>The {TERMS.profile} and its list of {plural(r.n_papers, 'paper')} are removed.</p>
-          <p>{r.n_interests > 0 ? `The ${plural(r.n_interests, TERMS.interest)} built from it keep their seeds and carry on scanning. ` : ''}Papers that seed one of your {TERMS.interests} stay in your vault; the others leave it with this {TERMS.profile}.</p>
+          <p>{r.n_interests > 0 ? `The ${plural(r.n_interests, TERMS.interest)} built from it keep their seeds. ` : ''}Its papers stay in your {TERMS.vault}: only deleting them there removes them.</p>
         </>
       ),
       confirmLabel: 'Forget',
@@ -130,7 +130,11 @@ export function ProfileDetailPage({ id, check = false }: { id: number; check?: b
       {running && <div style={{ marginBottom: 16 }}><JobProgress job={running} /></div>}
       {!running && r.importing && <Callout tone="info" title="Importing" icon="clock">The papers are still being matched and embedded. This page refreshes on its own.<span style={{ marginLeft: 8 }}><button type="button" className="linklike" onClick={() => void refresh()}>Refresh now</button></span></Callout>}
       {!importing && r.last_error && <Callout tone="err" title="The last import failed">{r.last_error} <button type="button" className="linklike" onClick={() => setChecking(true)}>Try again</button></Callout>}
-      {checking && !importing && <NewPapersPanel researcher={r} onClose={() => setChecking(false)} />}
+      {checking && !importing && <NewPapersPanel researcher={r} onClose={() => {
+        setChecking(false);
+        // ``?check`` opened it: closed, it no longer reopens on a reload or Back (B5-7).
+        if (check) navigate(paths.profile(r.id), { replace: true });
+      }} />}
 
       <div className="stat-grid" style={{ marginBottom: 18 }}>
         <Stat label="Papers" value={r.n_papers} sub={r.imported_at ? `imported ${fmtRelative(r.imported_at)}` : 'not imported yet'} />
@@ -166,7 +170,7 @@ export function ProfileDetailPage({ id, check = false }: { id: number; check?: b
                 <dt>Research interests</dt>
                 <dd>
                   <p className="small muted" style={{ margin: '0 0 4px' }}>
-                    What the profile says its owner wants more of, and (struck) what they do not. An {TERMS.interest} built from this {TERMS.profile} can take these as its topics: on its Topics step, choose <b>Use profile topics</b>.
+                    What the profile says its owner wants more of, and (struck) what they do not. When an {TERMS.interest} is built from this {TERMS.profile}, the interests join its topic list marked <b>Prosopia interest</b>; those its seed papers did not bring start switched off. The not-interests are shown here only and change no topic.
                   </p>
                   <TopicChips topics={data.topics} />
                 </dd>

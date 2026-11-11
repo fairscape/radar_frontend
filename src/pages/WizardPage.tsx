@@ -30,7 +30,8 @@ import { forDraft, getDraft, isSeedSource, resetDraft, useDraft, type DraftState
 import { errorMessage, fmtRelative, fmtScore, plural } from '../lib/format';
 import { PER_YEAR, SCAN_PER_TOPIC, findJob, startDryRun, startImport, startOrcidImport, trackImport, trackSave, useJob, yearsLabel, type Job } from '../lib/jobs';
 import { useQuery, invalidate } from '../lib/query';
-import { navigate, paths } from '../lib/router';
+import { addLeaveGuard, navigate, paths } from '../lib/router';
+import { signOut } from '../lib/userEmail';
 import { TERMS } from '../lib/terms';
 import { toast } from '../lib/toast';
 import { topicProfileNote, topicSourceLabel, topicSourceTag } from '../lib/topicSource';
@@ -297,6 +298,34 @@ function WizardPageOpen({ draftSlug, source, researcher, urlStep = null }: { dra
   // An "Add more seeds" import being started: its job is not known yet.
   const moreStarting = useSeedImport(state.slug);
   const importing = firstImport?.status === 'running' || extraJob?.status === 'running' || moreStarting;
+  // Saving runs the interest's first scan, and the interest goes live with
+  // what was committed. Until that scan ends no step, year range, threshold
+  // or delete may change the draft: the step rail, Back/Forward and the
+  // buttons used to stay open, and seeds added then went into the interest
+  // after it had been fitted. Its end is followed here, not on step 4, so
+  // the page goes to the interest whatever step shows.
+  const saveJob = useJob(state.saveJobId ?? null);
+  const saving = saveJob?.status === 'running';
+  useEffect(() => {
+    // Only for the draft this tab is still saving: a finished save of an
+    // earlier draft took a later New interest or Resume to that interest
+    // (review R-2).
+    const d = getDraft();
+    if (saveJob?.status === 'done' && d.saveJobId === saveJob.id && d.slug === saveJob.profileKey) {
+      goToSavedInterest(saveJob.profileKey, `"${saveJob.profileName}" is saved and live.`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveJob?.status]);
+  // Nor may the page be left until the save ends (user 2026-11-08): the
+  // sidebar and links wait for it, closing the tab asks. Sign out alone
+  // goes through (user 2026-11-08, review N-1): the server finishes the
+  // save without the page, and a long year-range scan would otherwise keep
+  // the person signed in. It is offered on this page, since Settings
+  // cannot be reached meanwhile.
+  useEffect(() => {
+    if (!saving) return;
+    return addLeaveGuard(async () => { toast.info(SAVING_WAIT); return false; }, SAVING_GUARD, undefined, () => true);
+  }, [saving]);
   const prevUrlStep = useRef<number | null | undefined>(undefined);
   const prevStoreStep = useRef<number | undefined>(undefined);
   const maxReached = useRef({ slug: null as string | null, step: 1 });
@@ -308,8 +337,9 @@ function WizardPageOpen({ draftSlug, source, researcher, urlStep = null }: { dra
     prevUrlStep.current = urlStep;
     prevStoreStep.current = state.step;
     if (!state.slug || draftSlug !== state.slug) return;   // no draft yet, or the resume above is still running
+    if (urlChanged && saving && urlStep != null && urlStep !== state.step) toast.info(SAVING_WAIT);
     if (urlChanged && urlStep != null && urlStep !== state.step && urlStep <= maxReached.current.step
-      && !(importing && urlStep > state.step)) {
+      && !(importing && urlStep > state.step) && !saving) {
       prevStoreStep.current = urlStep;
       update({ step: urlStep });
       return;
@@ -319,11 +349,11 @@ function WizardPageOpen({ draftSlug, source, researcher, urlStep = null }: { dra
       // (or one we can't go to) replaces.
       navigate(paths.wizard(state.slug, state.step), { replace: !storeChanged || urlStep == null || urlStep > maxReached.current.step });
     }
-  }, [urlStep, state.step, state.slug, draftSlug, update, importing]);
+  }, [urlStep, state.step, state.slug, draftSlug, update, importing, saving]);
 
   const step = state.step;
-  const canGo = (n: number) => n < step || n === step
-    || (!importing && ((n === 2 && !!state.slug) || (n === 3 && !!state.slug && step >= 3)));
+  const canGo = (n: number) => n === step || (!saving && n < step)
+    || (!saving && !importing && ((n === 2 && !!state.slug) || (n === 3 && !!state.slug && step >= 3)));
 
   async function cancel() {
     if (!state.slug) {
@@ -354,7 +384,12 @@ function WizardPageOpen({ draftSlug, source, researcher, urlStep = null }: { dra
   }
 
   // Off this draft, back to the list: the draft stays on the server.
-  const leaveTo = (href: string) => { reset(); navigate(href); };
+  // Not while this tab's save runs: the draft was cleared, then the save's
+  // guard kept the page, and the draft came back unheld (review N-3b).
+  const leaveTo = (href: string) => {
+    if (saving) { toast.info(SAVING_WAIT); return; }
+    reset(); navigate(href);
+  };
   const draftName = state.name || state.slug || '';
   if (state.slug && hold === 'elsewhere') {
     return (
@@ -391,11 +426,14 @@ function WizardPageOpen({ draftSlug, source, researcher, urlStep = null }: { dra
           <p className="page-sub">An {TERMS.interest} is a topic BioXplorer follows for you, defined by a set of papers. Four short steps; your progress is saved as a draft, so you can leave and come back.</p>
         </div>
         <div className="page-actions">
-          <Button variant="ghost" onClick={() => void saveForLater()} title="Keep the draft and come back later">Save for later</Button>
-          <Button variant="danger" icon="trash" onClick={cancel} disabled={importing} title={importing ? 'Wait for the import to finish first' : undefined}>{state.slug ? 'Delete draft' : 'Cancel'}</Button>
+          {saving && <Button variant="ghost" onClick={() => void signOut([SAVING_GUARD])} title="The server finishes the save on its own">Sign out</Button>}
+          <Button variant="ghost" onClick={() => void saveForLater()} disabled={saving} title={saving ? SAVING_WAIT : 'Keep the draft and come back later'}>Save for later</Button>
+          <Button variant="danger" icon="trash" onClick={cancel} disabled={importing || saving} title={saving ? SAVING_WAIT : importing ? 'Wait for the import to finish first' : undefined}>{state.slug ? 'Delete draft' : 'Cancel'}</Button>
         </div>
       </header>
 
+      {/* Everything on the page is off while the save runs. */}
+      <fieldset disabled={saving} style={{ display: 'contents' }}>
       <div className="wizard">
         <aside className="wizard-rail" aria-label="Steps">
           {STEPS.map((s) => {
@@ -421,6 +459,7 @@ function WizardPageOpen({ draftSlug, source, researcher, urlStep = null }: { dra
           )}
         </div>
       </div>
+      </fieldset>
     </div>
   );
 }
@@ -577,7 +616,7 @@ function WorkPicker({ name, lookup, start }: { name: string; lookup: Lookup; sta
 function addedToProfileNote(r: ProsopiaImportResult | null): string {
   const n = r?.added_to_profile;
   if (typeof n !== 'number' || !r?.profile_name) return '';
-  return ` ${n === 1 ? '1 paper' : `${n} papers`} also added to ${r.profile_name}\u2019s researcher ${TERMS.profile}; ${n === 1 ? 'it stays' : 'they stay'} there either way.`;
+  return ` ${plural(n, 'paper')} also added to ${r.profile_name}\u2019s researcher ${TERMS.profile}; ${n === 1 ? 'it stays' : 'they stay'} there either way.`;
 }
 
 /**
@@ -966,7 +1005,7 @@ function SeedUploader({ state }: { state: DraftState }) {
   }
 
   return (
-    <Panel title="Step 1 · Seed papers" description={state.researcher ? `${plural(state.researcher.nSeeds, 'paper')} from the ${TERMS.profile} of ${state.researcher.name}. You can add more PDFs.` : state.prosopia ? (state.source === 'orcid' ? `Imported ${state.prosopia.nSeeds != null ? `${state.prosopia.nSeeds} papers ` : ''}from ORCID ${state.prosopia.ref}. You can add more papers below.` : `Imported from Prosopia (${state.prosopia.ref}). You can add more papers below.`) : 'Upload the PDFs that define this interest. Each becomes a seed.'}>
+    <Panel title="Step 1 · Seed papers" description={state.researcher ? `${plural(state.researcher.nSeeds, 'paper')} from the ${TERMS.profile} of ${state.researcher.name}. You can add more PDFs.` : state.prosopia ? (state.source === 'orcid' ? `Imported ${state.prosopia.nSeeds != null ? `${plural(state.prosopia.nSeeds, 'paper')} ` : ''}from ORCID ${state.prosopia.ref}. You can add more papers below.` : `Imported from Prosopia (${state.prosopia.ref}). You can add more papers below.`) : 'Upload the PDFs that define this interest. Each becomes a seed.'}>
       {!importing && (
         <p className="small muted" style={{ marginTop: -6, marginBottom: 12 }}>
           Wrong source? <button type="button" className="linklike" onClick={() => void startOver.run()} disabled={startOver.busy}>Choose a different way to add seeds</button>{seeds.length > 0 ? ' — this discards the draft and its seeds.' : '.'}
@@ -1024,7 +1063,7 @@ function SeedUploader({ state }: { state: DraftState }) {
           <div className={`seed-row removable ${d.sameTitle ? 'same-title' : ''}`} key={d.id}>
             <span className="idx">{String(i + 1).padStart(2, '0')}</span>
             <span className="truncate"><PaperTitle title={displayTitle({ ...d, title: d.title || d.id })} id={workId(d)} />{sameTitleTag(d) && <span className="seed-dup" title={sameTitleTag(d)!.title}>{sameTitleTag(d)!.label}</span>}</span>
-            <span className="muted small">{d.pages ? `${d.pages} pages` : ''}</span>
+            <span className="muted small">{d.pages ? plural(d.pages, 'page') : ''}</span>
             <span className="muted small">{d.authors.slice(0, 2).join(', ')}</span>
             <IconButton icon="trash" size="sm" label={`Remove "${d.title || d.id}" from the seeds`} disabled={importing || !!progress || removal.busyId !== null} onClick={() => void removal.remove(d.id, d.title)} />
           </div>
@@ -1354,8 +1393,21 @@ function NoTopicsChosen({ onBack, onChoose }: { onBack?: () => void; onChoose?: 
 
 // --- Step 4 ------------------------------------------------------------------
 
+const SAVING_WAIT = 'Wait for the first scan to finish: the interest is being saved. You can still sign out or close the tab; the server finishes the save.';
+const SAVING_GUARD = 'wizard-saving';
+
+/** Off the wizard to the interest it saved. */
+function goToSavedInterest(key: string, message: string) {
+  // Leave the wizard before clearing its state, so no effect can re-adopt
+  // the interest just committed from the ``?draft=`` URL.
+  navigate(paths.interest(key), { replace: true });
+  resetDraft();
+  toast.success(message);
+  invalidate('profiles', 'vault', 'radar', 'researchers');
+}
+
 function StepThreshold({ state }: { state: DraftState }) {
-  const { update, reset } = useDraft();
+  const { update } = useDraft();
   const slug = state.slug!;
   const job = useJob(state.dryRunJobId);
   const [kickError, setKickError] = useState<string | null>(null);
@@ -1439,20 +1491,10 @@ function StepThreshold({ state }: { state: DraftState }) {
 
   // Saving runs the interest's first scan; it goes live only when that
   // succeeds (FUNCTIONAL_SPEC D.2-5), and until then it is still this draft.
+  // Its end is followed by the page (WizardPageOpen), whatever step shows.
   const saveJob = useJob(state.saveJobId ?? null);
   const saving = saveJob?.status === 'running';
-  const goToInterest = (key: string, message: string) => {
-    // Leave the wizard before clearing its state, so no effect here can
-    // re-adopt the interest we just committed from the ``?draft=`` URL.
-    navigate(paths.interest(key), { replace: true });
-    reset();
-    toast.success(message);
-    invalidate('profiles', 'vault', 'radar', 'researchers');
-  };
-  useEffect(() => {
-    if (saveJob?.status === 'done') goToInterest(saveJob.profileKey, `"${saveJob.profileName}" is saved and live.`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saveJob?.status]);
+  const goToInterest = goToSavedInterest;
 
   const save = useAction(async () => {
     const years = state.years;
@@ -1497,7 +1539,7 @@ function StepThreshold({ state }: { state: DraftState }) {
         <div className="field-label" style={{ marginBottom: 6 }}>Publication years</div>
         <YearRange
           value={state.years}
-          disabled={job?.status === 'running'}
+          disabled={job?.status === 'running' || saving}
           newOnlyLabel="New papers only (trial over the last 30 days)"
           onChange={(v) => { update({ years: v, threshold: null }); void kick(v); }}
         />
@@ -1520,11 +1562,11 @@ function StepThreshold({ state }: { state: DraftState }) {
           <Callout tone="info">
             <b>{passing}</b> of <b>{scores.length}</b> {state.years ? 'sampled ' : ''}papers from {period} ({scores.length ? Math.round((100 * passing) / scores.length) : 0}%) would have reached your feed at <b className="mono">{value.toFixed(3)}</b>.
             {band && <> Your own seeds score <b className="mono">{fmtScore(band.min)}–{fmtScore(band.max)}</b>; papers above <b className="mono">{fmtScore(band.min)}</b> are as close as your seeds.</>}
-            {suggested != null && Math.abs(value - suggested) > 0.0005 && (
+            {suggested != null && !saving && Math.abs(value - suggested) > 0.0005 && (
               <> <Button size="sm" variant="ghost" onClick={() => update({ threshold: suggested })}>Use suggested {suggested.toFixed(3)}</Button></>
             )}
           </Callout>
-          <ThresholdHistogram scores={scores} value={value} min={axisLo} max={axisHi} seedBand={band} suggested={suggested} periodLabel={`would pass · ${period}`} onChange={(v) => update({ threshold: Number(v.toFixed(3)) })} />
+          <ThresholdHistogram scores={scores} value={value} min={axisLo} max={axisHi} seedBand={band} suggested={suggested} periodLabel={`would pass · ${period}`} disabled={saving} onChange={(v) => update({ threshold: Number(v.toFixed(3)) })} />
           {result.papers && result.papers.length > 0 ? (
             <ThresholdPaperList papers={result.papers} value={value} label="Papers from the trial scan" />
           ) : result.preview.length > 0 && (
@@ -1546,7 +1588,7 @@ function StepThreshold({ state }: { state: DraftState }) {
       {save.error && <div style={{ marginTop: 12 }}><ErrorBox compact title="Couldn't save" message={save.error} /></div>}
       {saveJob && saving && (
         <div style={{ marginTop: 12 }}>
-          <p className="small muted" style={{ margin: '0 0 6px' }}>Running the first scan. The {TERMS.interest} is saved when it finishes; until then it stays a draft.</p>
+          <p className="small muted" style={{ margin: '0 0 6px' }}>Running the first scan. The {TERMS.interest} is saved when it finishes; until then it stays a draft. This page waits for it; you can also sign out or close the tab, and the server finishes the save on its own.</p>
           <JobProgress job={saveJob} />
         </div>
       )}

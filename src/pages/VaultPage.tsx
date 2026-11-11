@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatHistory, useChatProviders, useProfiles, useVaultDocs, useVaultMeta, useVaultStats, useVaultTags } from '../api/hooks';
 import { clearChatHistory, postChat } from '../api/endpoints/chat';
-import { errorMessage, fmtDate, fmtRelative } from '../lib/format';
+import { errorMessage, fmtDate, fmtRelative, plural } from '../lib/format';
 import { invalidate, setQueryData } from '../lib/query';
 import { TERMS } from '../lib/terms';
 import { useSearchParam } from '../lib/router';
@@ -46,13 +46,13 @@ export function VaultPage() {
           <h1 className="page-title">{TERMS.vault}</h1>
           <p className="page-sub">{CHAT_ENABLED
             ? 'Your PDFs, indexed for search. Seeds land here automatically.'
-            : 'Every paper you have uploaded or imported. Upload PDFs from an interest (its first step, or its Seeds tab); anything here can become a seed of an interest.'}</p>
+            : 'Every paper you have uploaded or imported, and every paper you saved from a feed. Upload PDFs when you create an interest or in its Edit interest; anything here can become a seed of an interest.'}</p>
         </div>
       </header>
 
       <div className={`vault-layout ${CHAT_ENABLED ? '' : 'no-chat'}`}>
         <div className="vault-col">
-          <div className="vault-col-head"><span>Collections</span><span className="small muted">{stats.data?.docs ?? '—'} docs</span></div>
+          <div className="vault-col-head"><span>Collections</span><span className="small muted">{stats.data ? plural(stats.data.docs, 'doc') : '— docs'}</span></div>
           <div className="vault-col-body">
             <button type="button" className={`tag-row ${tag === 'all' ? 'on' : ''}`} onClick={() => setTag('all')}>
               <Icon name="vault" size={14} /> All documents <span className="n">{stats.data?.docs ?? ''}</span>
@@ -65,8 +65,8 @@ export function VaultPage() {
           </div>
           {meta.data && stats.data && (
             <div className="vault-meta">
-              <span><b>{stats.data.pages.toLocaleString()}</b> pages</span>
-              <span>last upload: {stats.data.lastIngest ? fmtRelative(stats.data.lastIngest) : 'never'}</span>
+              <span><b>{stats.data.pages.toLocaleString()}</b> {stats.data.pages === 1 ? 'page' : 'pages'}</span>
+              <span>last added: {stats.data.lastIngest ? fmtRelative(stats.data.lastIngest) : 'never'}</span>
             </div>
           )}
         </div>
@@ -83,7 +83,7 @@ export function VaultPage() {
             {docs.loading && !docs.data && <div style={{ padding: 14 }}><LoadingRows rows={4} /></div>}
             {docs.data && filtered.length === 0 && (
               search ? <EmptyState compact icon="search" title="No documents match" action={<Button size="sm" onClick={() => setSearch('')}>Clear filter</Button>} />
-              : <EmptyState compact icon="file" title={tag === 'all' ? 'The vault is empty' : 'Nothing tagged here yet'} body={tag === 'all' ? 'Create an interest: the PDFs you upload as its seeds are stored here.' : 'Add seeds to this interest from its Seeds tab.'} />
+              : <EmptyState compact icon="file" title={tag === 'all' ? 'The vault is empty' : 'Nothing tagged here yet'} body={tag === 'all' ? 'Create an interest: the PDFs you upload as its seeds are stored here.' : 'Add seeds to this interest in its Edit interest.'} />
             )}
             {filtered.map((d) => (
               // A div, not a <button>: the title is a link, and a link inside a
@@ -146,8 +146,11 @@ function DeleteUpload({ doc }: { doc: VaultDoc }) {
       body: (
         <>
           <p>The file, its text and its vectors are deleted, and it leaves your {TERMS.vault}. This cannot be undone.</p>
+          {/* ``tags`` mixes seeds with saved papers and drafts with saved
+              interests, so it is not counted here (B4-1): what happens in
+              each case is said, and the answer names where it was marked. */}
           {doc.tags.length > 0 && (
-            <p>It is a seed of {doc.tags.length === 1 ? 'an interest' : `${doc.tags.length} interests`}. There it stays on the seed list, marked deleted, until the next scan: the current recommendations were worked out with it.</p>
+            <p>If it is a seed of a saved {TERMS.interest}, it stays on that seed list, marked deleted, until the next scan: the current recommendations were worked out with it. In a draft it is simply removed from the seeds.</p>
           )}
         </>
       ),
@@ -157,8 +160,9 @@ function DeleteUpload({ doc }: { doc: VaultDoc }) {
     if (!ok) return;
     setBusy(true);
     try {
-      await deleteVaultDoc(doc.id);
-      toast.success(`Deleted "${displayTitle(doc)}".`);
+      const res = await deleteVaultDoc(doc.id);
+      const marked = res.interests ?? [];
+      toast.success(`Deleted "${displayTitle(doc)}".${marked.length > 0 ? ` Marked deleted on the seed list of ${marked.map((n) => `"${n}"`).join(', ')} until the next scan.` : ''}`);
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {

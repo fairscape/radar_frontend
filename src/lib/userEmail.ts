@@ -140,11 +140,11 @@ export function clearTabSignedOut(): void {
  * finds themselves signed in as the same person. Hand off to whichever
  * holds the session and let it drop it.
  */
-export async function signOut(): Promise<void> {
+export async function signOut(past: string[] = []): Promise<void> {
   // Unsaved work on the page asks first. Clearing first and asking after
   // (the browser's "Leave site?") left a tab still signed in, its jobs and
-  // draft gone, when the answer was Stay (B1-5).
-  if (!(await askToLeave())) return;
+  // draft gone, when the answer was Stay (B1-5). ``past``: see askToLeave.
+  if (!(await askToLeave(past))) return;
   if (await otherSignedInTabs() && markTabSignedOut()) {
     await stopLease({ release: true });
     resetJobs();
