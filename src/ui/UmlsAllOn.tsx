@@ -1,5 +1,6 @@
 import type { Topic } from '../types/radar';
 import { Button } from '.';
+import { umlsMentionIfDifferent } from '../lib/topicSource';
 
 /**
  * UMLS topics are added switched off (FUNCTIONAL_SPEC U.2): they are found
@@ -22,8 +23,14 @@ export function UmlsAllOn({ list, selected, onAdd }: { list: Topic[]; selected: 
   );
 }
 
-/** The concept a UMLS topic came from, shown beside it. */
+/**
+ * The concept a UMLS topic came from, shown beside it: the seed's own word
+ * first when the concept reads differently ("tick" read as Ixodida), since
+ * the topic was matched on the sentence around that word.
+ */
 export function UmlsConcept({ topic }: { topic: Topic }) {
   if (topic.source !== 'umls' || !topic.umls_concept) return null;
-  return <span className="small muted" title={topic.umls_confidence != null ? `concept confidence ${topic.umls_confidence.toFixed(2)}` : undefined}>from “{topic.umls_concept}”</span>;
+  const word = umlsMentionIfDifferent(topic.umls_mention, topic.umls_concept);
+  const title = topic.umls_confidence != null ? `concept confidence ${topic.umls_confidence.toFixed(2)}` : undefined;
+  return <span className="small muted" title={title}>{word ? <>from “{word}” (UMLS: {topic.umls_concept})</> : <>from “{topic.umls_concept}”</>}</span>;
 }

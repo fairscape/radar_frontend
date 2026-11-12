@@ -458,7 +458,7 @@ function TopicsTab({ profile, detail }: { profile: Profile; detail: Detail }) {
                 <tr key={t.id} style={{ opacity: t.on ? 1 : 0.6 }}>
                   <td>{t.profile === 'not_interest' ? <s>{t.name}</s> : t.name} <span className="muted mono small">{t.id}</span></td>
                   <td>
-                    <Badge title={topicSourceLabel(t.source, t.llm_label, t.umls_concept)}>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge>
+                    <Badge title={topicSourceLabel(t.source, t.llm_label, t.umls_concept, t.umls_mention)}>{topicSourceTag(t.source) ?? 'OpenAlex'}</Badge>
                     {t.source === 'umls' && <> <UmlsConcept topic={t} /></>}
                     {t.profile === 'interest' && t.source !== 'researcher' && <> <Badge tone="info" title={topicProfileNote(t.profile) ?? undefined}>Profile</Badge></>}
                     {prosopiaNote(t) && t.source !== 'prosopia' && <> <Badge tone="info" title={prosopiaNote(t) ?? undefined}>Prosopia interest</Badge></>}

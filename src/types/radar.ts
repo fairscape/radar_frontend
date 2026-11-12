@@ -128,6 +128,8 @@ export interface Topic {
   /** ``source: umls``: the UMLS concept it was mapped from, and the concept's confidence. */
   umls_concept?: string | null;
   umls_confidence?: number | null;
+  /** The seed's own word the UMLS concept was read from ("tick" for Ixodida). */
+  umls_mention?: string | null;
   /** Edit page's list only: a saved topic no seed brings any more (a seed removed since); kept as saved. */
   unmatched?: boolean | null;
   /** The Prosopia profiles that list it as an interest (FUNCTIONAL_SPEC M.3), by name. */
