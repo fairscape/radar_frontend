@@ -10,6 +10,7 @@ import { resumeJobs } from './lib/jobs';
 import { navigate, useRoute } from './lib/router';
 import { TERMS } from './lib/terms';
 import { LoginPage, OTHER_TABS_NOTE } from './pages/LoginPage';
+import { AboutPage } from './pages/AboutPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { Shell } from './pages/Shell';
 import { Button, ConfirmHost, Spinner, Toaster } from './ui';
@@ -115,7 +116,7 @@ export function App() {
   useEffect(() => {
     const titles: Record<string, string> = {
       home: 'Start', feed: 'Feed', interests: 'Interests', interest: 'Interest', interestEdit: 'Edit interest', wizard: 'New interest',
-      profiles: TERMS.Profiles, profile: TERMS.Profile, vault: 'Vault', settings: 'Settings', notfound: 'Not found',
+      profiles: TERMS.Profiles, profile: TERMS.Profile, vault: 'Vault', settings: 'Settings', privacy: 'Privacy', about: 'About', notfound: 'Not found',
     };
     document.title = `${titles[route.name] ?? 'BioXplorer'} · BioXplorer`;
   }, [route.name]);
@@ -192,9 +193,9 @@ export function App() {
     setGate({ k: 'anonymous' });
   }), []);
   // Signed in again after it ran out: back where the tab was.
-  // /privacy has no Shell: no banner, nothing to change. It takes no part
-  // in the right to change things, nor answers for Sign out (FC-4).
-  const publicPage = route.name === 'privacy';
+  // /privacy and /about have no Shell: no banner, nothing to change. They
+  // take no part in the right to change things, nor answer for Sign out (FC-4).
+  const publicPage = route.name === 'privacy' || route.name === 'about';
   useEffect(() => {
     setPublicPage(publicPage);
     if (gate.k !== 'ready') return;
@@ -234,6 +235,9 @@ export function App() {
     // Open to everyone, signed in or not: Google's consent screen links
     // here, and the person reading it has not signed in yet.
     body = <PrivacyPage />;
+  } else if (route.name === 'about') {
+    // Open to everyone too: what BioXplorer is, before anyone signs in.
+    body = <AboutPage />;
   } else if (gate.k === 'ready') {
     body = <Shell route={route} email={gate.email} />;
   } else if (gate.k === 'loading' || (gate.k === 'anonymous' && providers === undefined)) {

@@ -172,6 +172,7 @@ export type Route =
   | { name: 'vault' }
   | { name: 'settings' }
   | { name: 'privacy' }
+  | { name: 'about' }
   | { name: 'notfound'; path: string };
 
 export function matchRoute(full: string): Route {
@@ -209,6 +210,7 @@ export function matchRoute(full: string): Route {
   if (path === '/vault' || path === '/library') return { name: 'vault' };
   if (path === '/settings') return { name: 'settings' };
   if (path === '/privacy') return { name: 'privacy' };
+  if (path === '/about') return { name: 'about' };
   return { name: 'notfound', path };
 }
 
@@ -260,6 +262,7 @@ export const paths = {
   vault: '/vault',
   settings: '/settings',
   privacy: '/privacy',
+  about: '/about',
 };
 
 /** ``decodeURIComponent`` throws on a truncated escape (``/interests/foo%``); that is a wrong link, not a crash. */

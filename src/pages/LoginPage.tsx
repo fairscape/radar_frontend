@@ -102,6 +102,8 @@ export function LoginPage({ providers = [], expired = false }: { providers?: Sig
               </a>
             )}
             <p className="small muted" style={{ marginTop: 12 }}>
+              <a href="/about" className="linklike">About BioXplorer</a>
+              {' · '}
               <a href="/privacy" className="linklike">What BioXplorer keeps about you</a>
             </p>
           </div>

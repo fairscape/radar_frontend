@@ -10,7 +10,7 @@ import { Link } from '../ui/Link';
 
 export function PrivacyPage() {
   return (
-    <main className="page" style={{ maxWidth: 760, margin: '0 auto', padding: '32px 16px' }}>
+    <main className="page doc-page" style={{ maxWidth: 760, margin: '0 auto', padding: '32px 16px' }}>
       <h1>Privacy</h1>
       <p className="lede">BioXplorer is a research tool run at the University of Virginia. This page says what it keeps about you and where it goes.</p>
 
@@ -23,6 +23,7 @@ export function PrivacyPage() {
         <li>Your email address, and the contact address you may set in Settings.</li>
         <li>What you put in: interests, the papers and PDFs you add, researcher profiles you import, what you save or dismiss in the feed, and your Vault.</li>
       </ul>
+      <p>The web server also keeps an access log of the requests it answers: the time, the page or address asked for, your IP address and your browser. It is used only to run the service and to fix problems.</p>
       <p>It is stored on a University of Virginia server, with encrypted backups in Cloudflare R2 storage. It is not sold or shared, and not used for advertising.</p>
 
       <h2>What leaves the server</h2>
@@ -35,7 +36,7 @@ export function PrivacyPage() {
       <h2>Deleting</h2>
       <p>You can delete your interests, profiles and Vault papers yourself at any time.</p>
 
-      <p style={{ marginTop: 32 }}><Link href="/">Back to BioXplorer</Link></p>
+      <p style={{ marginTop: 32 }}><Link href="/">Back to BioXplorer</Link>{' · '}<Link href="/about">About BioXplorer</Link></p>
     </main>
   );
 }

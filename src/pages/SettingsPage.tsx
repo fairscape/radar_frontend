@@ -3,7 +3,7 @@ import { useBackendHealth } from '../api/hooks';
 import { getMe, updateMe, type User } from '../api/endpoints/users';
 import { errorMessage } from '../lib/format';
 import { setThemePref, useTheme, type ThemePref } from '../lib/theme';
-import { addLeaveGuard } from '../lib/router';
+import { addLeaveGuard, paths } from '../lib/router';
 import { toast } from '../lib/toast';
 import { EMAIL_RE, getSignedInWith, signOut as endSession } from '../lib/userEmail';
 import { Badge, Button, ErrorBox, Field, Input, LoadingRows, Panel, Segmented, confirmDialog, useAction } from '../ui';
@@ -113,6 +113,14 @@ export function SettingsPage() {
         <p className="small muted" style={{ marginBottom: 10 }}>Sign out signs out this tab. If other BioXplorer tabs in this browser are still signed in, they stay signed in. To sign out of this browser completely, for example on a shared computer, close those tabs or sign out in each one. Signing out does not sign you out of Google or Prosopia. Your interests and vault stay on the server.</p>
         <Button onClick={signOut}>Sign out</Button>
       </Panel>
+
+      <p className="small muted">
+        {/* A new tab: going to a public page in this one would hand the
+            right to change things to another tab (review M2, FC-4). */}
+        <a href={paths.about} target="_blank" rel="noopener noreferrer" className="linklike">About BioXplorer</a>
+        {' · '}
+        <a href={paths.privacy} target="_blank" rel="noopener noreferrer" className="linklike">Privacy</a>
+      </p>
     </div>
   );
 }
