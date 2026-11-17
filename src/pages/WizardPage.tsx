@@ -1179,8 +1179,15 @@ export function AgreementMeter({ agreement, n }: { agreement: number | null; n: 
  * topics the seeds' UMLS concepts map to, so a list built while seeds were
  * still being read lacked theirs -- and nothing added them later. Seeds
  * added after going back, or whose text changed, are pending again.
+ * The edit page's Topics step waits the same way (review U5): the list is
+ * no longer built while seeds are read. ``topicsKey``: the query the list
+ * is under, read again once reading ends; ``gone``: what a 404 says.
  */
-function useSeedUmls(slug: string) {
+export function useSeedUmls(
+  slug: string,
+  topicsKey = `draft/${slug}/topics`,
+  gone = 'This draft no longer exists: it was deleted, perhaps in another tab. Start a new interest from the Interests page.',
+) {
   const [status, setStatus] = useState<SeedUmlsStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -1200,13 +1207,14 @@ function useSeedUmls(slug: string) {
         if (s.pending > 0 || s.running) {
           waited = true;
           timer = window.setTimeout(() => void poll(), 2000);
-        } else if (waited) {
-          invalidate(`draft/${slug}/topics`);
+        } else if (waited || attempt > 0) {
+          // Asked again ("Read them now"): the list is built again too.
+          invalidate(topicsKey);
         }
       } catch (e) {
         // The draft is gone (deleted in another tab): say so, not "profile
         // not found for current user".
-        if (alive) setError(e instanceof ApiError && e.status === 404 ? 'This draft no longer exists: it was deleted, perhaps in another tab. Start a new interest from the Interests page.' : errorMessage(e));
+        if (alive) setError(e instanceof ApiError && e.status === 404 ? gone : errorMessage(e));
       }
     }
     void poll();
@@ -1214,6 +1222,7 @@ function useSeedUmls(slug: string) {
       alive = false;
       if (timer) window.clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, attempt]);
   const ready = !!status && status.pending === 0 && !status.running;
   return { status, ready, error, retry: () => setAttempt((a) => a + 1) };
@@ -1240,10 +1249,10 @@ function StepTopics({ state }: { state: DraftState }) {
       </Panel>
     );
   }
-  return <StepTopicsList state={state} unread={umls.status?.failed ?? 0} />;
+  return <StepTopicsList state={state} unread={umls.status?.failed ?? 0} readNow={umls.retry} />;
 }
 
-function StepTopicsList({ state, unread }: { state: DraftState; unread: number }) {
+function StepTopicsList({ state, unread, readNow }: { state: DraftState; unread: number; readNow: () => void }) {
   const { update, toggleTopic } = useDraft();
   const slug = state.slug!;
   const topics = useQuery(`draft/${slug}/topics`, () => getDraftTopics(slug));
@@ -1297,7 +1306,7 @@ function StepTopicsList({ state, unread }: { state: DraftState; unread: number }
   return (
     <Panel title="Step 3 · What should BioXplorer query?" description="These topics were aggregated from the seeds' OpenAlex records. BioXplorer asks OpenAlex for new papers in each selected topic, then scores them. Fewer, sharper topics mean less noise.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
-      <UmlsNotice profileKey={slug} listed={topics.data} />
+      <UmlsNotice profileKey={slug} listed={topics.data} onReadNow={readNow} />
       {topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
         <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex or UMLS topics. An interest needs at least one topic to search by. Generate research topics below with an Anthropic API key (without one they cannot be mapped), map them to OpenAlex topics and switch one on, or go back and add seeds that are on OpenAlex." />

@@ -46,7 +46,7 @@ import { seedKeys, workId } from '../lib/unmatched';
 import { useSeedImport } from '../lib/seedImports';
 import { ResearchTopics } from '../ui/ResearchTopics';
 import { ScanDialog, SeedsTab, ThresholdTab, useScanBusy, useSeedUpload } from './InterestDetailPage';
-import { AgreementMeter, MoreSeeds, verdictFor } from './WizardPage';
+import { AgreementMeter, MoreSeeds, useSeedUmls, verdictFor } from './WizardPage';
 import type { Profile } from '../types/radar';
 
 const STEPS = [
@@ -563,6 +563,31 @@ function StepCheck({ profile, back, next }: { profile: Profile; back: () => void
  * was, on or off, and is marked (E.2-3): only the user switches topics.
  */
 function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: () => void; next: () => void; onBusy: (busy: boolean) => void }) {
+  // The seeds are read first, as on the wizard's step 3 (review U5): built
+  // while they were read, the list and every switch waited ~30 s for a
+  // batch, and the list grew under the user's clicks.
+  const umls = useSeedUmls(profile.key, `draft/${profile.key}/edit-topics`,
+    `This edit is closed: it was saved or discarded, perhaps in another tab. Open the ${TERMS.interest} again to edit it.`);
+  if (!umls.ready) {
+    const st = umls.status;
+    return (
+      <Panel title="What should BioXplorer search for?" description="Reading each seed for UMLS concepts first: the topics they map to join the seeds' OpenAlex topics in the list.">
+        {umls.error ? <ErrorBox title="Couldn't check the seeds" message={umls.error} onRetry={umls.retry} /> : (
+          <>
+            <LoadingRows rows={2} />
+            <p className="small muted" role="status">
+              {st ? `Extracting UMLS concepts: ${st.done} of ${plural(st.total, 'seed')} read${st.failed ? `, ${st.failed} could not be` : ''}…` : 'Checking the seeds…'}
+            </p>
+          </>
+        )}
+        <Foot back={back} next={next} nextLabel="Next: threshold" nextDisabled />
+      </Panel>
+    );
+  }
+  return <StepTopicsList profile={profile} back={back} next={next} onBusy={onBusy} readNow={umls.retry} />;
+}
+
+function StepTopicsList({ profile, back, next, onBusy, readNow }: { profile: Profile; back: () => void; next: () => void; onBusy: (busy: boolean) => void; readNow: () => void }) {
   const topics = useQuery(`draft/${profile.key}/edit-topics`, () => previewTopics(profile.key));
   useEffect(() => {
     if (topics.data) void topics.refresh();
@@ -571,7 +596,10 @@ function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: (
   const list = topics.data ?? [];
   const on = new Set(list.filter((t) => t.on).map((t) => t.id));
   const nNew = list.filter((t) => t.new).length;
-  const nUnmatched = list.filter((t) => t.unmatched).length;
+  // Two reasons, said apart (review U2, UF-R1): "removed" said of a seed
+  // read or classed again told a user who had removed none that they had.
+  const nRemoved = list.filter((t) => t.unmatched && t.unmatched_why === 'seed_removed').length;
+  const nNoSeed = list.filter((t) => t.unmatched && t.unmatched_why !== 'seed_removed').length;
 
   // check-classes-ok: its input is each tick, and every tick runs it again, which clears the error.
   const write = useAction(async (ids: Set<string>) => {
@@ -595,7 +623,7 @@ function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: (
   return (
     <Panel title="What should BioXplorer search for?" description="Topics aggregated from the seeds' OpenAlex records. Each scan asks OpenAlex for papers in the topics that are on. Switching a topic off takes the papers it found out of the feed once you save (none of their topics on); switching it back on brings them back. A topic switched on is searched from the first scan after you save.">
       {topics.error && <ErrorBox message={errorMessage(topics.error)} onRetry={topics.refresh} />}
-      <UmlsNotice profileKey={profile.key} listed={topics.data} />
+      <UmlsNotice profileKey={profile.key} listed={topics.data} onReadNow={readNow} />
       {!topics.data && topics.loading && <LoadingRows rows={3} />}
       {topics.data && list.length === 0 && (
         <EmptyState compact icon="alert" title="No topics were found" body="None of the seeds resolved to OpenAlex topics." />
@@ -607,9 +635,14 @@ function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: (
               Your seeds brought in {plural(nNew, 'new topic')}, marked <b>new</b>. They start off; switch on the ones you want searched.
             </Callout>
           )}
-          {nUnmatched > 0 && (
+          {nRemoved > 0 && (
             <Callout tone="info">
-              {nUnmatched === 1 ? '1 topic was' : `${nUnmatched} topics were`} brought by seed papers you removed. {nUnmatched === 1 ? 'It stays' : 'They stay'} as {nUnmatched === 1 ? 'it was' : 'they were'}, on or off; switch off any you no longer want searched.
+              {nRemoved === 1 ? '1 topic was' : `${nRemoved} topics were`} brought by seed papers you removed. {nRemoved === 1 ? 'It stays' : 'They stay'} as {nRemoved === 1 ? 'it was' : 'they were'}, on or off; switch off any you no longer want searched.
+            </Callout>
+          )}
+          {nNoSeed > 0 && (
+            <Callout tone="info">
+              {nNoSeed === 1 ? '1 topic is' : `${nNoSeed} topics are`} no longer brought by any of your seeds: BioXplorer read a seed again, or OpenAlex classed it again. {nNoSeed === 1 ? 'It stays' : 'They stay'} as {nNoSeed === 1 ? 'it was' : 'they were'}, on or off; switch off any you no longer want searched.
             </Callout>
           )}
           <div className="row spread" style={{ margin: '10px 0' }}>
@@ -629,7 +662,7 @@ function StepTopics({ profile, back, next, onBusy }: { profile: Profile; back: (
                 {t.profile === 'interest' && t.source !== 'researcher' && <span className="src">PROFILE</span>}
                 {t.profile === 'not_interest' && <span className="pf">not wanted</span>}
                 {t.new && <span className="src">new</span>}
-                {t.unmatched && <span className="pf">its seed paper was removed</span>}
+                {t.unmatched && <span className="pf">{t.unmatched_why === 'seed_removed' ? 'its seed paper was removed' : 'no seed brings it now'}</span>}
               </button>
             ))}
           </div>

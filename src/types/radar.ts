@@ -132,6 +132,8 @@ export interface Topic {
   umls_mention?: string | null;
   /** Edit page's list only: a saved topic no seed brings any more (a seed removed since); kept as saved. */
   unmatched?: boolean | null;
+  /** Why no seed brings it (with ``unmatched``): a seed removed in this edit brought it, or no seed does now for another reason (a seed read again, or classed again by OpenAlex). */
+  unmatched_why?: 'seed_removed' | 'no_seed' | null;
   /** The Prosopia profiles that list it as an interest (FUNCTIONAL_SPEC M.3), by name. */
   prosopia?: { profile: string }[] | null;
 }
