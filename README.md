@@ -8,6 +8,13 @@ over `/api`. The deployed system runs via Docker Compose; see
 `docs/UX.md` explains the process the UI is built around and the
 vocabulary (an **interest** in the UI is a `profile` on the wire).
 
+## Branches and releases
+
+- `main` is what runs online at https://radar.bioxplorer.org. Each update online is tagged `vYYYY.MM.DD`.
+- `develop` holds changes that have been reviewed, tested and tried on the test site, but are not online yet.
+- `functional-spec-oct2026` was the development branch until 2026-11-16. It is frozen at the v2026.11.16 commit; use `develop`.
+- [CHANGELOG.md](CHANGELOG.md) says what changed in each update online. `radar_backend` has its own changelog; the two repositories are deployed together.
+
 ## What it does
 
 - **Feed** (`/feed`): every paper Radar has gathered, best score first.
