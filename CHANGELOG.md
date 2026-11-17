@@ -1,6 +1,6 @@
 # Changelog: radar_frontend
 
-Every update of the live site (https://radar.bioxplorer.org), newest first.
+Every update of the live site (https://bioxplorer.org; https://radar.bioxplorer.org before 2026-11), newest first.
 The backend has its own changelog (`radar_backend/CHANGELOG.md`), with the
 operations side (migrations, settings, data files); the two are deployed
 together, and each entry names the backend commit that went live with it.
@@ -16,6 +16,12 @@ soon after, so for those entries "commit" means the first commit that
 contains the change. An update that changed only the backend says so.
 
 ---
+
+## v2026.11.17 (2026-11-17 19:18): the site is https://bioxplorer.org
+Backend: `v2026.11.17`.
+- The site moved to https://bioxplorer.org; radar.bioxplorer.org is retired. See the backend changelog.
+- No code change: the frontend has no absolute self-URLs. README and docs name the new site.
+- Everyone signs in once more on the new name. Drafts kept in the browser (per site) start fresh.
 
 ## v2026.11.16 (2026-11-16 21:11)
 Backend: `v2026.11.16`.

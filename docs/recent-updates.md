@@ -1,7 +1,7 @@
 # Recent updates (late September – early October 2026)
 
 A summary of the user-facing changes since the Justin / Lei branches were
-merged, grouped by feature. Live at https://radar.bioxplorer.org.
+merged, grouped by feature. Live at https://bioxplorer.org.
 
 ## 1. Feed display and de-duplication
 
